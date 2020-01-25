@@ -1,0 +1,21 @@
+[package]
+name = "miniconfig"
+version = "0.1.0"
+authors = ["N/A <N/A>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["dyn", "bin", "lua"]
+dyn = []
+bin = []
+lua = ["rlua", "rlua_ext"]
+
+[dependencies]
+rlua = {version = "0.17", optional = true }
+rlua_ext = {path = "../rlua_ext", optional = true }
+
+[[example]]
+name = "example"
+required-features = ["bin", "lua"]
