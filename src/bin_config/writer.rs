@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use super::config::BinConfigHeader;
@@ -319,13 +319,13 @@ impl BinConfigWriter {
                 // Lookup / intern the key string, return its hash / offset / length.
                 let string = Self::intern_string(strings, string_writer, string)?;
 
-                // Make sure the key is unique.
-                if parent_table.keys.contains(&string) {
-                    return Err(NonUniqueKey);
+                let entry = parent_table.keys.entry(string.hash);
 
-                // Update the table keys.
-                } else {
-                    parent_table.keys.push(string);
+                match entry {
+                    // Make sure the key is unique.
+                    Entry::Occupied(_) => return Err(NonUniqueKey),
+                    // Update the table keys.
+                    Entry::Vacant(_) => { entry.or_insert(string.string); },
                 }
 
                 Ok(string.key())
@@ -562,7 +562,7 @@ struct BinConfigArrayOrTable {
     // Offset in bytes to the current array/table element w.r.t. config data blob.
     value_offset: u32,
     // Must keep track of table keys to ensure key uniqueness.
-    keys: Vec<BinConfigStringAndHash>,
+    keys: HashMap<u32, BinConfigString>,
 }
 
 impl BinConfigArrayOrTable {
@@ -572,7 +572,7 @@ impl BinConfigArrayOrTable {
             len,
             current_len: 0,
             value_offset,
-            keys: Vec::new(),
+            keys: HashMap::new(),
         }
     }
 }
