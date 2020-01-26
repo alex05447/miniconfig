@@ -26,6 +26,14 @@ fn writer_errors() {
         assert_eq!(writer.bool("bool", true).err().unwrap(), ArrayKeyNotRequired);
     }
 
+    // MixedArray
+    {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array("array", 2).unwrap();
+        writer.bool(None, true).unwrap();
+        assert_eq!(writer.i64(None, 7).err().unwrap(), MixedArray { expected: ValueType::Bool, found: ValueType::I64 });
+    }
+
     // NonUniqueKey
     {
         let mut writer = BinConfigWriter::new(2).unwrap();

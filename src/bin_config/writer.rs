@@ -65,7 +65,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     pub fn bool<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: bool) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
-        let (key, value_offset) = self.key_and_value_offset(key.into())?;
+        let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::Bool)?;
 
         // Write the packed value.
         let value = BinConfigPackedValue::new_bool(key, value);
@@ -87,7 +87,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     pub fn i64<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: i64) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
-        let (key, value_offset) = self.key_and_value_offset(key.into())?;
+        let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::I64)?;
 
         // Write the packed value.
         let value = BinConfigPackedValue::new_i64(key, value);
@@ -109,7 +109,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     pub fn f64<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: f64) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
-        let (key, value_offset) = self.key_and_value_offset(key.into())?;
+        let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::F64)?;
 
         // Write the packed value.
         let value = BinConfigPackedValue::new_f64(key, value);
@@ -131,7 +131,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     pub fn string<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: &str) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
-        let (key, value_offset) = self.key_and_value_offset(key.into())?;
+        let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::String)?;
 
         // Lookup or intern the string.
         let string = Self::intern_string(&mut self.strings, &mut self.string_writer, value)?.string;
@@ -270,7 +270,7 @@ impl BinConfigWriter {
         table: bool,
     ) -> Result<(), BinConfigWriterError> {
         // Offset to the array's/table's packed value is the parent array's/table's value offset.
-        let (key, value_offset) = self.key_and_value_offset(key)?;
+        let (key, value_offset) = self.key_and_value_offset(key, if table { ValueType::Table } else { ValueType::Array })?;
 
         // Write the packed value.
         // Offset to the array's/table's values is the current data offset.
@@ -385,25 +385,39 @@ impl BinConfigWriter {
     fn key_and_value_offset(
         &mut self,
         key: Option<&str>,
+        value_type: ValueType,
     ) -> Result<(BinTableKey, u32), BinConfigWriterError> {
-        // Parent table, if any; offset to current value.
-        let (parent_table, value_offset) = Self::parent_and_value_offset(&mut self.stack)?;
+        use BinConfigWriterError::*;
+
+        // Parent array/table; offset to current value.
+        let (parent, value_offset) = Self::parent_and_value_offset(&mut self.stack)?;
+
+        // If it's an array, ensure the value types are not mixed.
+        if !parent.table {
+            if let Some(array_type) = parent.array_type.as_ref() {
+                if !value_type.is_compatible(*array_type) {
+                    return Err(MixedArray { expected: *array_type, found: value_type });
+                }
+            } else {
+                parent.array_type.replace(value_type);
+            }
+        }
 
         // If it's a parent table, a string key must be provided.
         let key = Self::key(
             &mut self.strings,
             &mut self.string_writer,
-            parent_table,
+            if parent.table { Some(parent) } else { None },
             key,
         )?;
 
         Ok((key, value_offset))
     }
 
-    /// Returns the current parent, if it's a table,
+    /// Returns the current parent array/table.
     /// and the offset in bytes w.r.t. config data blob to its current value.
     /// Checks if the current parent array/table is full.
-    fn parent_and_value_offset(stack: &mut Vec<BinConfigArrayOrTable>) -> Result<(Option<&mut BinConfigArrayOrTable>, u32), BinConfigWriterError> {
+    fn parent_and_value_offset(stack: &mut Vec<BinConfigArrayOrTable>) -> Result<(&mut BinConfigArrayOrTable, u32), BinConfigWriterError> {
         use BinConfigWriterError::*;
 
         // Must have a parent array/table.
@@ -421,12 +435,6 @@ impl BinConfigWriter {
         }
 
         let value_offset = parent.value_offset;
-
-        let parent = if parent.table {
-            Some(parent)
-        } else {
-            None
-        };
 
         Ok((parent, value_offset))
     }
@@ -563,6 +571,8 @@ struct BinConfigArrayOrTable {
     value_offset: u32,
     // Must keep track of table keys to ensure key uniqueness.
     keys: HashMap<u32, BinConfigString>,
+    // For arrays must keep track of value type to ensure no mixed arrays.
+    array_type: Option<ValueType>,
 }
 
 impl BinConfigArrayOrTable {
@@ -573,6 +583,7 @@ impl BinConfigArrayOrTable {
             current_len: 0,
             value_offset,
             keys: HashMap::new(),
+            array_type: None,
         }
     }
 }

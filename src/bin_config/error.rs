@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
 
+use crate::ValueType;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BinConfigError {
     /// Binary config blob data is invalid.
@@ -68,6 +70,16 @@ pub enum BinConfigWriterError {
     /// A string key is not required for an [`array`] element.
     /// [`array`]: struct.BinArray.html
     ArrayKeyNotRequired,
+    /// Mixed (and non-convertible) type values in the [`array`].
+    /// [`array`]: struct.BinArray.html
+    MixedArray {
+        /// Expected [`array`] value type (as determined by the first value in the [`array`]).
+        /// [`array`]: struct.BinArray.html
+        expected: ValueType,
+        /// Found [`array`] value type.
+        /// [`array`]: struct.BinArray.html
+        found: ValueType,
+    },
     /// A non-unique string key was provided for a [`table`] element.
     /// [`table`]: struct.BinTable.html
     NonUniqueKey,
@@ -98,6 +110,7 @@ impl Display for BinConfigWriterError {
             EmptyRootTable => write!(f, "Empty binary config root tables are not supported."),
             TableKeyRequired => write!(f, "A non-empty string key is required for a table element."),
             ArrayKeyNotRequired => write!(f, "A string key is not required for an array element."),
+            MixedArray { expected, found } => write!(f, "Mixed (and non-convertible) type values in the array. Expected \"{}\", found \"{}\".", expected, found),
             NonUniqueKey => write!(f, "A non-unique string key was provided for a table element."),
             ArrayOrTableLengthMismatch { expected, found } => write!(
                 f,
