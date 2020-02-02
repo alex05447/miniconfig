@@ -33,15 +33,19 @@ A minimalistic config file crate written in Rust.
     } -- table_value
     ```
 
+    **Use cases**: use Lua config source text files for human-readable / writable / mergeable / diff-able data of arbitrary complexity that frequently changes during development, but does not need to / must not be user-visible.
+
 - **Dynamic configs** (requires `"dyn"` feature).
 
     Main format for runtime representation of dynamic configs, or an intermediate representation for Lua configs (after deserialization) / binary configs (before serialization).
 
-    **Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections - nested tables. Unquoted values, if allowed, are parsed as booleans / integers / floats / strings, in order. Quoted values, if enbaled, are always treated as strings.
+    **Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections - nested tables. Unquoted values, if allowed, are parsed as booleans / integers / floats / strings, in order. Quoted values, if enabled, are always treated as strings.
 
     **Runtime**: internally represented by a root hashmap with string keys. Provides a mutable config interface. Can add/modify/remove values.
 
-    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires "bin" feature).
+    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature).
+
+    **Use cases**: if `"ini"` feature is enabled - use .ini config source text files for human-readable / writable data of limited complexity (only one level of nested tables, no arrays) which must be user-visible.
 
 - **Binary configs** (requires `"bin"` feature).
 
@@ -52,6 +56,8 @@ A minimalistic config file crate written in Rust.
     **Runtime**: wrapper over the raw byte blob. Provides a read-only config interface. Cannot add/modify/remove values.
 
     **Serialization**: to string Lua script (requires `"lua"` feature).
+
+    **Use cases**: use for read-only data of arbitrary complexity which must not be user-visible, or for caching of data which does not need to change frequently at runtime for loading / access performance.
 
 ## Example
 

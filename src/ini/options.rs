@@ -47,9 +47,12 @@ pub struct IniOptions {
     pub key_value_separator: IniKeyValueSeparator,
     /// Valid string value quote character(s).
     /// If `None`, quoted strings are not supported.
+    /// In this case all values will be parsed as booleans / integers / floats / strings, in order.
+    /// E.g., the value `true` is always interpreted as a boolean.
     /// Default: `Double`.
     pub string_quotes: IniStringQuote,
     /// Whether unquoted string values are supported.
+    /// If `false`, an unquoted value must parse as a boolean / integer / float, or an error will be raised.
     /// If `string_quotes` is `None`, this value is ignored.
     /// Default: `true`.
     pub unquoted_strings: bool,
