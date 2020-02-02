@@ -41,49 +41,41 @@ impl DynTable {
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.DynTable.html
-    pub fn get_bool<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<bool, DynTableGetError> {
+    pub fn get_bool<'k, K: Into<&'k str>>(&self, key: K) -> Result<bool, DynTableGetError> {
         let val = self.get(key)?;
-        val.bool().ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
+        val.bool()
+            .ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an `i64` [`value`] in the [`table`] with the string `key`.
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.DynTable.html
-    pub fn get_i64<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<i64, DynTableGetError> {
+    pub fn get_i64<'k, K: Into<&'k str>>(&self, key: K) -> Result<i64, DynTableGetError> {
         let val = self.get(key)?;
-        val.i64().ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
+        val.i64()
+            .ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an `f64` [`value`] in the [`table`] with the string `key`.
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.DynTable.html
-    pub fn get_f64<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<f64, DynTableGetError> {
+    pub fn get_f64<'k, K: Into<&'k str>>(&self, key: K) -> Result<f64, DynTableGetError> {
         let val = self.get(key)?;
-        val.f64().ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
+        val.f64()
+            .ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a string [`value`] in the [`table`] with the string `key`.
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.DynTable.html
-    pub fn get_string<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<&str, DynTableGetError> {
+    pub fn get_string<'k, K: Into<&'k str>>(&self, key: K) -> Result<&str, DynTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.string().ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
+        val.string()
+            .ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
@@ -97,7 +89,8 @@ impl DynTable {
     ) -> Result<DynArrayRef<'_>, DynTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.array().ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
+        val.array()
+            .ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`] [`value`] in the [`table`] with the string `key`.
@@ -110,7 +103,8 @@ impl DynTable {
     ) -> Result<DynTableRef<'_>, DynTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.table().ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
+        val.table()
+            .ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
     }
 
     /// Returns an [`iterator`] over (`key`, [`value`]) tuples of the [`table`], in unspecified order.
@@ -131,7 +125,7 @@ impl DynTable {
         //&'t mut self,
         &mut self,
         key: K,
-    //) -> Result<Value<&'t str, DynArrayMut<'t>, DynTableMut<'t>>, DynTableGetError> {
+        //) -> Result<Value<&'t str, DynArrayMut<'t>, DynTableMut<'t>>, DynTableGetError> {
     ) -> Result<Value<&'_ str, DynArrayMut<'_>, DynTableMut<'_>>, DynTableGetError> {
         self.get_mut_impl(key.into())
     }

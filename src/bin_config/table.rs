@@ -34,49 +34,41 @@ impl<'t> BinTable<'t> {
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.BinTable.html
-    pub fn get_bool<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<bool, BinTableGetError> {
+    pub fn get_bool<'k, K: Into<&'k str>>(&self, key: K) -> Result<bool, BinTableGetError> {
         let val = self.get(key)?;
-        val.bool().ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
+        val.bool()
+            .ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an `i64` [`value`] in the [`table`] with the string `key`.
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.BinTable.html
-    pub fn get_i64<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<i64, BinTableGetError> {
+    pub fn get_i64<'k, K: Into<&'k str>>(&self, key: K) -> Result<i64, BinTableGetError> {
         let val = self.get(key)?;
-        val.i64().ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
+        val.i64()
+            .ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an `f64` [`value`] in the [`table`] with the string `key`.
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.BinTable.html
-    pub fn get_f64<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<f64, BinTableGetError> {
+    pub fn get_f64<'k, K: Into<&'k str>>(&self, key: K) -> Result<f64, BinTableGetError> {
         let val = self.get(key)?;
-        val.f64().ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
+        val.f64()
+            .ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a string [`value`] in the [`table`] with the string `key`.
     ///
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.BinTable.html
-    pub fn get_string<'k, K: Into<&'k str>>(
-        &self,
-        key: K,
-    ) -> Result<&str, BinTableGetError> {
+    pub fn get_string<'k, K: Into<&'k str>>(&self, key: K) -> Result<&str, BinTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.string().ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
+        val.string()
+            .ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
@@ -90,7 +82,8 @@ impl<'t> BinTable<'t> {
     ) -> Result<BinArray<'_>, BinTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.array().ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
+        val.array()
+            .ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`] [`value`] in the [`table`] with the string `key`.
@@ -103,7 +96,8 @@ impl<'t> BinTable<'t> {
     ) -> Result<BinTable<'_>, BinTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.table().ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
+        val.table()
+            .ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
     }
 
     /// Returns an [`iterator`] over (`key`, [`value`]) tuples of the [`table`], in unspecified order.

@@ -1,6 +1,9 @@
 use std::str::Chars;
 
-use crate::{DynConfig, IniError, IniErrorKind, Value, DynTable, DynTableMut, IniOptions, IniKeyValueSeparator, IniCommentSeparator, IniStringQuote};
+use crate::{
+    DynConfig, DynTable, DynTableMut, IniCommentSeparator, IniError, IniErrorKind,
+    IniKeyValueSeparator, IniOptions, IniStringQuote, Value,
+};
 
 /// INI parser FSM states.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -116,7 +119,7 @@ impl<'s> IniParser<'s> {
                     // Skip whitespace at the start of the line (including new lines).
                     if current.is_whitespace() {
 
-                    // Section start - parse the section name.
+                        // Section start - parse the section name.
                     } else if current == '[' {
                         self.state = IniParserState::Section;
 
@@ -135,7 +138,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(InvalidCharacterAtLineStart));
                     }
-                },
+                }
                 IniParserState::Section => {
                     // Valid section name char (same rules as key chars) - keep parsing the section name.
                     if is_key_char(current, buffer.is_empty()) {
@@ -154,7 +157,8 @@ impl<'s> IniParser<'s> {
 
                         // Add the section to the config, if it does not exist already.
                         if root.get(section.as_str()).is_err() {
-                            root.set(section.as_str(), Value::Table(DynTable::new())).unwrap();
+                            root.set(section.as_str(), Value::Table(DynTable::new()))
+                                .unwrap();
                         }
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
@@ -163,7 +167,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(InvalidCharacterInSectionName));
                     }
-                },
+                }
                 IniParserState::SkipLine => {
                     debug_assert!(buffer.is_empty());
 
@@ -172,7 +176,7 @@ impl<'s> IniParser<'s> {
                     if current == '\n' {
                         self.state = IniParserState::StartLine;
                     }
-                },
+                }
                 IniParserState::SkipLineWhitespaceOrComments => {
                     debug_assert!(buffer.is_empty());
 
@@ -184,7 +188,7 @@ impl<'s> IniParser<'s> {
                     } else if current.is_whitespace() {
                         // continue
 
-                    // Inline comment (if supported) - skip the rest of the line.
+                        // Inline comment (if supported) - skip the rest of the line.
                     } else if self.options.inline_comments && self.is_comment_char(current) {
                         self.state = IniParserState::SkipLine;
 
@@ -192,7 +196,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(InvalidCharacterAtLineEnd));
                     }
-                },
+                }
                 IniParserState::Key => {
                     // We have at least one key character already parsed.
                     debug_assert!(!buffer.is_empty());
@@ -230,7 +234,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(InvalidCharacterInKey));
                     }
-                },
+                }
                 IniParserState::KeyValueSeparator => {
                     debug_assert!(buffer.is_empty());
 
@@ -249,7 +253,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(UnexpectedCharacterInsteadOfKeyValueSeparator));
                     }
-                },
+                }
                 IniParserState::BeforeValue => {
                     debug_assert!(buffer.is_empty());
 
@@ -286,9 +290,9 @@ impl<'s> IniParser<'s> {
                                 buffer.push(current);
 
                                 self.state = IniParserState::Value;
-                            },
+                            }
                             // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {},
+                            ParseEscapeSequenceResult::LineContinuation => {}
                         }
 
                     // Valid value char - start parsing the unquoted value.
@@ -302,7 +306,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(InvalidCharacterInValue));
                     }
-                },
+                }
                 IniParserState::Value => {
                     debug_assert!(!buffer.is_empty());
 
@@ -336,9 +340,9 @@ impl<'s> IniParser<'s> {
                             // Parsed an escaped char - keep parsing the value.
                             ParseEscapeSequenceResult::EscapedChar(current) => {
                                 buffer.push(current);
-                            },
+                            }
                             // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {},
+                            ParseEscapeSequenceResult::LineContinuation => {}
                         }
 
                     // Valid value char - keep parsing the value.
@@ -349,7 +353,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(InvalidCharacterInValue));
                     }
-                },
+                }
                 IniParserState::QuotedString => {
                     debug_assert!(quote.is_some());
 
@@ -373,9 +377,9 @@ impl<'s> IniParser<'s> {
                             // Parsed an escaped char - keep parsing the value.
                             ParseEscapeSequenceResult::EscapedChar(current) => {
                                 buffer.push(current);
-                            },
+                            }
                             // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {},
+                            ParseEscapeSequenceResult::LineContinuation => {}
                         }
 
                     // Whitespace or valid value char - keep parsing the value.
@@ -386,7 +390,7 @@ impl<'s> IniParser<'s> {
                     } else {
                         return Err(self.error(InvalidCharacterInValue));
                     }
-                },
+                }
             }
         }
 
@@ -414,11 +418,11 @@ impl<'s> IniParser<'s> {
             Some('\n') => {
                 self.column += 1;
                 self.new_line = true;
-            },
+            }
             Some(_) => {
                 self.column += 1;
-            },
-            None => {},
+            }
+            None => {}
         }
 
         next
@@ -446,20 +450,36 @@ impl<'s> IniParser<'s> {
 
     /// Is the character a supported comment delimiter?
     fn is_comment_char(&self, val: char) -> bool {
-        ((val == ';') && self.options.comments.contains(IniCommentSeparator::Semicolon)) ||
-        ((val == '#') && self.options.comments.contains(IniCommentSeparator::NumberSign))
+        ((val == ';')
+            && self
+                .options
+                .comments
+                .contains(IniCommentSeparator::Semicolon))
+            || ((val == '#')
+                && self
+                    .options
+                    .comments
+                    .contains(IniCommentSeparator::NumberSign))
     }
 
     /// Is the character a supported key-value separator?
     fn is_key_value_separator_char(&self, val: char) -> bool {
-        ((val == '=') && self.options.key_value_separator.contains(IniKeyValueSeparator::Equals)) ||
-        ((val == ':') && self.options.key_value_separator.contains(IniKeyValueSeparator::Colon))
+        ((val == '=')
+            && self
+                .options
+                .key_value_separator
+                .contains(IniKeyValueSeparator::Equals))
+            || ((val == ':')
+                && self
+                    .options
+                    .key_value_separator
+                    .contains(IniKeyValueSeparator::Colon))
     }
 
     /// Is the character a supported string quote?
     fn is_string_quote_char(&self, val: char) -> bool {
-        ((val == '"') && self.options.string_quotes.contains(IniStringQuote::Double)) ||
-        ((val == '\'') && self.options.string_quotes.contains(IniStringQuote::Single))
+        ((val == '"') && self.options.string_quotes.contains(IniStringQuote::Double))
+            || ((val == '\'') && self.options.string_quotes.contains(IniStringQuote::Single))
     }
 
     /// Is the character a supported escape character?
@@ -468,9 +488,12 @@ impl<'s> IniParser<'s> {
     }
 
     /// Reads up to 4 following characters and tries to parses them as an escape sequence.
-    fn parse_escape_sequence(&mut self, unicode_buffer: &mut String) -> Result<ParseEscapeSequenceResult, IniError> {
-        use ParseEscapeSequenceResult::*;
+    fn parse_escape_sequence(
+        &mut self,
+        unicode_buffer: &mut String,
+    ) -> Result<ParseEscapeSequenceResult, IniError> {
         use IniErrorKind::*;
+        use ParseEscapeSequenceResult::*;
 
         debug_assert!(self.options.escape);
 
@@ -478,11 +501,13 @@ impl<'s> IniParser<'s> {
             None => Err(self.error(UnexpectedEndOfFileInEscapeSequence)),
 
             // Backslash followed by a new line is a line continuation, if supported.
-            Some('\n') => if self.options.line_continuation {
-                Ok(LineContinuation)
-            } else {
-                Err(self.error_offset(UnexpectedNewlineInEscapeSequence))
-            },
+            Some('\n') => {
+                if self.options.line_continuation {
+                    Ok(LineContinuation)
+                } else {
+                    Err(self.error_offset(UnexpectedNewlineInEscapeSequence))
+                }
+            }
 
             // Standard escaped characters.
             Some('0') => Ok(EscapedChar('\0')),
@@ -505,10 +530,12 @@ impl<'s> IniParser<'s> {
             Some('x') => {
                 unicode_buffer.clear();
 
-                for _ in 0 .. 4 {
+                for _ in 0..4 {
                     match self.next() {
                         None => return Err(self.error(UnexpectedEndOfFileInUnicodeEscapeSequence)),
-                        Some('\n') => return Err(self.error_offset(UnexpectedNewlineInUnicodeEscapeSequence)),
+                        Some('\n') => {
+                            return Err(self.error_offset(UnexpectedNewlineInUnicodeEscapeSequence))
+                        }
                         Some(current) => unicode_buffer.push(current),
                     }
                 }
@@ -520,7 +547,7 @@ impl<'s> IniParser<'s> {
                     },
                     Err(_) => Err(self.error(InvalidUnicodeEscapeSequence)),
                 }
-            },
+            }
 
             Some(_) => Err(self.error(InvalidEscapeCharacter)),
         }
@@ -530,7 +557,14 @@ impl<'s> IniParser<'s> {
     /// If `quoted` is `true`, `value` is always treated as a string,
     /// else it is first interpreted as a bool / integer / float.
     /// Empty `value`'s are treated as strings.
-    fn add_value(&self, root: &mut DynTableMut<'_>, section: &str, key: &str, value: &str, quoted: bool) -> Result<(), IniError> {
+    fn add_value(
+        &self,
+        root: &mut DynTableMut<'_>,
+        section: &str,
+        key: &str,
+        value: &str,
+        quoted: bool,
+    ) -> Result<(), IniError> {
         debug_assert!(!key.is_empty());
 
         let value = self.parse_value_string(value, quoted)?;
@@ -538,7 +572,6 @@ impl<'s> IniParser<'s> {
         if section.is_empty() {
             debug_assert!(self.options.duplicate_keys || root.get(key).is_err());
             Self::add_value_to_table(key, value, root);
-
         } else {
             // Must succeed.
             let mut table = root.get_mut(section).unwrap().table().unwrap();
@@ -554,9 +587,13 @@ impl<'s> IniParser<'s> {
     /// If `quoted` is `true`, `value` is always treated as a string,
     /// else it is first interpreted as a bool / integer / float.
     /// Empty `value`'s are treated as strings.
-    fn parse_value_string<'v>(&self, value: &'v str, quoted: bool) -> Result<IniValue<'v>, IniError> {
-        use IniValue::*;
+    fn parse_value_string<'v>(
+        &self,
+        value: &'v str,
+        quoted: bool,
+    ) -> Result<IniValue<'v>, IniError> {
         use IniErrorKind::*;
+        use IniValue::*;
 
         // Empty and quoted values are treated as strings.
         let value = if value.is_empty() || quoted {
@@ -565,7 +602,6 @@ impl<'s> IniParser<'s> {
         // Check if it's a bool.
         } else if value == "true" {
             Bool(true)
-
         } else if value == "false" {
             Bool(false)
 
@@ -600,15 +636,25 @@ impl<'s> IniParser<'s> {
         }
     }
 
-    fn is_key_duplicate(&self, root: &mut DynTableMut<'_>, section: &str, key: &str) -> Result<(), IniError> {
+    fn is_key_duplicate(
+        &self,
+        root: &mut DynTableMut<'_>,
+        section: &str,
+        key: &str,
+    ) -> Result<(), IniError> {
         use IniErrorKind::*;
 
         debug_assert!(!key.is_empty());
 
         let is_unique = if section.is_empty() {
             root.get(key).is_err()
-        } else  {
-            root.get(section).unwrap().table().unwrap().get(key).is_err()
+        } else {
+            root.get(section)
+                .unwrap()
+                .table()
+                .unwrap()
+                .get(key)
+                .is_err()
         };
 
         if is_unique || self.options.duplicate_keys {
@@ -619,7 +665,10 @@ impl<'s> IniParser<'s> {
     }
 }
 
-pub(crate) fn dyn_config_from_ini(string: &str, options: IniOptions) -> Result<DynConfig, IniError> {
+pub(crate) fn dyn_config_from_ini(
+    string: &str,
+    options: IniOptions,
+) -> Result<DynConfig, IniError> {
     let reader = string.chars();
     let parser = IniParser::new(reader, options);
 
@@ -631,16 +680,16 @@ fn is_key_char(val: char, first: bool) -> bool {
 }
 
 fn is_value_char(val: char) -> bool {
-    (val.is_alphanumeric() || val.is_ascii_punctuation()) &&
-    (val != '\'') &&
-    (val != '"') &&
-    (val != '\\') &&
-    (val != '[') &&
-    (val != ']') &&
-    (val != ';') &&
-    (val != '#') &&
-    (val != '=') &&
-    (val != ':')
+    (val.is_alphanumeric() || val.is_ascii_punctuation())
+        && (val != '\'')
+        && (val != '"')
+        && (val != '\\')
+        && (val != '[')
+        && (val != ']')
+        && (val != ';')
+        && (val != '#')
+        && (val != '=')
+        && (val != ':')
 }
 
 enum ParseEscapeSequenceResult {

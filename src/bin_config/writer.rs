@@ -1,4 +1,4 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{hash_map::Entry, HashMap};
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use super::config::BinConfigHeader;
@@ -63,7 +63,11 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn bool<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: bool) -> Result<(), BinConfigWriterError> {
+    pub fn bool<'k, K: Into<Option<&'k str>>>(
+        &mut self,
+        key: K,
+        value: bool,
+    ) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::Bool)?;
 
@@ -85,7 +89,11 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn i64<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: i64) -> Result<(), BinConfigWriterError> {
+    pub fn i64<'k, K: Into<Option<&'k str>>>(
+        &mut self,
+        key: K,
+        value: i64,
+    ) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::I64)?;
 
@@ -107,7 +115,11 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn f64<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: f64) -> Result<(), BinConfigWriterError> {
+    pub fn f64<'k, K: Into<Option<&'k str>>>(
+        &mut self,
+        key: K,
+        value: f64,
+    ) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::F64)?;
 
@@ -129,7 +141,11 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn string<'k, K: Into<Option<&'k str>>>(&mut self, key: K, value: &str) -> Result<(), BinConfigWriterError> {
+    pub fn string<'k, K: Into<Option<&'k str>>>(
+        &mut self,
+        key: K,
+        value: &str,
+    ) -> Result<(), BinConfigWriterError> {
         // Value's key and its offset in bytes.
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::String)?;
 
@@ -158,7 +174,11 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     /// [`writer`]: struct.BinConfigWriter.html
     /// [`end`]: #method.end
-    pub fn array<'k, K: Into<Option<&'k str>>>(&mut self, key: K, len: u32) -> Result<(), BinConfigWriterError> {
+    pub fn array<'k, K: Into<Option<&'k str>>>(
+        &mut self,
+        key: K,
+        len: u32,
+    ) -> Result<(), BinConfigWriterError> {
         self.array_or_table(key.into(), len, false)
     }
 
@@ -172,7 +192,11 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     /// [`writer`]: struct.BinConfigWriter.html
     /// [`end`]: #method.end
-    pub fn table<'k, K: Into<Option<&'k str>>>(&mut self, key: K, len: u32) -> Result<(), BinConfigWriterError> {
+    pub fn table<'k, K: Into<Option<&'k str>>>(
+        &mut self,
+        key: K,
+        len: u32,
+    ) -> Result<(), BinConfigWriterError> {
         self.array_or_table(key.into(), len, true)
     }
 
@@ -192,12 +216,10 @@ impl BinConfigWriter {
 
         // Must have been full.
         if parent.current_len != parent.len {
-            return Err(
-                ArrayOrTableLengthMismatch {
-                    expected: parent.len,
-                    found: parent.current_len,
-                }
-            );
+            return Err(ArrayOrTableLengthMismatch {
+                expected: parent.len,
+                found: parent.current_len,
+            });
         }
 
         Ok(())
@@ -221,12 +243,10 @@ impl BinConfigWriter {
 
         // The root table must have been full.
         if root.current_len < root.len {
-            return Err(
-                ArrayOrTableLengthMismatch {
-                    expected: root.len,
-                    found: root.current_len,
-                }
-            );
+            return Err(ArrayOrTableLengthMismatch {
+                expected: root.len,
+                found: root.current_len,
+            });
         };
 
         // Append the strings to the end of the buffer.
@@ -255,7 +275,8 @@ impl BinConfigWriter {
         self.data_offset += std::mem::size_of::<BinConfigHeader>() as u32;
 
         // Push the root table on the stack.
-        self.stack.push(BinConfigArrayOrTable::new(true, len, self.data_offset));
+        self.stack
+            .push(BinConfigArrayOrTable::new(true, len, self.data_offset));
 
         // Bump the data offset by the combined table value length.
         self.data_offset += len * std::mem::size_of::<BinConfigPackedValue>() as u32;
@@ -270,7 +291,14 @@ impl BinConfigWriter {
         table: bool,
     ) -> Result<(), BinConfigWriterError> {
         // Offset to the array's/table's packed value is the parent array's/table's value offset.
-        let (key, value_offset) = self.key_and_value_offset(key, if table { ValueType::Table } else { ValueType::Array })?;
+        let (key, value_offset) = self.key_and_value_offset(
+            key,
+            if table {
+                ValueType::Table
+            } else {
+                ValueType::Array
+            },
+        )?;
 
         // Write the packed value.
         // Offset to the array's/table's values is the current data offset.
@@ -288,7 +316,8 @@ impl BinConfigWriter {
 
         // Push the array/table on the stack, if not empty.
         if len > 0 {
-            self.stack.push(BinConfigArrayOrTable::new(table, len, self.data_offset));
+            self.stack
+                .push(BinConfigArrayOrTable::new(table, len, self.data_offset));
         }
 
         // Bump the data offset by the combined value length.
@@ -325,11 +354,12 @@ impl BinConfigWriter {
                     // Make sure the key is unique.
                     Entry::Occupied(_) => return Err(NonUniqueKey),
                     // Update the table keys.
-                    Entry::Vacant(_) => { entry.or_insert(string.string); },
+                    Entry::Vacant(_) => {
+                        entry.or_insert(string.string);
+                    }
                 }
 
                 Ok(string.key())
-
             } else {
                 Err(TableKeyRequired)
             }
@@ -337,7 +367,6 @@ impl BinConfigWriter {
         // Arrays don't use keys.
         } else if string.is_some() {
             Err(ArrayKeyNotRequired)
-
         } else {
             Ok(BinTableKey::default())
         }
@@ -396,7 +425,10 @@ impl BinConfigWriter {
         if !parent.table {
             if let Some(array_type) = parent.array_type.as_ref() {
                 if !value_type.is_compatible(*array_type) {
-                    return Err(MixedArray { expected: *array_type, found: value_type });
+                    return Err(MixedArray {
+                        expected: *array_type,
+                        found: value_type,
+                    });
                 }
             } else {
                 parent.array_type.replace(value_type);
@@ -417,7 +449,9 @@ impl BinConfigWriter {
     /// Returns the current parent array/table.
     /// and the offset in bytes w.r.t. config data blob to its current value.
     /// Checks if the current parent array/table is full.
-    fn parent_and_value_offset(stack: &mut Vec<BinConfigArrayOrTable>) -> Result<(&mut BinConfigArrayOrTable, u32), BinConfigWriterError> {
+    fn parent_and_value_offset(
+        stack: &mut Vec<BinConfigArrayOrTable>,
+    ) -> Result<(&mut BinConfigArrayOrTable, u32), BinConfigWriterError> {
         use BinConfigWriterError::*;
 
         // Must have a parent array/table.

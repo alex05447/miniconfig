@@ -43,7 +43,7 @@ pub enum LuaConfigError {
         /// Path to the table element.
         path: String,
         /// Invalid Lua value type.
-        invalid_type: rlua_ext::ValueType
+        invalid_type: rlua_ext::ValueType,
     },
     /// Invalid string value UTF-8.
     InvalidValueUTF8 {
@@ -120,9 +120,13 @@ impl Display for LuaArrayGetError {
         use LuaArrayGetError::*;
 
         match self {
-            IndexOutOfBounds(len) => write!(f, "Array index was out of bounds (length is {}).", len),
+            IndexOutOfBounds(len) => {
+                write!(f, "Array index was out of bounds (length is {}).", len)
+            }
             ArrayEmpty => write!(f, "Tried to pop an empty array."),
-            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
+            IncorrectValueType(invalid_type) => {
+                write!(f, "Value is of incorrect type ({}).", invalid_type)
+            }
         }
     }
 }
@@ -145,12 +149,17 @@ impl Display for LuaArraySetError {
         use LuaArraySetError::*;
 
         match self {
-            IndexOutOfBounds(len) => write!(f, "Index was out of bounds (array length is {}).", len),
-            InvalidValueType(value_type) => write!(f, "Incorrect value type for the array (expected \"{}\").", value_type),
+            IndexOutOfBounds(len) => {
+                write!(f, "Index was out of bounds (array length is {}).", len)
+            }
+            InvalidValueType(value_type) => write!(
+                f,
+                "Incorrect value type for the array (expected \"{}\").",
+                value_type
+            ),
         }
     }
 }
-
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LuaTableGetError {
@@ -169,7 +178,9 @@ impl Display for LuaTableGetError {
 
         match self {
             KeyDoesNotExist => write!(f, "Provided key does not exist in the table."),
-            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
+            IncorrectValueType(invalid_type) => {
+                write!(f, "Value is of incorrect type ({}).", invalid_type)
+            }
         }
     }
 }

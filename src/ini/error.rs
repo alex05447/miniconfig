@@ -146,6 +146,10 @@ impl Display for IniErrorKind {
 
 impl Display for IniError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "INI parse error. Line: {}, column: {}. {}", self.line, self.column, self.error)
+        write!(
+            f,
+            "INI parse error. Line: {}, column: {}. {}",
+            self.line, self.column, self.error
+        )
     }
 }

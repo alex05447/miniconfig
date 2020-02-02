@@ -26,7 +26,9 @@ impl Display for DynArrayGetError {
                 write!(f, "Array index was out of bounds (length is {}).", len)
             }
             ArrayEmpty => write!(f, "Tried to pop an empty array."),
-            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
+            IncorrectValueType(invalid_type) => {
+                write!(f, "Value is of incorrect type ({}).", invalid_type)
+            }
         }
     }
 }
@@ -78,7 +80,9 @@ impl Display for DynTableGetError {
 
         match self {
             KeyDoesNotExist => write!(f, "Provided key does not exist in the table."),
-            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
+            IncorrectValueType(invalid_type) => {
+                write!(f, "Value is of incorrect type ({}).", invalid_type)
+            }
         }
     }
 }

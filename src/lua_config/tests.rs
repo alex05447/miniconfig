@@ -441,10 +441,7 @@ fn basic_array() {
         // Push a float.
         array.push(Value::F64(3.14)).unwrap();
         assert_eq!(array.len(), 2);
-        assert!(cmp_f64(
-            array.get_f64(1).unwrap(),
-            3.14
-        ));
+        assert!(cmp_f64(array.get_f64(1).unwrap(), 3.14));
 
         // Push another int.
         array.push(Value::I64(-9)).unwrap();

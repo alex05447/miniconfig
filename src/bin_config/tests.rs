@@ -23,7 +23,10 @@ fn writer_errors() {
     {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.array("array", 1).unwrap();
-        assert_eq!(writer.bool("bool", true).err().unwrap(), ArrayKeyNotRequired);
+        assert_eq!(
+            writer.bool("bool", true).err().unwrap(),
+            ArrayKeyNotRequired
+        );
     }
 
     // MixedArray
@@ -31,7 +34,13 @@ fn writer_errors() {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.array("array", 2).unwrap();
         writer.bool(None, true).unwrap();
-        assert_eq!(writer.i64(None, 7).err().unwrap(), MixedArray { expected: ValueType::Bool, found: ValueType::I64 });
+        assert_eq!(
+            writer.i64(None, 7).err().unwrap(),
+            MixedArray {
+                expected: ValueType::Bool,
+                found: ValueType::I64
+            }
+        );
     }
 
     // NonUniqueKey
@@ -45,7 +54,13 @@ fn writer_errors() {
     // Underflow, root table.
     {
         let writer = BinConfigWriter::new(1).unwrap();
-        assert_eq!(writer.finish().err().unwrap(), ArrayOrTableLengthMismatch{ expected: 1, found: 0 });
+        assert_eq!(
+            writer.finish().err().unwrap(),
+            ArrayOrTableLengthMismatch {
+                expected: 1,
+                found: 0
+            }
+        );
     }
 
     // ArrayOrTableLengthMismatch
@@ -53,7 +68,13 @@ fn writer_errors() {
     {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.bool(Some("bool_0"), true).unwrap();
-        assert_eq!(writer.bool(Some("bool_1"), true).err().unwrap(), BinConfigWriterError::ArrayOrTableLengthMismatch{ expected: 1, found: 2 });
+        assert_eq!(
+            writer.bool(Some("bool_1"), true).err().unwrap(),
+            BinConfigWriterError::ArrayOrTableLengthMismatch {
+                expected: 1,
+                found: 2
+            }
+        );
     }
 
     // ArrayOrTableLengthMismatch
@@ -62,7 +83,13 @@ fn writer_errors() {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.table(Some("table"), 1).unwrap();
         writer.bool(Some("bool_0"), true).unwrap();
-        assert_eq!(writer.bool(Some("bool_1"), true).err().unwrap(), BinConfigWriterError::ArrayOrTableLengthMismatch{ expected: 1, found: 2 });
+        assert_eq!(
+            writer.bool(Some("bool_1"), true).err().unwrap(),
+            BinConfigWriterError::ArrayOrTableLengthMismatch {
+                expected: 1,
+                found: 2
+            }
+        );
     }
 
     // ArrayOrTableLengthMismatch
@@ -71,7 +98,13 @@ fn writer_errors() {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.table(Some("table"), 2).unwrap();
         writer.bool(Some("bool_0"), true).unwrap();
-        assert_eq!(writer.end().err().unwrap(), BinConfigWriterError::ArrayOrTableLengthMismatch{ expected: 2, found: 1 });
+        assert_eq!(
+            writer.end().err().unwrap(),
+            BinConfigWriterError::ArrayOrTableLengthMismatch {
+                expected: 2,
+                found: 1
+            }
+        );
     }
 
     // ArrayOrTableLengthMismatch
@@ -80,7 +113,13 @@ fn writer_errors() {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.array(Some("array"), 1).unwrap();
         writer.bool(None, true).unwrap();
-        assert_eq!(writer.bool(None, true).err().unwrap(), BinConfigWriterError::ArrayOrTableLengthMismatch{ expected: 1, found: 2 });
+        assert_eq!(
+            writer.bool(None, true).err().unwrap(),
+            BinConfigWriterError::ArrayOrTableLengthMismatch {
+                expected: 1,
+                found: 2
+            }
+        );
     }
 
     // ArrayOrTableLengthMismatch
@@ -89,21 +128,33 @@ fn writer_errors() {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.array(Some("array"), 2).unwrap();
         writer.bool(None, true).unwrap();
-        assert_eq!(writer.end().err().unwrap(), BinConfigWriterError::ArrayOrTableLengthMismatch{ expected: 2, found: 1 });
+        assert_eq!(
+            writer.end().err().unwrap(),
+            BinConfigWriterError::ArrayOrTableLengthMismatch {
+                expected: 2,
+                found: 1
+            }
+        );
     }
 
     // EndCallMismatch
     {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.bool(Some("bool"), true).unwrap();
-        assert_eq!(writer.end().err().unwrap(), BinConfigWriterError::EndCallMismatch);
+        assert_eq!(
+            writer.end().err().unwrap(),
+            BinConfigWriterError::EndCallMismatch
+        );
     }
 
     // UnfinishedArraysOrTables
     {
         let mut writer = BinConfigWriter::new(1).unwrap();
         writer.array(Some("array"), 1).unwrap();
-        assert_eq!(writer.finish().err().unwrap(), BinConfigWriterError::UnfinishedArraysOrTables(1));
+        assert_eq!(
+            writer.finish().err().unwrap(),
+            BinConfigWriterError::UnfinishedArraysOrTables(1)
+        );
     }
 }
 
