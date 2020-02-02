@@ -3,6 +3,9 @@
 #![allow(clippy::new_without_default)]
 #![allow(clippy::approx_constant)]
 
+#[cfg(feature = "ini")]
+extern crate bitflags;
+
 #[cfg(feature = "bin")]
 mod bin_config;
 
@@ -13,6 +16,9 @@ mod dyn_config;
 
 #[cfg(feature = "lua")]
 mod lua_config;
+
+#[cfg(feature = "ini")]
+mod ini;
 
 mod value;
 
@@ -29,3 +35,6 @@ pub use dyn_config::*;
 
 #[cfg(feature = "lua")]
 pub use lua_config::*;
+
+#[cfg(all(feature = "dyn", feature = "ini"))]
+pub use ini::*;

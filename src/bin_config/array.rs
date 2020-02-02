@@ -31,6 +31,82 @@ impl<'a> BinArray<'a> {
         self.get_impl(index)
     }
 
+    /// Tries to get a `bool` [`value`] in the [`array`] at `index`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`array`]: struct.BinArray.html
+    pub fn get_bool(
+        &self,
+        index: u32,
+    ) -> Result<bool, BinArrayGetError> {
+        let val = self.get(index)?;
+        val.bool().ok_or_else(|| BinArrayGetError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get an `i64` [`value`] in the [`array`] at `index`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`array`]: struct.BinArray.html
+    pub fn get_i64(
+        &self,
+        index: u32,
+    ) -> Result<i64, BinArrayGetError> {
+        let val = self.get(index)?;
+        val.i64().ok_or_else(|| BinArrayGetError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get an `f64` [`value`] in the [`array`] at `index`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`array`]: struct.BinArray.html
+    pub fn get_f64(
+        &self,
+        index: u32,
+    ) -> Result<f64, BinArrayGetError> {
+        let val = self.get(index)?;
+        val.f64().ok_or_else(|| BinArrayGetError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get a string [`value`] in the [`array`] at `index`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`array`]: struct.BinArray.html
+    pub fn get_string(
+        &self,
+        index: u32,
+    ) -> Result<&str, BinArrayGetError> {
+        let val = self.get(index)?;
+        let val_type = val.get_type();
+        val.string().ok_or_else(|| BinArrayGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get an [`array`] [`value`] in the [`array`] at `index`.
+    ///
+    /// [`array`]: struct.BinArray.html
+    /// [`value`]: enum.Value.html
+    pub fn get_array(
+        &self,
+        index: u32,
+    ) -> Result<BinArray<'_>, BinArrayGetError> {
+        let val = self.get(index)?;
+        let val_type = val.get_type();
+        val.array().ok_or_else(|| BinArrayGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get a [`table`] [`value`] in the [`array`] at `index`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`table`]: struct.BinTable.html
+    /// [`array`]: struct.BinArray.html
+    pub fn get_table(
+        &self,
+        index: u32,
+    ) -> Result<BinTable<'_>, BinArrayGetError> {
+        let val = self.get(index)?;
+        let val_type = val.get_type();
+        val.table().ok_or_else(|| BinArrayGetError::IncorrectValueType(val_type))
+    }
+
     /// Returns an in-order [`iterator`] over [`values`] in the [`array`].
     ///
     /// [`iterator`]: struct.BinArrayIter.html

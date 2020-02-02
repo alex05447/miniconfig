@@ -37,6 +37,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "miniconfig"
 version = "0.1.0"
 dependencies = [
+ "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rlua 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rlua_ext 0.1.0",
 ]

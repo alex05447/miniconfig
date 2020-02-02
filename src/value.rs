@@ -90,6 +90,13 @@ impl<S, A, T> Value<S, A, T> {
         }
     }
 
+    pub fn string(self) -> Option<S> {
+        match self {
+            Value::String(val) => Some(val),
+            _ => None,
+        }
+    }
+
     pub fn array(self) -> Option<A> {
         match self {
             Value::Array(val) => Some(val),
@@ -106,7 +113,7 @@ impl<S, A, T> Value<S, A, T> {
 }
 
 impl<S: AsRef<str>, A, T> Value<S, A, T> {
-    pub fn string(&self) -> Option<&'_ str> {
+    pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(val) => Some(val.as_ref()),
             _ => None,

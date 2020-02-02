@@ -7,15 +7,17 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["dyn", "bin", "lua"]
+default = ["dyn", "bin", "lua", "ini"]
 dyn = []
 bin = []
 lua = ["rlua", "rlua_ext"]
+ini = ["bitflags"]
 
 [dependencies]
-rlua = {version = "0.17", optional = true }
-rlua_ext = {path = "../rlua_ext", optional = true }
+rlua = { version = "0.17", optional = true }
+rlua_ext = { path = "../rlua_ext", optional = true }
+bitflags = { version = "1.2.1", optional = true }
 
 [[example]]
 name = "example"
-required-features = ["bin", "lua"]
+required-features = ["bin", "lua", "dyn", "ini"]

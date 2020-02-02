@@ -27,6 +27,10 @@ pub enum BinArrayGetError {
     /// Tried to pop an empty [`array`].
     /// [`array`]: struct.BinArray.html
     ArrayEmpty,
+    /// Value is of incorrect [`type`].
+    /// Contains the value [`type`].
+    /// [`type`]: struct.ValueType.html
+    IncorrectValueType(ValueType),
 }
 
 impl Display for BinArrayGetError {
@@ -38,6 +42,7 @@ impl Display for BinArrayGetError {
                 write!(f, "Array index was out of bounds (length is {}).", len)
             }
             ArrayEmpty => write!(f, "Tried to pop an empty array."),
+            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
         }
     }
 }
@@ -47,6 +52,10 @@ pub enum BinTableGetError {
     /// Provided key does not exist in the [`table`].
     /// [`table`]: struct.BinTable.html
     KeyDoesNotExist,
+    /// Value is of incorrect [`type`].
+    /// Contains the value [`type`].
+    /// [`type`]: struct.ValueType.html
+    IncorrectValueType(ValueType),
 }
 
 impl Display for BinTableGetError {
@@ -55,6 +64,7 @@ impl Display for BinTableGetError {
 
         match self {
             KeyDoesNotExist => write!(f, "Provided key does not exist in the table."),
+            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
         }
     }
 }

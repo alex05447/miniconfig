@@ -109,6 +109,10 @@ pub enum LuaArrayGetError {
     /// Tried to pop an empty [`array`].
     /// [`array`]: struct.LuaArray.html
     ArrayEmpty,
+    /// Value is of incorrect [`type`].
+    /// Contains the value [`type`].
+    /// [`type`]: struct.ValueType.html
+    IncorrectValueType(ValueType),
 }
 
 impl Display for LuaArrayGetError {
@@ -118,6 +122,7 @@ impl Display for LuaArrayGetError {
         match self {
             IndexOutOfBounds(len) => write!(f, "Array index was out of bounds (length is {}).", len),
             ArrayEmpty => write!(f, "Tried to pop an empty array."),
+            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
         }
     }
 }
@@ -152,6 +157,10 @@ pub enum LuaTableGetError {
     /// Provided key does not exist in the [`table`].
     /// [`table`]: struct.LuaTable.html
     KeyDoesNotExist,
+    /// Value is of incorrect [`type`].
+    /// Contains the value [`type`].
+    /// [`type`]: struct.ValueType.html
+    IncorrectValueType(ValueType),
 }
 
 impl Display for LuaTableGetError {
@@ -160,6 +169,7 @@ impl Display for LuaTableGetError {
 
         match self {
             KeyDoesNotExist => write!(f, "Provided key does not exist in the table."),
+            IncorrectValueType(invalid_type) => write!(f, "Value is of incorrect type ({}).", invalid_type),
         }
     }
 }

@@ -230,21 +230,21 @@ fn basic_table() {
         // Add a value.
         root.set("bool", Value::Bool(true)).unwrap();
         assert_eq!(root.len(), 1);
-        assert_eq!(root.get("bool").unwrap().bool().unwrap(), true);
+        assert_eq!(root.get_bool("bool").unwrap(), true);
 
         // Add a couple more.
         root.set("i64", Value::I64(7)).unwrap();
         assert_eq!(root.len(), 2);
-        assert_eq!(root.get("i64").unwrap().i64().unwrap(), 7);
+        assert_eq!(root.get_i64("i64").unwrap(), 7);
 
         root.set("string", Value::String("foo")).unwrap();
         assert_eq!(root.len(), 3);
-        assert_eq!(root.get("string").unwrap().string().unwrap(), "foo");
+        assert_eq!(root.get_string("string").unwrap().as_ref(), "foo");
 
         // Change a value.
         root.set("string", Value::String("bar")).unwrap();
         assert_eq!(root.len(), 3);
-        assert_eq!(root.get("string").unwrap().string().unwrap(), "bar");
+        assert_eq!(root.get_string("string").unwrap().as_ref(), "bar");
 
         // Try to remove a nonexistent value.
         assert_eq!(
@@ -284,7 +284,7 @@ fn basic_table() {
         for (key, value) in root.iter() {
             match key.as_ref() {
                 "i64" => assert_eq!(value.i64().unwrap(), 7),
-                "string" => assert_eq!(value.string().unwrap(), "bar"),
+                "string" => assert_eq!(value.as_str().unwrap(), "bar"),
                 "table" => {
                     // Iterate the nested table.
                     let nested_table = value.table().unwrap();
@@ -365,7 +365,7 @@ fn basic_array() {
         // Make it a bool array.
         array.push(Value::Bool(true)).unwrap();
         assert_eq!(array.len(), 1);
-        assert_eq!(array.get(0).unwrap().bool().unwrap(), true);
+        assert_eq!(array.get_bool(0).unwrap(), true);
 
         // Try to push an int.
         match array.push(Value::I64(7)) {
@@ -400,8 +400,8 @@ fn basic_array() {
         // Push a bool.
         array.push(Value::Bool(false)).unwrap();
         assert_eq!(array.len(), 2);
-        assert_eq!(array.get(0).unwrap().bool().unwrap(), true);
-        assert_eq!(array.get(1).unwrap().bool().unwrap(), false);
+        assert_eq!(array.get_bool(0).unwrap(), true);
+        assert_eq!(array.get_bool(1).unwrap(), false);
 
         // Clear it.
         assert_eq!(array.pop().unwrap().bool().unwrap(), false);
@@ -412,7 +412,7 @@ fn basic_array() {
         // Now push an int and make it an int array.
         array.push(Value::I64(7)).unwrap();
         assert_eq!(array.len(), 1);
-        assert_eq!(array.get(0).unwrap().i64().unwrap(), 7);
+        assert_eq!(array.get_i64(0).unwrap(), 7);
 
         // Try to push a bool.
         match array.push(Value::Bool(true)) {
@@ -442,14 +442,14 @@ fn basic_array() {
         array.push(Value::F64(3.14)).unwrap();
         assert_eq!(array.len(), 2);
         assert!(cmp_f64(
-            array.get(1).unwrap().f64().unwrap(),
+            array.get_f64(1).unwrap(),
             3.14
         ));
 
         // Push another int.
         array.push(Value::I64(-9)).unwrap();
         assert_eq!(array.len(), 3);
-        assert_eq!(array.get(2).unwrap().i64().unwrap(), -9);
+        assert_eq!(array.get_i64(2).unwrap(), -9);
 
         // Iterate an array.
         for (index, value) in array.iter().enumerate() {
@@ -485,7 +485,7 @@ fn basic_array() {
 
         // Validate the arrays.
         let root = config.root();
-        let array = root.get("array").unwrap().array().unwrap();
+        let array = root.get_array("array").unwrap();
 
         for (index, value) in array.iter().enumerate() {
             match index {
@@ -496,7 +496,7 @@ fn basic_array() {
             }
         }
 
-        let another_array = root.get("another_array").unwrap().array().unwrap();
+        let another_array = root.get_array("another_array").unwrap();
 
         for value in another_array.iter() {
             let nested_array = value.array().unwrap();
@@ -525,30 +525,30 @@ fn bin_config() {
 
         let root = config.root();
 
-        let array_value = root.get("array_value").unwrap().array().unwrap();
+        let array_value = root.get_array("array_value").unwrap();
 
         assert_eq!(array_value.len(), 3);
-        assert_eq!(array_value.get(0).unwrap().i64().unwrap(), 54);
-        assert!(cmp_f64(array_value.get(0).unwrap().f64().unwrap(), 54.0));
-        assert_eq!(array_value.get(1).unwrap().i64().unwrap(), 12);
-        assert!(cmp_f64(array_value.get(1).unwrap().f64().unwrap(), 12.0));
-        assert_eq!(array_value.get(2).unwrap().i64().unwrap(), 78);
-        assert!(cmp_f64(array_value.get(2).unwrap().f64().unwrap(), 78.9));
+        assert_eq!(array_value.get_i64(0).unwrap(), 54);
+        assert!(cmp_f64(array_value.get_f64(0).unwrap(), 54.0));
+        assert_eq!(array_value.get_i64(1).unwrap(), 12);
+        assert!(cmp_f64(array_value.get_f64(1).unwrap(), 12.0));
+        assert_eq!(array_value.get_i64(2).unwrap(), 78);
+        assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
 
-        assert_eq!(root.get("bool_value").unwrap().bool().unwrap(), true);
+        assert_eq!(root.get_bool("bool_value").unwrap(), true);
 
-        assert!(cmp_f64(root.get("float_value").unwrap().f64().unwrap(), 3.14));
+        assert!(cmp_f64(root.get_f64("float_value").unwrap(), 3.14));
 
-        assert_eq!(root.get("int_value").unwrap().i64().unwrap(), 7);
+        assert_eq!(root.get_i64("int_value").unwrap(), 7);
 
-        assert_eq!(root.get("string_value").unwrap().string().unwrap(), "foo");
+        assert_eq!(root.get_string("string_value").unwrap(), "foo");
 
-        let table_value = root.get("table_value").unwrap().table().unwrap();
+        let table_value = root.get_table("table_value").unwrap();
 
         assert_eq!(table_value.len(), 3);
-        assert_eq!(table_value.get("bar").unwrap().i64().unwrap(), 2020);
-        assert!(cmp_f64(table_value.get("bar").unwrap().f64().unwrap(), 2020.0));
-        assert_eq!(table_value.get("baz").unwrap().string().unwrap(), "hello");
-        assert_eq!(table_value.get("foo").unwrap().bool().unwrap(), false);
+        assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
+        assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
+        assert_eq!(table_value.get_string("baz").unwrap(), "hello");
+        assert_eq!(table_value.get_bool("foo").unwrap(), false);
     });
 }

@@ -38,6 +38,82 @@ impl<'lua> LuaTable<'lua> {
         self.get_impl(key.into())
     }
 
+    /// Tries to get a `bool` [`value`] in the [`table`] with the string `key`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`table`]: struct.LuaTable.html
+    pub fn get_bool<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<bool, LuaTableGetError> {
+        let val = self.get(key)?;
+        val.bool().ok_or_else(|| LuaTableGetError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get an `i64` [`value`] in the [`table`] with the string `key`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`table`]: struct.LuaTable.html
+    pub fn get_i64<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<i64, LuaTableGetError> {
+        let val = self.get(key)?;
+        val.i64().ok_or_else(|| LuaTableGetError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get an `f64` [`value`] in the [`table`] with the string `key`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`table`]: struct.LuaTable.html
+    pub fn get_f64<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<f64, LuaTableGetError> {
+        let val = self.get(key)?;
+        val.f64().ok_or_else(|| LuaTableGetError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get a string [`value`] in the [`table`] with the string `key`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`table`]: struct.LuaTable.html
+    pub fn get_string<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<LuaString<'lua>, LuaTableGetError> {
+        let val = self.get(key)?;
+        let val_type = val.get_type();
+        val.string().ok_or_else(|| LuaTableGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
+    ///
+    /// [`array`]: struct.LuaArray.html
+    /// [`value`]: enum.Value.html
+    /// [`table`]: struct.LuaTable.html
+    pub fn get_array<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<LuaArray<'lua>, LuaTableGetError> {
+        let val = self.get(key)?;
+        let val_type = val.get_type();
+        val.array().ok_or_else(|| LuaTableGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get a [`table`] [`value`] in the [`table`] with the string `key`.
+    ///
+    /// [`value`]: enum.Value.html
+    /// [`table`]: struct.LuaTable.html
+    pub fn get_table<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<LuaTable<'lua>, LuaTableGetError> {
+        let val = self.get(key)?;
+        let val_type = val.get_type();
+        val.table().ok_or_else(|| LuaTableGetError::IncorrectValueType(val_type))
+    }
+
     /// Returns an [`iterator`] over ([`key`], [`value`]) tuples of the [`table`], in unspecified order.
     ///
     /// [`iterator`]: struct.LuaTableIter.html

@@ -7,6 +7,9 @@ use crate::{
 #[cfg(feature = "bin")]
 use crate::{BinConfigWriter, BinConfigWriterError};
 
+#[cfg(feature = "ini")]
+use crate::{ini::dyn_config_from_ini, IniError, IniOptions};
+
 /// Represents a mutable config with a root hashmap [`table`].
 ///
 /// [`table`]: struct.DynTable.html
@@ -57,6 +60,19 @@ impl DynConfig {
         Self::table_to_bin_config(root, &mut writer)?;
 
         writer.finish()
+    }
+
+    /// Creates a new [`config`] from the INI `string`.
+    ///
+    /// [`config`]: struct.DynConfig.html
+    #[cfg(feature = "ini")]
+    pub fn from_ini(string: &str) -> Result<Self, IniError> {
+        dyn_config_from_ini(string, IniOptions::default())
+    }
+
+    #[cfg(feature = "ini")]
+    pub fn from_ini_opts(string: &str, options: IniOptions) -> Result<Self, IniError> {
+        dyn_config_from_ini(string, options)
     }
 
     #[cfg(feature = "bin")]

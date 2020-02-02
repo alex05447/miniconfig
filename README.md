@@ -10,7 +10,7 @@ A minimalistic config file crate written in Rust.
 
     Piggybacks on the Lua interpreter both as a parser and as runtime data representation.
 
-    May be used directly as a Lua representation, or be serialized for dynamic or read-only use to decouple itself from the Lua state.
+    May be used directly as a Lua representation within an `rlua` `Context`, or be serialized for dynamic or read-only use to decouple itself from the Lua state.
 
     **Data**: text file representing a valid Lua script, declaring a root config table with string keys as a collection of named global variables, including nested config arrays/tables represented by Lua tables. Only a subset of Lua types / features are supported.
 
@@ -36,6 +36,8 @@ A minimalistic config file crate written in Rust.
 - **Dynamic configs** (requires `"dyn"` feature).
 
     Main format for runtime representation of dynamic configs, or an intermediate representation for Lua configs (after deserialization) / binary configs (before serialization).
+
+    **Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections - nested tables. Unquoted values, if allowed, are parsed as booleans / integers / floats / strings, in order. Quoted values, if enbaled, are always treated as strings.
 
     **Runtime**: internally represented by a root hashmap with string keys. Provides a mutable config interface. Can add/modify/remove values.
 
@@ -64,6 +66,7 @@ Requires some path dependencies in the parent directory - see `Dependencies` sec
 - `"lua"` (enabled by default) - adds support for Lua configs.
 - `"dyn"` (enabled by default) - adds support for dynamic configs.
 - `"bin"` (enabled by default) - adds support for binary configs / serialization.
+- `"ini"` (enabled by default) - adds support for parsing `.ini` config strings to dynamic configs.
 
 ## Dependencies
 
