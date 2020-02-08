@@ -333,39 +333,39 @@ impl BinConfigWriter {
         strings: &mut HashMap<u32, BinConfigString>,
         string_writer: &mut Vec<u8>,
         parent_table: Option<&mut BinConfigArrayOrTable>,
-        string: Option<&str>,
+        key: Option<&str>,
     ) -> Result<BinTableKey, BinConfigWriterError> {
         use BinConfigWriterError::*;
 
         // Tables require string keys.
         if let Some(parent_table) = parent_table {
-            if let Some(string) = string {
+            if let Some(key) = key {
                 // Empty key strings are not allowed.
-                if string.is_empty() {
+                if key.is_empty() {
                     return Err(TableKeyRequired);
                 }
 
                 // Lookup / intern the key string, return its hash / offset / length.
-                let string = Self::intern_string(strings, string_writer, string)?;
+                let key = Self::intern_string(strings, string_writer, key)?;
 
-                let entry = parent_table.keys.entry(string.hash);
+                let entry = parent_table.keys.entry(key.hash);
 
                 match entry {
                     // Make sure the key is unique.
                     Entry::Occupied(_) => return Err(NonUniqueKey),
                     // Update the table keys.
                     Entry::Vacant(_) => {
-                        entry.or_insert(string.string);
+                        entry.or_insert(key.string);
                     }
                 }
 
-                Ok(string.key())
+                Ok(key.key())
             } else {
                 Err(TableKeyRequired)
             }
 
         // Arrays don't use keys.
-        } else if string.is_some() {
+        } else if key.is_some() {
             Err(ArrayKeyNotRequired)
         } else {
             Ok(BinTableKey::default())

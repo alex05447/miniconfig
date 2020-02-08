@@ -1,9 +1,15 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 
 use super::util::{
     new_table, set_table_len, table_len, value_from_lua_value, ValueFromLuaValueError,
 };
-use crate::{DisplayIndent, LuaArray, LuaString, LuaTableGetError, LuaTableSetError, Value};
+use crate::{
+    write_lua_key, DisplayLua, LuaArray, LuaString, LuaTableGetError, LuaTableSetError, Value,
+    ValueType,
+};
+
+#[cfg(feature = "ini")]
+use crate::{write_ini_section, write_ini_string, DisplayINI, ToINIStringError};
 
 use rlua::Context;
 
@@ -216,14 +222,8 @@ impl<'lua> LuaTable<'lua> {
         }
     }
 
-    fn fmt_indent_impl(&self, f: &mut Formatter, indent: u32, mut comma: bool) -> std::fmt::Result {
-        if indent == 0 {
-            comma = false
-        };
-
-        if comma {
-            writeln!(f, "{{")?;
-        }
+    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        writeln!(f, "{{")?;
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -231,7 +231,67 @@ impl<'lua> LuaTable<'lua> {
         // Sort the keys in alphabetical order.
         keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
 
-        let len = self.len();
+        // Iterate the table using the sorted keys.
+        for key in keys.into_iter() {
+            let key = key.as_ref();
+
+            <Self as DisplayLua>::do_indent(f, indent + 1)?;
+
+            write_lua_key(f, key)?;
+            write!(f, " = ")?;
+
+            // Must succeed.
+            let value = self.get(key).unwrap();
+
+            let is_array_or_table = match value {
+                Value::Table(_) | Value::Array(_) => true,
+                _ => false,
+            };
+
+            value.fmt_lua(f, indent + 1)?;
+
+            write!(f, ",")?;
+
+            if is_array_or_table {
+                write!(f, " -- {}", key)?;
+            }
+
+            writeln!(f)?;
+        }
+
+        <Self as DisplayLua>::do_indent(f, indent)?;
+        write!(f, "}}")?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "ini")]
+    fn fmt_ini_impl<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
+        use ToINIStringError::*;
+
+        if level >= 2 {
+            return Err(NestedTablesNotSupported);
+        };
+
+        // Gather the keys.
+        let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
+
+        // Sort the keys in alphabetical order, non-tables first.
+        keys.sort_by(|l, r| {
+            let l_val = self.get(l.as_ref()).unwrap();
+            let r_val = self.get(r.as_ref()).unwrap();
+
+            let l_is_a_table = l_val.get_type() == ValueType::Table;
+            let r_is_a_table = r_val.get_type() == ValueType::Table;
+
+            if !l_is_a_table && r_is_a_table {
+                std::cmp::Ordering::Less
+            } else if l_is_a_table && !r_is_a_table {
+                std::cmp::Ordering::Greater
+            } else {
+                l.as_ref().cmp(r.as_ref())
+            }
+        });
 
         // Iterate the table using the sorted keys.
         for (key_index, key) in keys.into_iter().enumerate() {
@@ -240,36 +300,27 @@ impl<'lua> LuaTable<'lua> {
             // Must succeed.
             let value = self.get(key).unwrap();
 
-            <Self as DisplayIndent>::do_indent(f, indent)?;
+            match value.get_type() {
+                ValueType::Array => return Err(ArraysNotSupported),
+                ValueType::Table => {
+                    if key_index > 0 {
+                        writeln!(w).map_err(|_| WriteError)?;
+                    }
 
-            write!(f, "{} = ", key)?;
+                    write_ini_section(w, key).map_err(|_| WriteError)?;
+                    writeln!(w).map_err(|_| WriteError)?;
 
-            let is_table = match value {
-                Value::Table(_) | Value::Array(_) => true,
-                _ => false,
-            };
+                    value.fmt_ini(w, level + 1)?;
+                }
+                _ => {
+                    write_ini_string(w, key).map_err(|_| WriteError)?;
+                    write!(w, " = ").map_err(|_| WriteError)?;
 
-            value.fmt_indent(f, indent, true)?;
+                    value.fmt_ini(w, level + 1)?;
 
-            if comma {
-                write!(f, ",")?;
+                    writeln!(w).map_err(|_| WriteError)?;
+                }
             }
-
-            if is_table {
-                write!(f, " -- {}", key)?;
-            }
-
-            let last = (key_index as u32) == len - 1;
-
-            if !last {
-                writeln!(f)?;
-            }
-        }
-
-        if comma {
-            debug_assert!(indent > 0);
-            <Self as DisplayIndent>::do_indent(f, indent - 1)?;
-            write!(f, "\n}}")?;
         }
 
         Ok(())
@@ -311,14 +362,21 @@ impl<'lua> std::iter::Iterator for LuaTableIter<'lua> {
     }
 }
 
-impl<'lua> DisplayIndent for LuaTable<'lua> {
-    fn fmt_indent(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        self.fmt_indent_impl(f, indent, comma)
+impl<'lua> DisplayLua for LuaTable<'lua> {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(f, indent)
     }
 }
 
 impl<'lua> Display for LuaTable<'lua> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent_impl(f, 0, true)
+        self.fmt_lua_impl(f, 0)
+    }
+}
+
+#[cfg(feature = "ini")]
+impl<'lua> DisplayINI for LuaTable<'lua> {
+    fn fmt_ini<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
+        self.fmt_ini_impl(w, level)
     }
 }

@@ -7,6 +7,8 @@ pub enum IniErrorKind {
     InvalidCharacterAtLineStart,
     /// Invalid character in section name - expected an alphanumeric character or an underscore.
     InvalidCharacterInSectionName,
+    /// Unexpected end of file encountered when parsing a section name.
+    UnexpectedEndOfFileInSectionName,
     /// Empty section names are not allowed.
     EmptySectionName,
     /// Invalid character at the end of the line -
@@ -53,6 +55,8 @@ pub enum IniErrorKind {
     DuplicateKey,
     /// Unexpected new line encountered when parsing a quoted string value.
     UnexpectedNewlineInQuotedString,
+    /// Unexpected end of file encountered when parsing a quoted string value.
+    UnexpectedEndOfFileInQuotedString,
     /// Encountered an unsupported unquoted string value.
     UnquotedString,
 }
@@ -79,6 +83,10 @@ impl Display for IniErrorKind {
             InvalidCharacterInSectionName => write!(
                 f,
                 "Invalid character in section name - expected an alphanumeric character or an underscore."
+            ),
+            UnexpectedEndOfFileInSectionName => write!(
+                f,
+                "Unexpected end of file encountered when parsing a section name."
             ),
             EmptySectionName => write!(
                 f,
@@ -135,6 +143,10 @@ impl Display for IniErrorKind {
             UnexpectedNewlineInQuotedString => write!(
                 f,
                 "Unexpected new line encountered when parsing a quoted string value."
+            ),
+            UnexpectedEndOfFileInQuotedString => write!(
+                f,
+                "Unexpected end of file encountered when parsing a quoted string value."
             ),
             UnquotedString => write!(
                 f,

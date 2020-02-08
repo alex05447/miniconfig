@@ -9,20 +9,23 @@ extern crate bitflags;
 #[cfg(feature = "bin")]
 mod bin_config;
 
-mod display;
-
 #[cfg(feature = "dyn")]
 mod dyn_config;
 
 #[cfg(feature = "lua")]
 mod lua_config;
 
-#[cfg(feature = "ini")]
+#[cfg(all(feature = "dyn", feature = "ini"))]
 mod ini;
 
+mod util;
 mod value;
 
-pub(crate) use display::DisplayIndent;
+pub(crate) use util::write_char;
+
+#[cfg(feature = "lua")]
+pub(crate) use lua_config::DisplayLua;
+
 pub(crate) use value::{value_type_from_u32, value_type_to_u32};
 
 pub use value::{Value, ValueType};

@@ -12,25 +12,27 @@ A minimalistic config file crate written in Rust.
 
     May be used directly as a Lua representation within an `rlua` `Context`, or be serialized for dynamic or read-only use to decouple itself from the Lua state.
 
-    **Data**: text file representing a valid Lua script, declaring a root config table with string keys as a collection of named global variables, including nested config arrays/tables represented by Lua tables. Only a subset of Lua types / features are supported.
+    **Data**: text file representing a(n incomplete) Lua script, declaring a root config table with string keys, including nested config arrays/tables represented by Lua tables. Only a subset of Lua types / features are supported.
 
     **Runtime**: internally represented by a root Lua table reference. Provides a mutable config interface. Can add/modify/remove values.
 
-    **Serialization**: to string Lua script, to binary config (requires `"bin"` feature).
+    **Serialization**: to string Lua script, to binary config (requires `"bin"` feature), to string INI config (requires `"ini"` feature, does not support arrays / nested tables).
 
     **Example**:
 
     ``` lua
-    array_value = { 54, 12, 78.9 } -- array_value
-    bool_value = true
-    float_value = 3.14
-    int_value = 7
-    string_value = "foo"
-    table_value = {
-        bar = 2020,
-        baz = "hello",
-        foo = false,
-    } -- table_value
+    {
+        array_value = { 54, 12, 78.9 }, -- array_value
+        bool_value = true,
+        float_value = 3.14,
+        int_value = 7,
+        string_value = "foo",
+        table_value = {
+            bar = 2020,
+            baz = "hello",
+            foo = false,
+        }, -- table_value
+    }
     ```
 
     **Use cases**: use Lua config source text files for human-readable / writable / mergeable / diff-able data of arbitrary complexity that frequently changes during development, but does not need to / must not be user-visible.
@@ -43,7 +45,7 @@ A minimalistic config file crate written in Rust.
 
     **Runtime**: internally represented by a root hashmap with string keys. Provides a mutable config interface. Can add/modify/remove values.
 
-    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature).
+    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string INI config (requires `"ini"` feature, does not support arrays / nested tables).
 
     **Use cases**: if `"ini"` feature is enabled - use .ini config source text files for human-readable / writable data of limited complexity (only one level of nested tables, no arrays) which must be user-visible.
 
@@ -55,7 +57,7 @@ A minimalistic config file crate written in Rust.
 
     **Runtime**: wrapper over the raw byte blob. Provides a read-only config interface. Cannot add/modify/remove values.
 
-    **Serialization**: to string Lua script (requires `"lua"` feature).
+    **Serialization**: to string Lua script (requires `"lua"` feature), to string INI config (requires `"ini"` feature, does not support arrays / nested tables).
 
     **Use cases**: use for read-only data of arbitrary complexity which must not be user-visible, or for caching of data which does not need to change frequently at runtime for loading / access performance.
 
@@ -71,8 +73,8 @@ Requires some path dependencies in the parent directory - see `Dependencies` sec
 
 - `"lua"` (enabled by default) - adds support for Lua configs.
 - `"dyn"` (enabled by default) - adds support for dynamic configs.
-- `"bin"` (enabled by default) - adds support for binary configs / serialization.
-- `"ini"` (enabled by default) - adds support for parsing `.ini` config strings to dynamic configs.
+- `"bin"` (enabled by default) - adds support for binary configs, serialization of Lua/dynamic configs to binary configs.
+- `"ini"` (requires `"dyn"` feature, enabled by default) - adds support for parsing INI config strings to dynamic configs, serialization of Lua/dynamic/binary configs to INI config strings.
 
 ## Dependencies
 
@@ -83,4 +85,4 @@ Requires some path dependencies in the parent directory - see `Dependencies` sec
 Despite the fact that all configs implement a common interface, it is currently impossible to implement a Rust trait to encapsulate that
 due to Rust not having GAT's (generic associated types) at the moment of writing.
 
-As a result, some code is duplicated internally in the crate, and the crate users will not be able to write code generic over config implementation.
+As a result, some code is duplicated internally in the crate, and the crate users will not be able to write code generic over config implementations.

@@ -12,16 +12,41 @@ fn cmp_f64(l: f64, r: f64) -> bool {
 fn main() {
     let lua = rlua::Lua::new();
 
-    let script = "array_value = { 54, 12, 78.9 } -- array_value
-bool_value = true
-float_value = 3.14
-int_value = 7
-string_value = \"foo\"
-table_value = {
-\tbar = 2020,
-\tbaz = \"hello\",
-\tfoo = false,
-} -- table_value";
+    let script = "{
+\tarray_value = {
+\t\t54,
+\t\t12,
+\t\t78.9,
+\t}, -- array_value
+\tbool_value = true,
+\tfloat_value = 3.14,
+\tint_value = 7,
+\tstring_value = \"foo{}[];#:=\",
+\ttable_value = {
+\t\tbar = 2020,
+\t\tbaz = \"hello\",
+\t\tfoo = false,
+\t\t[\"áéíóú\"] = \"42\",
+\t}, -- table_value
+}";
+
+    let ini = r#"bool = true
+float = 3.14
+int = 7
+string = "foo"
+
+[other_section]
+other_bool = true
+other_float = 3.14
+other_int = 7
+other_string = "foo"
+
+[section]
+bool = false
+float = 7.62
+int = 9
+string = "bar"
+"#;
 
     // Serialize to binary config.
     let data = lua.context(|lua| {
@@ -47,19 +72,22 @@ table_value = {
 
         assert_eq!(root.get_i64("int_value").unwrap(), 7);
 
-        assert_eq!(root.get_string("string_value").unwrap().as_ref(), "foo");
+        assert_eq!(
+            root.get_string("string_value").unwrap().as_ref(),
+            "foo{}[];#:="
+        );
 
         let table_value = root.get_table("table_value").unwrap();
 
-        assert_eq!(table_value.len(), 3);
+        assert_eq!(table_value.len(), 4);
         assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
         assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
         assert_eq!(table_value.get_string("baz").unwrap().as_ref(), "hello");
         assert_eq!(table_value.get_bool("foo").unwrap(), false);
+        assert_eq!(table_value.get_string("áéíóú").unwrap().as_ref(), "42");
 
         // Serialize to string.
         let string = config.to_string();
-
         assert_eq!(script, string, "Script and serialized config mismatch.");
 
         // Serialize to binary config.
@@ -88,13 +116,20 @@ table_value = {
 
     assert_eq!(root.get_i64("int_value").unwrap(), 7);
 
-    assert_eq!(root.get_string("string_value").unwrap(), "foo");
+    assert_eq!(root.get_string("string_value").unwrap(), "foo{}[];#:=");
 
     let table_value = root.get_table("table_value").unwrap();
 
-    assert_eq!(table_value.len(), 3);
+    assert_eq!(table_value.len(), 4);
     assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
     assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
     assert_eq!(table_value.get_string("baz").unwrap(), "hello");
     assert_eq!(table_value.get_bool("foo").unwrap(), false);
+
+    // Load from INI.
+    let config = DynConfig::from_ini(ini).unwrap();
+
+    // Serialize to INI.
+    let string = config.to_ini_string().unwrap();
+    assert_eq!(string, ini);
 }

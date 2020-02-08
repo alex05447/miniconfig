@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::slice::Iter as VecIter;
 
 use crate::{
-    DisplayIndent, DynArrayGetError, DynArraySetError, DynTable, DynTableMut, DynTableRef, Value,
+    DisplayLua, DynArrayGetError, DynArraySetError, DynTable, DynTableMut, DynTableRef, Value,
 };
 
 /// Represents a mutable array of [`Value`]'s with integer 0-based indices.
@@ -297,27 +297,31 @@ impl DynArray {
         self.0.pop().ok_or(DynArrayGetError::ArrayEmpty)
     }
 
-    fn fmt_indent_impl(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        if comma {
-            write!(f, "{{ ")?;
-        }
-
-        let len = self.len();
+    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        writeln!(f, "{{ ")?;
 
         // Iterate the array.
         for (index, value) in self.iter().enumerate() {
-            value.fmt_indent(f, indent + 1, true)?;
+            <Self as DisplayLua>::do_indent(f, indent + 1)?;
 
-            let last = (index as u32) == len - 1;
+            value.fmt_lua(f, indent + 1)?;
 
-            if comma && !last {
-                write!(f, ", ")?;
+            write!(f, ",")?;
+
+            let is_array_or_table = match value {
+                Value::Table(_) | Value::Array(_) => true,
+                _ => false,
+            };
+
+            if is_array_or_table {
+                write!(f, " -- [{}]", index)?;
             }
+
+            writeln!(f)?;
         }
 
-        if comma {
-            write!(f, " }}")?;
-        }
+        <Self as DisplayLua>::do_indent(f, indent)?;
+        write!(f, "}}")?;
 
         Ok(())
     }
@@ -395,26 +399,26 @@ impl<'a> Iterator for DynArrayIter<'a> {
     }
 }
 
-impl DisplayIndent for DynArray {
-    fn fmt_indent(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        self.fmt_indent_impl(f, indent, comma)
+impl DisplayLua for DynArray {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(f, indent)
     }
 }
 
-impl<'a> DisplayIndent for DynArrayRef<'a> {
-    fn fmt_indent(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        self.fmt_indent_impl(f, indent, comma)
+impl<'a> DisplayLua for DynArrayRef<'a> {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(f, indent)
     }
 }
 
-impl<'a> DisplayIndent for DynArrayMut<'a> {
-    fn fmt_indent(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        self.fmt_indent_impl(f, indent, comma)
+impl<'a> DisplayLua for DynArrayMut<'a> {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(f, indent)
     }
 }
 
 impl Display for DynArray {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent_impl(f, 0, true)
+        self.fmt_lua_impl(f, 0)
     }
 }

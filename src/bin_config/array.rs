@@ -3,7 +3,7 @@ use std::iter::Iterator;
 
 use super::array_or_table::BinArrayOrTable;
 use super::value::BinConfigValue;
-use crate::{BinArrayGetError, BinTable, DisplayIndent, Value};
+use crate::{BinArrayGetError, BinTable, DisplayLua, Value};
 
 /// Represents an immutable array of [`Value`]'s with integer 0-based indices.
 ///
@@ -142,27 +142,31 @@ impl<'a> BinArray<'a> {
         }
     }
 
-    fn fmt_indent_impl(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        if comma {
-            write!(f, "{{ ")?;
-        }
-
-        let len = self.len();
+    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        writeln!(f, "{{ ")?;
 
         // Iterate the array.
         for (index, value) in self.iter().enumerate() {
-            value.fmt_indent(f, indent + 1, true)?;
+            <Self as DisplayLua>::do_indent(f, indent + 1)?;
 
-            let last = (index as u32) == len - 1;
+            value.fmt_lua(f, indent + 1)?;
 
-            if comma && !last {
-                write!(f, ", ")?;
+            write!(f, ",")?;
+
+            let is_array_or_table = match value {
+                Value::Table(_) | Value::Array(_) => true,
+                _ => false,
+            };
+
+            if is_array_or_table {
+                write!(f, " -- [{}]", index)?;
             }
+
+            writeln!(f)?;
         }
 
-        if comma {
-            write!(f, " }}")?;
-        }
+        <Self as DisplayLua>::do_indent(f, indent)?;
+        write!(f, "}}")?;
 
         Ok(())
     }
@@ -200,14 +204,14 @@ impl<'i, 'a> Iterator for BinArrayIter<'i, 'a> {
     }
 }
 
-impl<'a> DisplayIndent for BinArray<'a> {
-    fn fmt_indent(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        self.fmt_indent_impl(f, indent, comma)
+impl<'a> DisplayLua for BinArray<'a> {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(f, indent)
     }
 }
 
 impl<'a> Display for BinArray<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent_impl(f, 0, true)
+        self.fmt_lua_impl(f, 0)
     }
 }

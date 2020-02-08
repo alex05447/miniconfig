@@ -1,14 +1,14 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 
 use crate::{
-    DisplayIndent, DynArray, DynArrayMut, DynArrayRef, DynTable, DynTableMut, DynTableRef, Value,
+    DisplayLua, DynArray, DynArrayMut, DynArrayRef, DynTable, DynTableMut, DynTableRef, Value,
 };
 
 #[cfg(feature = "bin")]
 use crate::{BinConfigWriter, BinConfigWriterError};
 
 #[cfg(feature = "ini")]
-use crate::{ini::dyn_config_from_ini, IniError, IniOptions};
+use crate::{ini::dyn_config_from_ini, DisplayINI, IniError, IniOptions, ToINIStringError};
 
 /// Represents a mutable config with a root hashmap [`table`].
 ///
@@ -62,17 +62,47 @@ impl DynConfig {
         writer.finish()
     }
 
-    /// Creates a new [`config`] from the INI `string`.
+    /// Creates a new [`config`] from the INI `string` using default [`options`].
     ///
     /// [`config`]: struct.DynConfig.html
+    /// [`options`]: struct.IniOptions.html
     #[cfg(feature = "ini")]
     pub fn from_ini(string: &str) -> Result<Self, IniError> {
         dyn_config_from_ini(string, IniOptions::default())
     }
 
+    /// Creates a new [`config`] from the INI `string` using custom [`options`].
+    ///
+    /// [`config`]: struct.DynConfig.html
+    /// [`options`]: struct.IniOptions.html
     #[cfg(feature = "ini")]
     pub fn from_ini_opts(string: &str, options: IniOptions) -> Result<Self, IniError> {
         dyn_config_from_ini(string, options)
+    }
+
+    /// Tries to serialize this [`config`] to a Lua script string.
+    ///
+    /// NOTE: you may also call `to_string` via the [`config`]'s `Display` implementation.
+    ///
+    /// [`config`]: struct.DynConfig.html
+    pub fn to_lua_string(&self) -> Result<String, std::fmt::Error> {
+        let mut result = String::new();
+
+        write!(&mut result, "{}", self)?;
+
+        Ok(result)
+    }
+
+    /// Tries to serialize this [`config`] to an INI string.
+    ///
+    /// [`config`]: struct.DynConfig.html
+    #[cfg(feature = "ini")]
+    pub fn to_ini_string(&self) -> Result<String, ToINIStringError> {
+        let mut result = String::new();
+
+        self.root().fmt_ini(&mut result, 0)?;
+
+        Ok(result)
     }
 
     #[cfg(feature = "bin")]
@@ -149,24 +179,24 @@ impl DynConfig {
 
 impl Display for DynConfig {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.root().fmt_indent(f, 0, false)
+        self.root().fmt_lua(f, 0)
     }
 }
 
 impl<'a> Display for Value<&'a str, DynArray, DynTable> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent(f, 0, true)
+        self.fmt_lua(f, 0)
     }
 }
 
 impl<'a> Display for Value<&'a str, DynArrayRef<'a>, DynTableRef<'a>> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent(f, 0, true)
+        self.fmt_lua(f, 0)
     }
 }
 
 impl<'a> Display for Value<&'a str, DynArrayMut<'a>, DynTableMut<'a>> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent(f, 0, true)
+        self.fmt_lua(f, 0)
     }
 }

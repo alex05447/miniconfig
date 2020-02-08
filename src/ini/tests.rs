@@ -6,7 +6,7 @@ use crate::*;
 fn InvalidCharacterAtLineStart() {
     // Invalid chars.
     assert_eq!(
-        DynConfig::from_ini("!").err().unwrap(),
+        DynConfig::from_ini("=").err().unwrap(),
         IniError {
             line: 1,
             column: 1,
@@ -14,7 +14,7 @@ fn InvalidCharacterAtLineStart() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(" ?").err().unwrap(),
+        DynConfig::from_ini(" \"").err().unwrap(),
         IniError {
             line: 1,
             column: 2,
@@ -53,7 +53,7 @@ fn InvalidCharacterAtLineStart() {
 #[test]
 fn InvalidCharacterInSectionName() {
     assert_eq!(
-        DynConfig::from_ini("[!").err().unwrap(),
+        DynConfig::from_ini("[=").err().unwrap(),
         IniError {
             line: 1,
             column: 2,
@@ -71,6 +71,20 @@ fn InvalidCharacterInSectionName() {
 
     // But this succeeds.
     DynConfig::from_ini("[a]").unwrap();
+    DynConfig::from_ini("[a\\t]").unwrap();
+    DynConfig::from_ini("[\\x0066\\x006f\\x006f]").unwrap(); // "foo"
+}
+
+#[test]
+fn UnexpectedEndOfFileInSectionName() {
+    assert_eq!(
+        DynConfig::from_ini("[a").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 2,
+            error: IniErrorKind::UnexpectedEndOfFileInSectionName
+        }
+    );
 }
 
 #[test]
@@ -88,7 +102,7 @@ fn EmptySectionName() {
 #[test]
 fn InvalidCharacterAtLineEnd() {
     assert_eq!(
-        DynConfig::from_ini("[a] !").err().unwrap(),
+        DynConfig::from_ini("[a] a").err().unwrap(),
         IniError {
             line: 1,
             column: 5,
@@ -127,7 +141,7 @@ fn InvalidCharacterAtLineEnd() {
 #[test]
 fn InvalidCharacterInKey() {
     assert_eq!(
-        DynConfig::from_ini("a!").err().unwrap(),
+        DynConfig::from_ini("a[").err().unwrap(),
         IniError {
             line: 1,
             column: 2,
@@ -137,6 +151,9 @@ fn InvalidCharacterInKey() {
 
     // But this succeeds.
     DynConfig::from_ini("a=7").unwrap();
+    DynConfig::from_ini("a\\[=7").unwrap();
+    DynConfig::from_ini("a\\t=7").unwrap();
+    DynConfig::from_ini("\\x0066\\x006f\\x006f=7").unwrap();
 }
 
 #[test]
@@ -151,6 +168,7 @@ fn UnexpectedNewlineInKey() {
     );
 
     // But this succeeds.
+    DynConfig::from_ini("a\\n=7").unwrap();
     DynConfig::from_ini("a=\n").unwrap();
 }
 
@@ -246,6 +264,24 @@ fn InvalidCharacterInValue() {
     );
 
     // But this succeeds.
+    DynConfig::from_ini("a=\\=").unwrap();
+    DynConfig::from_ini("a=\\:").unwrap();
+    DynConfig::from_ini_opts(
+        "a:\\=",
+        IniOptions {
+            key_value_separator: IniKeyValueSeparator::Colon,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    DynConfig::from_ini_opts(
+        "a:\\:",
+        IniOptions {
+            key_value_separator: IniKeyValueSeparator::Colon,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     DynConfig::from_ini_opts(
         "a=a;",
         IniOptions {
@@ -295,26 +331,10 @@ fn UnexpectedNewlineInEscapeSequence() {
             error: IniErrorKind::UnexpectedNewlineInEscapeSequence
         }
     );
-    assert_eq!(
-        DynConfig::from_ini("a=\"\\\n").err().unwrap(),
-        IniError {
-            line: 1,
-            column: 4,
-            error: IniErrorKind::UnexpectedNewlineInEscapeSequence
-        }
-    );
 
-    // But this succeeds.
+    // But this succeeds (empty value).
     DynConfig::from_ini_opts(
         "a=\\\n",
-        IniOptions {
-            line_continuation: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    DynConfig::from_ini_opts(
-        "a=\"\\\n",
         IniOptions {
             line_continuation: true,
             ..Default::default()
@@ -446,13 +466,25 @@ fn UnexpectedNewlineInQuotedString() {
 
     // But this succeeds.
     DynConfig::from_ini_opts(
-        "a=\"\\\n",
+        "a=\"\\\n\"",
         IniOptions {
             line_continuation: true,
             ..Default::default()
         },
     )
     .unwrap();
+}
+
+#[test]
+fn UnexpectedEndOfFileInQuotedString() {
+    assert_eq!(
+        DynConfig::from_ini("a=\"").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 3,
+            error: IniErrorKind::UnexpectedEndOfFileInQuotedString
+        }
+    );
 }
 
 #[test]
@@ -528,4 +560,61 @@ other_string = "foo"
     assert_eq!(other_section.get_i64("other_int").unwrap(), 7);
     assert!(cmp_f64(other_section.get_f64("other_float").unwrap(), 3.14));
     assert_eq!(other_section.get_string("other_string").unwrap(), "foo");
+}
+
+#[test]
+fn ArraysNotSupported() {
+    let mut config = DynConfig::new();
+    config
+        .root_mut()
+        .set("array", Value::Array(DynArray::new()))
+        .unwrap();
+
+    assert_eq!(
+        config.to_ini_string(),
+        Err(ToINIStringError::ArraysNotSupported)
+    );
+}
+
+#[test]
+fn NestedTablesNotSupported() {
+    let mut config = DynConfig::new();
+    let mut root = config.root_mut();
+    root.set("table", Value::Table(DynTable::new())).unwrap();
+    let mut table = root.get_mut("table").unwrap().table().unwrap();
+    table
+        .set("nested_table", Value::Table(DynTable::new()))
+        .unwrap();
+
+    assert_eq!(
+        config.to_ini_string(),
+        Err(ToINIStringError::NestedTablesNotSupported)
+    );
+}
+
+#[test]
+fn from_string_and_back() {
+    let ini = r#"bool = true
+float = 3.14
+int = 7
+string = "foo"
+
+[other_section]
+other_bool = true
+other_float = 3.14
+other_int = 7
+other_string = "foo"
+
+[section]
+bool = false
+float = 7.62
+int = 9
+string = "bar"
+"#;
+
+    let config = DynConfig::from_ini(ini).unwrap();
+
+    let string = config.to_ini_string().unwrap();
+
+    assert_eq!(ini, string);
 }

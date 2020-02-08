@@ -4,7 +4,7 @@ use super::util::{
     array_value_type, new_array, set_array_value_type, set_table_len, table_len,
     value_from_lua_value,
 };
-use crate::{DisplayIndent, LuaArrayGetError, LuaArraySetError, LuaString, LuaTable, Value};
+use crate::{DisplayLua, LuaArrayGetError, LuaArraySetError, LuaString, LuaTable, Value};
 
 use rlua::Context;
 
@@ -294,27 +294,31 @@ impl<'lua> LuaArray<'lua> {
         }
     }
 
-    fn fmt_indent_impl(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        if comma {
-            write!(f, "{{ ")?;
-        }
-
-        let len = self.len();
+    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        writeln!(f, "{{")?;
 
         // Iterate the array.
         for (index, value) in self.iter().enumerate() {
-            value.fmt_indent(f, indent + 1, true)?;
+            <Self as DisplayLua>::do_indent(f, indent + 1)?;
 
-            let last = (index as u32) == len - 1;
+            value.fmt_lua(f, indent + 1)?;
 
-            if comma && !last {
-                write!(f, ", ")?;
+            write!(f, ",")?;
+
+            let is_array_or_table = match value {
+                Value::Table(_) | Value::Array(_) => true,
+                _ => false,
+            };
+
+            if is_array_or_table {
+                write!(f, " -- [{}]", index)?;
             }
+
+            writeln!(f)?;
         }
 
-        if comma {
-            write!(f, " }}")?;
-        }
+        <Self as DisplayLua>::do_indent(f, indent)?;
+        write!(f, "}}")?;
 
         Ok(())
     }
@@ -343,14 +347,14 @@ impl<'lua> std::iter::Iterator for LuaArrayIter<'lua> {
     }
 }
 
-impl<'lua> DisplayIndent for LuaArray<'lua> {
-    fn fmt_indent(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        self.fmt_indent_impl(f, indent, comma)
+impl<'lua> DisplayLua for LuaArray<'lua> {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(f, indent)
     }
 }
 
 impl<'lua> Display for LuaArray<'lua> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent_impl(f, 0, true)
+        self.fmt_lua_impl(f, 0)
     }
 }

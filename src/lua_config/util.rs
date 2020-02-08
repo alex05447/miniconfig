@@ -1,8 +1,8 @@
-use std::fmt::Write;
+use std::fmt::{Formatter, Write};
 
 use crate::{
-    value_type_from_u32, value_type_to_u32, LuaArray, LuaConfigError, LuaString, LuaTable, Value,
-    ValueType,
+    value_type_from_u32, value_type_to_u32, write_char, LuaArray, LuaConfigError, LuaString,
+    LuaTable, Value, ValueType,
 };
 
 use rlua;
@@ -344,4 +344,86 @@ pub(super) fn value_from_lua_value(
         rlua::Value::Nil => Err(KeyDoesNotExist),
         _ => Err(InvalidValueType(value_type(&value))),
     }
+}
+
+pub(crate) trait DisplayLua {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result;
+
+    fn do_indent(f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        for _ in 0..indent {
+            write!(f, "\t")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<S, A, T> DisplayLua for Value<S, A, T>
+where
+    S: AsRef<str>,
+    A: DisplayLua,
+    T: DisplayLua,
+{
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        match self {
+            Value::Bool(value) => write!(f, "{}", if *value { "true" } else { "false" }),
+            Value::I64(value) => write!(f, "{}", value),
+            Value::F64(value) => write!(f, "{}", value),
+            Value::String(value) => write_lua_string(f, value.as_ref()),
+            Value::Array(value) => value.fmt_lua(f, indent),
+            Value::Table(value) => value.fmt_lua(f, indent),
+        }
+    }
+}
+
+/// Writes the `string` to the writer `w`, enclosing it in quotes and escaping special characters
+/// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r').
+fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
+    write!(w, "\"")?;
+
+    for c in string.chars() {
+        write_char(w, c, false)?;
+    }
+
+    write!(w, "\"")
+}
+
+/// Writes the Lua table `key` to the writer `w`.
+/// Writes the string as-si if it's a valid Lua identifier,
+/// otherwise encloses it in brackets / quotes, and escapes special characters
+/// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r').
+pub(crate) fn write_lua_key<W: Write>(w: &mut W, key: &str) -> std::fmt::Result {
+    if is_lua_identifier_key(key) {
+        write!(w, "{}", key)
+    } else {
+        write!(w, "[")?;
+        write_lua_string(w, key)?;
+        write!(w, "]")
+    }
+}
+
+/// Returns `true` if the char `c` is a valid Lua identifier character.
+/// Lua identifiers start with an ASCII letter and may contain ASCII letters, digits and underscores.
+fn is_lua_identifier_char(c: char, first: bool) -> bool {
+    c.is_ascii_alphabetic() || (!first && ((c == '_') || c.is_ascii_digit()))
+}
+
+/// Returns `true` if the non-empty string `key` is a valid Lua identifier.
+/// Lua identifiers start with an ASCII letter and may contain ASCII letters, digits and underscores.
+fn is_lua_identifier_key(key: &str) -> bool {
+    debug_assert!(!key.is_empty());
+
+    let mut chars = key.chars();
+
+    if !is_lua_identifier_char(chars.next().unwrap(), true) {
+        return false;
+    }
+
+    for c in chars {
+        if !is_lua_identifier_char(c, false) {
+            return false;
+        }
+    }
+
+    true
 }

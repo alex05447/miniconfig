@@ -93,6 +93,9 @@ pub enum DynTableSetError {
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.LuaTable.html
     KeyDoesNotExist,
+    /// Provided [`table`] key is invalid (contains non-alphanumeric ASCII characters or underscores).
+    /// [`table`]: struct.LuaTable.html
+    InvalidKey,
 }
 
 impl Display for DynTableSetError {
@@ -101,6 +104,7 @@ impl Display for DynTableSetError {
 
         match self {
             KeyDoesNotExist => write!(f, "Tried to remove a non-existant value from the table."),
+            InvalidKey => write!(f, "Provided table key is invalid (contains non-alphanumeric ASCII characters or underscores)."),
         }
     }
 }

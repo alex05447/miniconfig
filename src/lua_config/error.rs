@@ -21,7 +21,7 @@ pub enum LuaConfigError {
         /// Found Lua value type.
         found: rlua_ext::ValueType,
     },
-    /// Invalid key type in the Lua table.
+    /// Invalid key type in the Lua table - only strings and numbers are allowed.
     InvalidKeyType {
         /// Path to the table, or an empty string for the root table.
         path: String,
@@ -69,7 +69,7 @@ impl Display for LuaConfigError {
                     expected,
                     found,
                 ),
-            InvalidKeyType{ path, invalid_type } => write!(f, "Invalid key type ({}) in the Lua table \"{}\".", invalid_type, if path.is_empty() { "<root>" } else { path }),
+            InvalidKeyType{ path, invalid_type } => write!(f, "Invalid key type ({}) in the Lua table \"{}\" - only strings and numbers are allowed.", invalid_type, if path.is_empty() { "<root>" } else { path }),
             InvalidKeyUTF8{ path, .. } => write!(f, "Invalid string key UTF-8 in Lua table \"{}\".", if path.is_empty() { "<root>" } else { path }),
             InvalidArrayIndex(path) => write!(f, "Invalid integer array index in Lua table \"{}\".", if path.is_empty() { "<root>" } else { path }),
             InvalidValueType{ path, invalid_type } => write!(f, "Invalid Lua value type ({}) for any config value at \"{}\".", invalid_type, path),
@@ -191,6 +191,9 @@ pub enum LuaTableSetError {
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.LuaTable.html
     KeyDoesNotExist,
+    /// Provided [`table`] key is invalid (contains non-alphanumeric ASCII characters or underscores).
+    /// [`table`]: struct.LuaTable.html
+    InvalidKey,
 }
 
 impl Display for LuaTableSetError {
@@ -199,6 +202,7 @@ impl Display for LuaTableSetError {
 
         match self {
             KeyDoesNotExist => write!(f, "Tried to remove a non-existant value from the table."),
+            InvalidKey => write!(f, "Provided table key is invalid (contains non-alphanumeric ASCII characters or underscores)."),
         }
     }
 }

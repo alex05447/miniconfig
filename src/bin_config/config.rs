@@ -5,8 +5,11 @@ use super::array_or_table::BinArrayOrTable;
 use super::util::string_hash_fnv1a;
 use super::value::BinConfigPackedValue;
 use crate::{
-    BinArray, BinConfigError, BinConfigWriterError, BinTable, DisplayIndent, Value, ValueType,
+    BinArray, BinConfigError, BinConfigWriterError, BinTable, DisplayLua, Value, ValueType,
 };
+
+#[cfg(feature = "ini")]
+use crate::{DisplayINI, ToINIStringError};
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
@@ -41,6 +44,33 @@ impl BinConfig {
     pub fn root(&self) -> BinTable<'_> {
         // We ensured the data is validated.
         unsafe { Self::root_impl(&self.0) }
+    }
+
+    /// Tries to serialize this [`config`] to a Lua script string.
+    ///
+    /// NOTE: you may also call `to_string` via the [`config`]'s `Display` implementation.
+    ///
+    /// [`config`]: struct.BinConfig.html
+    pub fn to_lua_string(&self) -> Result<String, std::fmt::Error> {
+        use std::fmt::Write;
+
+        let mut result = String::new();
+
+        write!(&mut result, "{}", self)?;
+
+        Ok(result)
+    }
+
+    /// Tries to serialize this [`config`] to an INI string.
+    ///
+    /// [`config`]: struct.BinConfig.html
+    #[cfg(feature = "ini")]
+    pub fn to_ini_string(&self) -> Result<String, ToINIStringError> {
+        let mut result = String::new();
+
+        self.root().fmt_ini(&mut result, 0)?;
+
+        Ok(result)
     }
 
     // Returns the pointer to the start of the config data blob w.r.t. which
@@ -311,13 +341,13 @@ impl BinConfig {
 
 impl Display for BinConfig {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.root().fmt_indent(f, 0, false)
+        self.root().fmt_lua(f, 0)
     }
 }
 
 impl<'a> Display for Value<&'a str, BinArray<'a>, BinTable<'a>> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent(f, 0, true)
+        self.fmt_lua(f, 0)
     }
 }
 

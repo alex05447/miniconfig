@@ -1,10 +1,13 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 use std::iter::Iterator;
 
 use super::array_or_table::BinArrayOrTable;
 use super::util::string_hash_fnv1a;
 use super::value::BinConfigValue;
-use crate::{BinArray, BinTableGetError, DisplayIndent, Value};
+use crate::{write_lua_key, BinArray, BinTableGetError, DisplayLua, Value};
+
+#[cfg(feature = "ini")]
+use crate::{write_ini_section, write_ini_string, DisplayINI, ToINIStringError, ValueType};
 
 /// Represents an immutable map of [`Value`]'s with string keys.
 ///
@@ -161,61 +164,101 @@ impl<'t> BinTable<'t> {
         }
     }
 
-    fn fmt_indent_impl(&self, f: &mut Formatter, indent: u32, mut comma: bool) -> std::fmt::Result {
-        if indent == 0 {
-            comma = false
+    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        writeln!(f, "{{")?;
+
+        // Gather the keys.
+        let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
+
+        // Sort the keys.
+        keys.sort_by(|l, r| l.cmp(r));
+
+        // Iterate the table using the sorted keys.
+        for key in keys.into_iter() {
+            <Self as DisplayLua>::do_indent(f, indent + 1)?;
+
+            write_lua_key(f, key)?;
+            write!(f, " = ")?;
+
+            // Must succeed.
+            let value = self.get(key).unwrap();
+
+            let is_array_or_table = match value {
+                Value::Table(_) | Value::Array(_) => true,
+                _ => false,
+            };
+
+            value.fmt_lua(f, indent + 1)?;
+
+            write!(f, ",")?;
+
+            if is_array_or_table {
+                write!(f, " -- {}", key)?;
+            }
+
+            writeln!(f)?;
+        }
+
+        <Self as DisplayLua>::do_indent(f, indent)?;
+        write!(f, "}}")?;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "ini")]
+    fn fmt_ini_impl<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
+        use ToINIStringError::*;
+
+        if level >= 2 {
+            return Err(NestedTablesNotSupported);
         };
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
 
-        if comma {
-            writeln!(f, "{{")?;
-        }
+        // Sort the keys in alphabetical order, non-tables first.
+        keys.sort_by(|l, r| {
+            let l_val = self.get(*l).unwrap();
+            let r_val = self.get(*r).unwrap();
 
-        // Sort the keys.
-        keys.sort_by(|l, r| l.cmp(r));
+            let l_is_a_table = l_val.get_type() == ValueType::Table;
+            let r_is_a_table = r_val.get_type() == ValueType::Table;
 
-        let len = self.len();
+            if !l_is_a_table && r_is_a_table {
+                std::cmp::Ordering::Less
+            } else if l_is_a_table && !r_is_a_table {
+                std::cmp::Ordering::Greater
+            } else {
+                l.cmp(r)
+            }
+        });
 
         // Iterate the table using the sorted keys.
         for (key_index, key) in keys.into_iter().enumerate() {
-            let key = key;
-
             // Must succeed.
-            // We either skipped invalid values or errored out above.
-            let value = self.get(key).map_err(|_| std::fmt::Error)?;
+            let value = self.get(key).unwrap();
 
-            <Self as DisplayIndent>::do_indent(f, indent)?;
+            match value.get_type() {
+                ValueType::Array => return Err(ArraysNotSupported),
+                ValueType::Table => {
+                    if key_index > 0 {
+                        writeln!(w).map_err(|_| WriteError)?;
+                    }
 
-            write!(f, "{} = ", key)?;
+                    write_ini_section(w, key).map_err(|_| WriteError)?;
+                    writeln!(w).map_err(|_| WriteError)?;
 
-            let is_table = match value {
-                Value::Table(_) | Value::Array(_) => true,
-                _ => false,
-            };
+                    value.fmt_ini(w, level + 1)?;
+                }
+                _ => {
+                    write_ini_string(w, key).map_err(|_| WriteError)?;
+                    write!(w, " = ").map_err(|_| WriteError)?;
 
-            value.fmt_indent(f, indent, true)?;
+                    value.fmt_ini(w, level + 1)?;
 
-            if comma {
-                write!(f, ",")?;
+                    writeln!(w).map_err(|_| WriteError)?;
+                }
             }
-
-            if is_table {
-                write!(f, " -- {}", key)?;
-            }
-
-            let last = (key_index as u32) == len - 1;
-
-            if !last {
-                writeln!(f)?;
-            }
-        }
-
-        if comma {
-            debug_assert!(indent > 0);
-            <Self as DisplayIndent>::do_indent(f, indent - 1)?;
-            write!(f, "\n}}")?;
         }
 
         Ok(())
@@ -261,14 +304,21 @@ impl<'i, 't> Iterator for BinTableIter<'i, 't> {
     }
 }
 
-impl<'t> DisplayIndent for BinTable<'t> {
-    fn fmt_indent(&self, f: &mut Formatter, indent: u32, comma: bool) -> std::fmt::Result {
-        self.fmt_indent_impl(f, indent, comma)
+impl<'t> DisplayLua for BinTable<'t> {
+    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(f, indent)
     }
 }
 
 impl<'t> Display for BinTable<'t> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent_impl(f, 0, true)
+        self.fmt_lua_impl(f, 0)
+    }
+}
+
+#[cfg(feature = "ini")]
+impl<'t> DisplayINI for BinTable<'t> {
+    fn fmt_ini<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
+        self.fmt_ini_impl(w, level)
     }
 }

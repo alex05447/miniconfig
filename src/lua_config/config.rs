@@ -1,10 +1,13 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 
 use super::util::{new_table, validate_lua_config_table};
-use crate::{DisplayIndent, LuaArray, LuaConfigError, LuaConfigKeyError, LuaTable, Value};
+use crate::{DisplayLua, LuaArray, LuaConfigError, LuaConfigKeyError, LuaTable, Value};
 
 #[cfg(feature = "bin")]
 use crate::{BinConfigWriter, BinConfigWriterError};
+
+#[cfg(feature = "ini")]
+use crate::{DisplayINI, ToINIStringError};
 
 use rlua::{Context, RegistryKey};
 
@@ -48,11 +51,15 @@ impl<'lua> LuaConfig<'lua> {
 
         let root = lua.create_table().unwrap();
 
-        lua.load(script)
+        let script = format!("root = {}", script);
+
+        lua.load(&script)
             .set_environment(root.clone())
             .unwrap()
             .exec()
             .map_err(LuaScriptError)?;
+
+        let root = root.get("root").unwrap();
 
         Self::from_table(lua, root)
     }
@@ -92,6 +99,19 @@ impl<'lua> LuaConfig<'lua> {
         LuaConfigKey(lua.create_registry_value((self.0).0).unwrap())
     }
 
+    /// Tries to serialize this [`config`] to a Lua script string.
+    ///
+    /// NOTE: you may also call `to_string` via the [`config`]'s `Display` implementation.
+    ///
+    /// [`config`]: struct.LuaConfig.html
+    pub fn to_lua_string(&self) -> Result<String, std::fmt::Error> {
+        let mut result = String::new();
+
+        write!(&mut result, "{}", self)?;
+
+        Ok(result)
+    }
+
     /// Tries to serialize this [`config`] to a [`binary config`].
     ///
     /// [`config`]: struct.LuaConfig.html
@@ -112,6 +132,18 @@ impl<'lua> LuaConfig<'lua> {
         Self::table_to_bin_config(root, &mut writer)?;
 
         writer.finish()
+    }
+
+    /// Tries to serialize this [`config`] to an INI string.
+    ///
+    /// [`config`]: struct.LuaConfig.html
+    #[cfg(feature = "ini")]
+    pub fn to_ini_string(&self) -> Result<String, ToINIStringError> {
+        let mut result = String::new();
+
+        self.root().fmt_ini(&mut result, 0)?;
+
+        Ok(result)
     }
 
     #[cfg(feature = "bin")]
@@ -248,12 +280,12 @@ impl LuaConfigKey {
 
 impl<'lua> Display for LuaConfig<'lua> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.root().fmt_indent(f, 0, false)
+        self.root().fmt_lua(f, 0)
     }
 }
 
 impl<'lua> Display for Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_indent(f, 0, true)
+        self.fmt_lua(f, 0)
     }
 }

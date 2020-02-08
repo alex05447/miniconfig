@@ -34,12 +34,12 @@ fn script_errors() {
 
         assert_script_error(
             lua,
-            r#"
+            r#"{
                 table = {
                     foo = true,
                     [1] = 7,
                 }
-            "#,
+            }"#,
             |err| {
                 if let LuaConfigError::MixedKeys(path) = err {
                     assert_eq!(path, "table")
@@ -51,13 +51,13 @@ fn script_errors() {
 
         assert_script_error(
             lua,
-            r#"
+            r#"{
                 array = {
                     true,
                     7,
                     3.14,
                 }
-            "#,
+            }"#,
             |err| {
                 if let LuaConfigError::MixedArray {
                     path,
@@ -77,27 +77,27 @@ fn script_errors() {
         // But this should be fine.
         LuaConfigKey::from_script(
             lua,
-            r#"
+            r#"{
                 array = {
                     -24,
                     7,
                     3.14,
                 }
-            "#,
+            }"#,
         )
         .unwrap();
 
         assert_script_error(
             lua,
-            r#"
-                table = {}
-                local key = {}
-                table[key] = 7
-            "#,
+            r#"{
+                table = {
+                    [3.14] = true,
+                }
+            }"#,
             |err| {
                 if let LuaConfigError::InvalidKeyType { path, invalid_type } = err {
                     assert_eq!(path, "table");
-                    assert_eq!(invalid_type, rlua_ext::ValueType::Table);
+                    assert_eq!(invalid_type, rlua_ext::ValueType::Number);
                 } else {
                     panic!("Wrong error.");
                 }
@@ -106,30 +106,11 @@ fn script_errors() {
 
         assert_script_error(
             lua,
-            r#"
-                table = {
-                    table_2 = {}
-                }
-                local key = {}
-                table.table_2[key] = 7
-            "#,
-            |err| {
-                if let LuaConfigError::InvalidKeyType { path, invalid_type } = err {
-                    assert_eq!(path, "table.table_2");
-                    assert_eq!(invalid_type, rlua_ext::ValueType::Table);
-                } else {
-                    panic!("Wrong error.");
-                }
-            },
-        );
-
-        assert_script_error(
-            lua,
-            r#"
+            r#"{
                 table = {
                     ["\xc0"] = 7
                 }
-            "#,
+            }"#,
             |err| {
                 if let LuaConfigError::InvalidKeyUTF8 { path, .. } = err {
                     assert_eq!(path, "table");
@@ -141,11 +122,11 @@ fn script_errors() {
 
         assert_script_error(
             lua,
-            r#"
+            r#"{
                 table = {
                     [0] = 7
                 }
-            "#,
+            }"#,
             |err| {
                 if let LuaConfigError::InvalidArrayIndex(path) = err {
                     assert_eq!(path, "table");
@@ -157,11 +138,11 @@ fn script_errors() {
 
         assert_script_error(
             lua,
-            r#"
+            r#"{
                 table = {
                     invalid = function () end
                 }
-            "#,
+            }"#,
             |err| {
                 if let LuaConfigError::InvalidValueType { path, invalid_type } = err {
                     assert_eq!(path, "table.invalid");
@@ -174,11 +155,11 @@ fn script_errors() {
 
         assert_script_error(
             lua,
-            r#"
+            r#"{
                 table = {
                     string = "\xc0"
                 }
-            "#,
+            }"#,
             |err| {
                 if let LuaConfigError::InvalidValueUTF8 { path, .. } = err {
                     assert_eq!(path, "table.string");
@@ -190,16 +171,22 @@ fn script_errors() {
     });
 }
 
-const SCRIPT: &str = "array_value = { 54, 12, 78.9 } -- array_value
-bool_value = true
-float_value = 3.14
-int_value = 7
-string_value = \"foo\"
-table_value = {
-\tbar = 2020,
-\tbaz = \"hello\",
-\tfoo = false,
-} -- table_value";
+const SCRIPT: &str = "{
+\tarray_value = {
+\t\t54,
+\t\t12,
+\t\t78.9,
+\t}, -- array_value
+\tbool_value = true,
+\tfloat_value = 3.14,
+\tint_value = 7,
+\tstring_value = \"foo{}[];#:=\",
+\ttable_value = {
+\t\tbar = 2020,
+\t\tbaz = \"hello\",
+\t\tfoo = false,
+\t}, -- table_value
+}";
 
 #[test]
 fn from_script_and_back() {
@@ -538,7 +525,7 @@ fn bin_config() {
 
         assert_eq!(root.get_i64("int_value").unwrap(), 7);
 
-        assert_eq!(root.get_string("string_value").unwrap(), "foo");
+        assert_eq!(root.get_string("string_value").unwrap(), "foo{}[];#:=");
 
         let table_value = root.get_table("table_value").unwrap();
 
@@ -547,5 +534,61 @@ fn bin_config() {
         assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
         assert_eq!(table_value.get_string("baz").unwrap(), "hello");
         assert_eq!(table_value.get_bool("foo").unwrap(), false);
+    });
+}
+
+#[cfg(feature = "ini")]
+#[test]
+fn to_ini_string() {
+    let script = r#"
+{
+    bool = true,
+    float = 3.14,
+    int = 7,
+    -- "foo"
+    string = "\x66\x6f\x6f",
+
+    other_section = {
+        other_bool = true,
+        other_float = 3.14,
+        other_int = 7,
+        other_string = "foo",
+    },
+
+    section = {
+        bool = false,
+        float = 7.62,
+        int = 9,
+        string = "bar",
+    },
+}
+"#;
+
+    let ini = r#"bool = true
+float = 3.14
+int = 7
+string = "foo"
+
+[other_section]
+other_bool = true
+other_float = 3.14
+other_int = 7
+other_string = "foo"
+
+[section]
+bool = false
+float = 7.62
+int = 9
+string = "bar"
+"#;
+
+    let lua = rlua::Lua::new();
+
+    lua.context(|lua| {
+        let config = LuaConfig::from_script(lua, script).unwrap();
+
+        let string = config.to_ini_string().unwrap();
+
+        assert_eq!(ini, string);
     });
 }
