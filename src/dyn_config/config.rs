@@ -90,6 +90,8 @@ impl DynConfig {
 
         write!(&mut result, "{}", self)?;
 
+        result.shrink_to_fit();
+
         Ok(result)
     }
 
@@ -101,6 +103,8 @@ impl DynConfig {
         let mut result = String::new();
 
         self.root().fmt_ini(&mut result, 0)?;
+
+        result.shrink_to_fit();
 
         Ok(result)
     }

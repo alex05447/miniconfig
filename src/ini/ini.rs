@@ -44,10 +44,10 @@ enum IniParserState {
     /// whitespace (-> SkipLineWhitespaceOrComments) (including new lines (-> StartLine)),
     /// inline comment delimiters (';' / '#') (if supported) (-> SkipLine).
     Value,
-    /// Accept whitespace (except new lines),
-    /// valid value chars,
-    /// matching string quotes ('"' / '\'') (-> SkipLineWhitespaceOrComments),
-    /// whitespace (except new lines).
+    /// Accept valid value chars,
+    /// escape sequneces (if supported),
+    /// whitespace (except new lines),
+    /// matching string quotes ('"' / '\'') (-> SkipLineWhitespaceOrComments).
     QuotedString,
 }
 
@@ -322,7 +322,7 @@ impl<'s> IniParser<'s> {
 
                         self.state = IniParserState::QuotedString;
 
-                    // Escaped char (if supported) - parse the escape sequence.
+                    // Escaped char (if supported) - parse the escape sequence, start parsing the value.
                     } else if self.is_escape_char(current) {
                         match self.parse_escape_sequence(&mut unicode_buffer)? {
                             // Parsed an escaped char - start parsing the value.
@@ -338,7 +338,6 @@ impl<'s> IniParser<'s> {
 
                     // Valid value char - start parsing the unquoted value.
                     } else if is_key_or_value_char(current) {
-                        debug_assert!(buffer.is_empty());
                         buffer.push(current);
 
                         self.state = IniParserState::Value;
@@ -359,8 +358,9 @@ impl<'s> IniParser<'s> {
 
                         self.state = IniParserState::StartLine;
 
-                    // Whitespace - finish the value, skip the rest of the line.
+                    // Whitespace (except a new line - handled above) - finish the value, skip the rest of the line.
                     } else if current.is_whitespace() {
+                        debug_assert_ne!(current, '\n');
                         self.add_value(&mut root, &section, &key, &buffer, false)?;
                         buffer.clear();
                         key.clear();
@@ -423,8 +423,9 @@ impl<'s> IniParser<'s> {
                             ParseEscapeSequenceResult::LineContinuation => {}
                         }
 
-                    // Whitespace or valid value char - keep parsing the value.
+                    // Whitespace (except a new line - handled above) or valid value char - keep parsing the value.
                     } else if current.is_whitespace() || is_key_or_value_char(current) {
+                        debug_assert_ne!(current, '\n');
                         buffer.push(current);
 
                     // Else an error.
@@ -435,19 +436,17 @@ impl<'s> IniParser<'s> {
             }
         }
 
-        // EOF reached before we found the matching section delimiter.
-        if self.state == IniParserState::Section {
-            return Err(self.error(UnexpectedEndOfFileInSectionName));
-        }
+        match self.state {
+            IniParserState::Section => return Err(self.error(UnexpectedEndOfFileInSectionName)),
+            IniParserState::Key | IniParserState::KeyValueSeparator => return Err(self.error(UnexpectedEndOfFileBeforeKeyValueSeparator)),
+            IniParserState::QuotedString => return Err(self.error(UnexpectedEndOfFileInQuotedString)),
 
-        // EOF reached before we found the matching string quotes.
-        if self.state == IniParserState::QuotedString {
-            return Err(self.error(UnexpectedEndOfFileInQuotedString));
-        }
+            // Add the last value if we were parsing it right before EOF.
+            IniParserState::Value | IniParserState::BeforeValue => {
+                self.add_value(&mut root, &section, &key, &buffer, quote.is_some())?;
+            },
 
-        // Add the last value if we were parsing it right before EOF.
-        if self.state == IniParserState::Value {
-            self.add_value(&mut root, &section, &key, &buffer, quote.is_some())?;
+            _ => {},
         }
 
         Ok(config)
@@ -572,6 +571,9 @@ impl<'s> IniParser<'s> {
             Some('v') => Ok(EscapedChar('\x0b')),
             Some('f') => Ok(EscapedChar('\x0c')),
             Some('r') => Ok(EscapedChar('\r')),
+
+            // Escaped space.
+            Some(' ') => Ok(EscapedChar(' ')),
 
             // Escaped INI special characters, disallowed otherwise.
             Some('[') => Ok(EscapedChar('[')),

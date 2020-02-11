@@ -4,6 +4,45 @@ A minimalistic config file crate written in Rust.
 
 ## Overview
 
+- **Keys**
+
+    Any valid UTF-8 string, with special characters escaped.
+
+    These are the special characters which must be escaped:
+
+    - `\`
+    - `'`
+    - `"`
+    - `\0`
+    - `\a`
+    - `\b`
+    - `\t`
+    - `\n`
+    - `\v`
+    - `\f`
+    - `\r`
+
+    In Lua configs (requires `"lua"` feature), keys work according to Lua rules: keys which are not valid Lua identifiers (i.e. do not contain only from ASCII alphanumerical characters and underscores and start with an ASCII alphabetical character) must be enclosed in brackets and quotes (e.g. `["áéíóú"]`). Unicode 2-digit hexadecimal escape sequences work according to Lua rules.
+
+    In INI configs (requires `"ini"` feature), additionally, special INI characters must be escaped. These are the special INI characters:
+
+    - `[` (section start delimiter)
+    - `]` (section end delimiter)
+    - `;` (default comment delimiter)
+    - `#` (optional comment delimiter)
+    - `=` (default key-value separator)
+    - `:` (optional key-value separator)
+
+    Space (`' '`) must be escaped in key and section name strings.
+
+- **Values**
+
+    Same rules as keys.
+
+    In Lua configs (requires `"lua"` feature) string values are always quoted.
+
+    In INI configs (requires `"ini"` feature) quoted string values may contain spaces; unquoted string values must escape spaces.
+
 - **Lua configs** (requires `"lua"` feature).
 
     Main format for human-readable config files with nested array/table support.

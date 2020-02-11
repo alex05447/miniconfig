@@ -5,33 +5,23 @@ pub enum IniErrorKind {
     /// Invalid character at the start of the line -
     /// expected a key, section or comment.
     InvalidCharacterAtLineStart,
-    /// Invalid character in section name - expected an alphanumeric character or an underscore.
+    /// Invalid character in section name - expected a valid string character or an escape sequence.
     InvalidCharacterInSectionName,
-    /// Unexpected end of file encountered when parsing a section name.
+    /// Unexpected end of file in section name.
     UnexpectedEndOfFileInSectionName,
     /// Empty section names are not allowed.
     EmptySectionName,
-    /// Invalid character at the end of the line -
-    /// expected a new line (or an inline comment if supported).
+    /// Invalid character at the end of the line - expected a new line (or an inline comment if supported).
     InvalidCharacterAtLineEnd,
-    /// Invalid character encountered in key name - expected an alphanumeric character or an underscore.
+    /// Invalid character in key name - expected a valid string character or an escape sequence.
     InvalidCharacterInKey,
     /// Unexpected new line encountered in key name before a key-value separator.
     UnexpectedNewlineInKey,
+    /// Unexpected end of file encountered before a key-value separator.
+    UnexpectedEndOfFileBeforeKeyValueSeparator,
     /// Unexpected character encountered - expected a key-value separator.
     UnexpectedCharacterInsteadOfKeyValueSeparator,
-    /// Invalid character in value - expected an alphanumeric or punctuation character (except special INI characters).
-    ///
-    /// NOTE: these are the special INI characters:
-    /// `'\''`
-    /// `'"'`
-    /// `'\\'`
-    /// `'['`
-    /// `']'`
-    /// `';'`
-    /// `'#'`
-    /// `'='`
-    /// `':'`
+    /// Invalid character in value - expected a valid string character or an escape sequence.
     InvalidCharacterInValue,
     /// Unexpected end of file encountered when parsing an escape sequence.
     UnexpectedEndOfFileInEscapeSequence,
@@ -58,6 +48,9 @@ pub enum IniErrorKind {
     /// Unexpected end of file encountered when parsing a quoted string value.
     UnexpectedEndOfFileInQuotedString,
     /// Encountered an unsupported unquoted string value.
+    ///
+    /// NOTE: enable `unquoted_strings` in [`IniOptions`] to allow unquoted string values.
+    /// [`IniOptions`]: struct.IniOptions.html
     UnquotedString,
 }
 
@@ -82,11 +75,11 @@ impl Display for IniErrorKind {
             ),
             InvalidCharacterInSectionName => write!(
                 f,
-                "Invalid character in section name - expected an alphanumeric character or an underscore."
+                "Invalid character in section name - expected a valid string character or an escape sequence."
             ),
             UnexpectedEndOfFileInSectionName => write!(
                 f,
-                "Unexpected end of file encountered when parsing a section name."
+                "Unexpected end of file in section name."
             ),
             EmptySectionName => write!(
                 f,
@@ -98,11 +91,15 @@ impl Display for IniErrorKind {
             ),
             InvalidCharacterInKey => write!(
                 f,
-                "Invalid character encountered in key name - expected an alphanumeric character or an underscore."
+                "Invalid character in key name - expected a valid string character or an escape sequence."
             ),
             UnexpectedNewlineInKey => write!(
                 f,
                 "Unexpected new line encountered in key name before a key-value separator."
+            ),
+            UnexpectedEndOfFileBeforeKeyValueSeparator => write!(
+                f,
+                "Unexpected end of file encountered before a key-value separator."
             ),
             UnexpectedCharacterInsteadOfKeyValueSeparator => write!(
                 f,
@@ -110,7 +107,7 @@ impl Display for IniErrorKind {
             ),
             InvalidCharacterInValue => write!(
                 f,
-                "Invalid character in value - expected an alphanumeric or punctuation character (except special INI characters)."
+                "Invalid character in value - expected a valid string character or an escape sequence."
             ),
             UnexpectedEndOfFileInEscapeSequence => write!(
                 f,

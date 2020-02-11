@@ -222,3 +222,53 @@ fn writer() {
     assert_eq!(table_value.get_string("baz").unwrap(), "hello");
     assert_eq!(table_value.get_bool("foo").unwrap(), false);
 }
+
+#[cfg(feature = "ini")]
+#[test]
+fn to_ini_string() {
+    let ini = r#"bool = true
+float = 3.14
+int = 7
+string = "foo"
+
+[other_section]
+other_bool = true
+other_float = 3.14
+other_int = 7
+other_string = "foo"
+
+[section]
+bool = false
+float = 7.62
+int = 9
+string = "bar""#;
+
+    let mut writer = BinConfigWriter::new(6).unwrap();
+
+    writer.bool("bool", true).unwrap();
+    writer.f64("float", 3.14).unwrap();
+    writer.i64("int", 7).unwrap();
+    writer.string("string", "foo").unwrap();
+
+    writer.table("other_section", 4).unwrap();
+    writer.bool("other_bool", true).unwrap();
+    writer.f64("other_float", 3.14).unwrap();
+    writer.i64("other_int", 7).unwrap();
+    writer.string("other_string", "foo").unwrap();
+    writer.end().unwrap();
+
+    writer.table("section", 4).unwrap();
+    writer.bool("bool", false).unwrap();
+    writer.f64("float", 7.62).unwrap();
+    writer.i64("int", 9).unwrap();
+    writer.string("string", "bar").unwrap();
+    writer.end().unwrap();
+
+    let data = writer.finish().unwrap();
+
+    let config = BinConfig::new(data).unwrap();
+
+    let string = config.to_ini_string().unwrap();
+
+    assert_eq!(string, ini);
+}

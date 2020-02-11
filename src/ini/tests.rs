@@ -4,7 +4,7 @@ use crate::*;
 
 #[test]
 fn InvalidCharacterAtLineStart() {
-    // Invalid chars.
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini("=").err().unwrap(),
         IniError {
@@ -13,6 +13,16 @@ fn InvalidCharacterAtLineStart() {
             error: IniErrorKind::InvalidCharacterAtLineStart
         }
     );
+    // Unescaped special character.
+    assert_eq!(
+        DynConfig::from_ini(":").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 1,
+            error: IniErrorKind::InvalidCharacterAtLineStart
+        }
+    );
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini(" \"").err().unwrap(),
         IniError {
@@ -21,12 +31,11 @@ fn InvalidCharacterAtLineStart() {
             error: IniErrorKind::InvalidCharacterAtLineStart
         }
     );
-
-    // Special chars.
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini(
             r#"
-=
+'
     "#
         )
         .err()
@@ -39,7 +48,16 @@ fn InvalidCharacterAtLineStart() {
     );
 
     // But this succeeds.
-    DynConfig::from_ini(";").unwrap();
+
+    DynConfig::from_ini("\\==").unwrap(); // Special character in key, empty value.
+    assert_eq!(
+        DynConfig::from_ini("a=").unwrap().to_ini_string().unwrap(),
+        "a = \"\""
+    ); // Valid key, empty value.
+    DynConfig::from_ini("`~@$%^&*()_-+,<.>/? =").unwrap(); // Weird key.
+    DynConfig::from_ini_opts("a:", IniOptions { key_value_separator: IniKeyValueSeparator::Colon, ..IniOptions::default() }).unwrap(); // Valid key, empty value.
+    DynConfig::from_ini("[a]").unwrap(); // Section
+    DynConfig::from_ini(";").unwrap(); // Comment
     DynConfig::from_ini_opts(
         "#",
         IniOptions {
@@ -47,11 +65,12 @@ fn InvalidCharacterAtLineStart() {
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap(); // Comment
 }
 
 #[test]
 fn InvalidCharacterInSectionName() {
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini("[=").err().unwrap(),
         IniError {
@@ -60,6 +79,16 @@ fn InvalidCharacterInSectionName() {
             error: IniErrorKind::InvalidCharacterInSectionName
         }
     );
+    // Unescaped special character.
+    assert_eq!(
+        DynConfig::from_ini_opts("[:", IniOptions { key_value_separator: IniKeyValueSeparator::Colon, ..IniOptions::default() }).err().unwrap(),
+        IniError {
+            line: 1,
+            column: 2,
+            error: IniErrorKind::InvalidCharacterInSectionName
+        }
+    );
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini("[a#").err().unwrap(),
         IniError {
@@ -68,11 +97,24 @@ fn InvalidCharacterInSectionName() {
             error: IniErrorKind::InvalidCharacterInSectionName
         }
     );
+    // Unescaped special character.
+    assert_eq!(
+        DynConfig::from_ini_opts("[a;", IniOptions { comments: IniCommentSeparator::NumberSign, ..IniOptions::default() }).err().unwrap(),
+        IniError {
+            line: 1,
+            column: 3,
+            error: IniErrorKind::InvalidCharacterInSectionName
+        }
+    );
 
     // But this succeeds.
-    DynConfig::from_ini("[a]").unwrap();
-    DynConfig::from_ini("[a\\t]").unwrap();
-    DynConfig::from_ini("[\\x0066\\x006f\\x006f]").unwrap(); // "foo"
+
+    DynConfig::from_ini("[\\=]").unwrap(); // Special character in section.
+    DynConfig::from_ini("[\\:]").unwrap(); // Special character in section.
+    DynConfig::from_ini("[a]").unwrap(); // Normal section.
+    DynConfig::from_ini("[`~@$%^&*()_-+,<.>/?]").unwrap(); // Weird section.
+    DynConfig::from_ini("[\\t\\ \\n]").unwrap(); // Whitespace in section.
+    DynConfig::from_ini("[\\x0066\\x006f\\x006f]").unwrap(); // Unicode in section ("foo").
 }
 
 #[test]
@@ -97,6 +139,12 @@ fn EmptySectionName() {
             error: IniErrorKind::EmptySectionName
         }
     );
+
+    // But this succeeds.
+
+    DynConfig::from_ini("[\\ ]").unwrap(); // Whitespace in section.
+    DynConfig::from_ini("[\\t]").unwrap(); // Whitespace in section.
+    DynConfig::from_ini("[\\n]").unwrap(); // Whitespace in section.
 }
 
 #[test]
@@ -109,6 +157,7 @@ fn InvalidCharacterAtLineEnd() {
             error: IniErrorKind::InvalidCharacterAtLineEnd
         }
     );
+    // Inline comments not supported.
     assert_eq!(
         DynConfig::from_ini("[a] ;").err().unwrap(),
         IniError {
@@ -119,6 +168,7 @@ fn InvalidCharacterAtLineEnd() {
     );
 
     // But this succeeds.
+
     DynConfig::from_ini_opts(
         "[a] ;",
         IniOptions {
@@ -126,7 +176,7 @@ fn InvalidCharacterAtLineEnd() {
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap(); // Supported inline comment.
     DynConfig::from_ini_opts(
         "[a] #",
         IniOptions {
@@ -135,11 +185,12 @@ fn InvalidCharacterAtLineEnd() {
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap(); // Supported inline comment.
 }
 
 #[test]
 fn InvalidCharacterInKey() {
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini("a[").err().unwrap(),
         IniError {
@@ -150,10 +201,10 @@ fn InvalidCharacterInKey() {
     );
 
     // But this succeeds.
-    DynConfig::from_ini("a=7").unwrap();
-    DynConfig::from_ini("a\\[=7").unwrap();
-    DynConfig::from_ini("a\\t=7").unwrap();
-    DynConfig::from_ini("\\x0066\\x006f\\x006f=7").unwrap();
+    DynConfig::from_ini("a=7").unwrap(); // Normal key.
+    DynConfig::from_ini("a\\[=7").unwrap(); // Special character in key.
+    DynConfig::from_ini("a\\t=7").unwrap(); // Whitespace in key.
+    DynConfig::from_ini("\\x0066\\x006f\\x006f=7").unwrap(); // Unicode in key ("foo").
 }
 
 #[test]
@@ -168,8 +219,34 @@ fn UnexpectedNewlineInKey() {
     );
 
     // But this succeeds.
-    DynConfig::from_ini("a\\n=7").unwrap();
-    DynConfig::from_ini("a=\n").unwrap();
+    DynConfig::from_ini("a\\n=7").unwrap(); // Newline in key.
+    DynConfig::from_ini("a=\n").unwrap(); // Empty value.
+}
+
+#[test]
+fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
+    assert_eq!(
+        DynConfig::from_ini("a").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 1,
+            error: IniErrorKind::UnexpectedEndOfFileBeforeKeyValueSeparator
+        }
+    );
+
+    assert_eq!(
+        DynConfig::from_ini("a ").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 2,
+            error: IniErrorKind::UnexpectedEndOfFileBeforeKeyValueSeparator
+        }
+    );
+
+    // But this succeeds (empty value).
+
+    DynConfig::from_ini("a=").unwrap();
+    DynConfig::from_ini_opts("a:", IniOptions { key_value_separator: IniKeyValueSeparator::Colon, ..IniOptions::default() }).unwrap();
 }
 
 #[test]
@@ -190,11 +267,21 @@ fn UnexpectedCharacterInsteadOfKeyValueSeparator() {
             error: IniErrorKind::UnexpectedCharacterInsteadOfKeyValueSeparator
         }
     );
+    // Unescaped whitespace in key.
+    assert_eq!(
+        DynConfig::from_ini("a b = 7").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 3,
+            error: IniErrorKind::UnexpectedCharacterInsteadOfKeyValueSeparator
+        }
+    );
 
     // But this succeeds.
-    DynConfig::from_ini("a =7").unwrap();
+
+    DynConfig::from_ini("a = 7").unwrap();
     DynConfig::from_ini_opts(
-        "a :7",
+        "a : 7",
         IniOptions {
             key_value_separator: IniKeyValueSeparator::Colon,
             ..Default::default()
@@ -205,6 +292,7 @@ fn UnexpectedCharacterInsteadOfKeyValueSeparator() {
 
 #[test]
 fn InvalidCharacterInValue() {
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini("a==").err().unwrap(),
         IniError {
@@ -213,6 +301,7 @@ fn InvalidCharacterInValue() {
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini("a=:").err().unwrap(),
         IniError {
@@ -221,6 +310,7 @@ fn InvalidCharacterInValue() {
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini_opts(
             "a:=",
@@ -237,6 +327,7 @@ fn InvalidCharacterInValue() {
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
+    // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini_opts(
             "a::",
@@ -253,7 +344,7 @@ fn InvalidCharacterInValue() {
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
-
+    // Inline comments not supported.
     assert_eq!(
         DynConfig::from_ini("a=a;").err().unwrap(),
         IniError {
@@ -264,8 +355,9 @@ fn InvalidCharacterInValue() {
     );
 
     // But this succeeds.
-    DynConfig::from_ini("a=\\=").unwrap();
-    DynConfig::from_ini("a=\\:").unwrap();
+
+    DynConfig::from_ini("a=\\=").unwrap(); // Special character in value.
+    DynConfig::from_ini("a=\\:").unwrap(); // Special character in value.
     DynConfig::from_ini_opts(
         "a:\\=",
         IniOptions {
@@ -273,7 +365,7 @@ fn InvalidCharacterInValue() {
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap(); // Special character in value.
     DynConfig::from_ini_opts(
         "a:\\:",
         IniOptions {
@@ -281,7 +373,7 @@ fn InvalidCharacterInValue() {
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap(); // Special character in value.
     DynConfig::from_ini_opts(
         "a=a;",
         IniOptions {
@@ -289,7 +381,7 @@ fn InvalidCharacterInValue() {
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap(); // Supported inline comments.
     DynConfig::from_ini_opts(
         "a=a#",
         IniOptions {
@@ -298,11 +390,30 @@ fn InvalidCharacterInValue() {
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap(); // Supported inline comments.
 }
 
 #[test]
 fn UnexpectedEndOfFileInEscapeSequence() {
+    // In section.
+    assert_eq!(
+        DynConfig::from_ini("[\\").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 2,
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+        }
+    );
+    // In key.
+    assert_eq!(
+        DynConfig::from_ini("\\").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 1,
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+        }
+    );
+    // In unquoted value.
     assert_eq!(
         DynConfig::from_ini("a=\\").err().unwrap(),
         IniError {
@@ -311,6 +422,7 @@ fn UnexpectedEndOfFileInEscapeSequence() {
             error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
         }
     );
+    // In quoted value.
     assert_eq!(
         DynConfig::from_ini("a=\"\\").err().unwrap(),
         IniError {
@@ -319,10 +431,18 @@ fn UnexpectedEndOfFileInEscapeSequence() {
             error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
         }
     );
+
+    // But this succeeds.
+
+    DynConfig::from_ini("[\\ ]").unwrap(); // In section.
+    DynConfig::from_ini("\\ =").unwrap(); // In key.
+    DynConfig::from_ini("\\ = \\ ").unwrap(); // In unquoted value.
+    DynConfig::from_ini("\\ = \\\"\\ \\\"").unwrap(); // In quoted value.
 }
 
 #[test]
 fn UnexpectedNewlineInEscapeSequence() {
+    // Unsupported line continuation.
     assert_eq!(
         DynConfig::from_ini("a=\\\n").err().unwrap(),
         IniError {
@@ -332,7 +452,8 @@ fn UnexpectedNewlineInEscapeSequence() {
         }
     );
 
-    // But this succeeds (empty value).
+    // But this succeeds (supported line continuation, empty value).
+
     DynConfig::from_ini_opts(
         "a=\\\n",
         IniOptions {
@@ -355,6 +476,7 @@ fn InvalidEscapeCharacter() {
     );
 
     // But this succeeds.
+    DynConfig::from_ini("a=\\ ").unwrap();
     DynConfig::from_ini("a=\\0").unwrap();
     DynConfig::from_ini("a=\\a").unwrap();
     DynConfig::from_ini("a=\\b").unwrap();
@@ -417,6 +539,7 @@ fn InvalidUnicodeEscapeSequence() {
 
 #[test]
 fn DuplicateKey() {
+    // In the root.
     assert_eq!(
         DynConfig::from_ini("a=7\na=9").err().unwrap(),
         IniError {
@@ -425,6 +548,7 @@ fn DuplicateKey() {
             error: IniErrorKind::DuplicateKey
         }
     );
+    // In the section.
     assert_eq!(
         DynConfig::from_ini("[a]\na=7\na=9").err().unwrap(),
         IniError {
@@ -435,6 +559,8 @@ fn DuplicateKey() {
     );
 
     // But this succeeds.
+
+    // In the root.
     DynConfig::from_ini_opts(
         "a=7\na=9",
         IniOptions {
@@ -443,6 +569,8 @@ fn DuplicateKey() {
         },
     )
     .unwrap();
+
+    // In the section.
     DynConfig::from_ini_opts(
         "[a]\na=7\na=9",
         IniOptions {
@@ -455,6 +583,7 @@ fn DuplicateKey() {
 
 #[test]
 fn UnexpectedNewlineInQuotedString() {
+    // Unescaped newline.
     assert_eq!(
         DynConfig::from_ini("a=\"\n").err().unwrap(),
         IniError {
@@ -464,7 +593,7 @@ fn UnexpectedNewlineInQuotedString() {
         }
     );
 
-    // But this succeeds.
+    // But this succeeds (escaped newline).
     DynConfig::from_ini_opts(
         "a=\"\\\n\"",
         IniOptions {
@@ -485,6 +614,9 @@ fn UnexpectedEndOfFileInQuotedString() {
             error: IniErrorKind::UnexpectedEndOfFileInQuotedString
         }
     );
+
+    // But this succeeds.
+    DynConfig::from_ini("a=\"\"").unwrap();
 }
 
 #[test]
@@ -603,14 +735,13 @@ string = "foo"
 other_bool = true
 other_float = 3.14
 other_int = 7
-other_string = "foo"
+other_string = "foo bar"
 
 [section]
 bool = false
 float = 7.62
 int = 9
-string = "bar"
-"#;
+string = "bar""#;
 
     let config = DynConfig::from_ini(ini).unwrap();
 

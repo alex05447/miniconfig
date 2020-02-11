@@ -40,6 +40,8 @@ where
     fn fmt_ini<W: Write>(&self, writer: &mut W, level: u32) -> Result<(), ToINIStringError> {
         use ToINIStringError::*;
 
+        debug_assert!(level < 2);
+
         match self {
             Value::Bool(value) => {
                 write!(writer, "{}", if *value { "true" } else { "false" }).map_err(|_| WriteError)
@@ -48,7 +50,7 @@ where
             Value::F64(value) => write!(writer, "{}", value).map_err(|_| WriteError),
             Value::String(value) => {
                 write!(writer, "\"").map_err(|_| WriteError)?;
-                write_ini_string(writer, value.as_ref()).map_err(|_| WriteError)?;
+                write_ini_string(writer, value.as_ref(), true).map_err(|_| WriteError)?;
                 write!(writer, "\"").map_err(|_| WriteError)
             }
             Value::Table(value) => value.fmt_ini(writer, level),
@@ -61,10 +63,11 @@ where
 /// Writes the `string` to the writer `w`, escaping special characters
 /// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r')
 /// and INI special characters
-/// ('[', ']', ';', '#', '=', ':').
-pub(crate) fn write_ini_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
+/// ('[', ']', ';', '#', '=', ':'),
+/// and, if in addition `quoted` is `false`, spaces (' ').
+pub(crate) fn write_ini_string<W: Write>(w: &mut W, string: &str, quoted: bool) -> std::fmt::Result {
     for c in string.chars() {
-        write_char(w, c, true)?;
+        write_char(w, c, true, quoted)?;
     }
 
     Ok(())
@@ -76,6 +79,6 @@ pub(crate) fn write_ini_string<W: Write>(w: &mut W, string: &str) -> std::fmt::R
 /// ('[', ']', ';', '#', '=', ':').
 pub(crate) fn write_ini_section<W: Write>(w: &mut W, section: &str) -> std::fmt::Result {
     write!(w, "[")?;
-    write_ini_string(w, section)?;
+    write_ini_string(w, section, false)?;
     write!(w, "]")
 }

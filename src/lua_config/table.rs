@@ -269,9 +269,7 @@ impl<'lua> LuaTable<'lua> {
     fn fmt_ini_impl<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
         use ToINIStringError::*;
 
-        if level >= 2 {
-            return Err(NestedTablesNotSupported);
-        };
+        debug_assert!(level < 2);
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -293,32 +291,48 @@ impl<'lua> LuaTable<'lua> {
             }
         });
 
+        let len = self.len() as usize;
+
         // Iterate the table using the sorted keys.
         for (key_index, key) in keys.into_iter().enumerate() {
+            let last = key_index == len - 1;
+
             let key = key.as_ref();
 
             // Must succeed.
             let value = self.get(key).unwrap();
 
-            match value.get_type() {
-                ValueType::Array => return Err(ArraysNotSupported),
-                ValueType::Table => {
+            match value {
+                Value::Array(_) => return Err(ArraysNotSupported),
+                Value::Table(value) => {
+                    if level >= 1 {
+                        return Err(NestedTablesNotSupported);
+                    }
+
                     if key_index > 0 {
                         writeln!(w).map_err(|_| WriteError)?;
                     }
 
                     write_ini_section(w, key).map_err(|_| WriteError)?;
-                    writeln!(w).map_err(|_| WriteError)?;
 
-                    value.fmt_ini(w, level + 1)?;
+                    if value.len() > 0 {
+                        writeln!(w).map_err(|_| WriteError)?;
+                        value.fmt_ini(w, level + 1)?;
+                    }
+
+                    if !last {
+                        writeln!(w).map_err(|_| WriteError)?;
+                    }
                 }
-                _ => {
-                    write_ini_string(w, key).map_err(|_| WriteError)?;
+                value => {
+                    write_ini_string(w, key, false).map_err(|_| WriteError)?;
                     write!(w, " = ").map_err(|_| WriteError)?;
 
                     value.fmt_ini(w, level + 1)?;
 
-                    writeln!(w).map_err(|_| WriteError)?;
+                    if !last {
+                        writeln!(w).map_err(|_| WriteError)?;
+                    }
                 }
             }
         }

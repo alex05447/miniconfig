@@ -382,7 +382,7 @@ fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
     write!(w, "\"")?;
 
     for c in string.chars() {
-        write_char(w, c, false)?;
+        write_char(w, c, false, false)?;
     }
 
     write!(w, "\"")

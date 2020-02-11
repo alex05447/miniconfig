@@ -59,6 +59,7 @@ pub struct IniOptions {
     /// Whether escape sequences (a character sequence following a backslash ('\'))
     /// in string values are supported.
     /// If `true`, the following escape sequences are supported:
+    ///     `' '` (space)
     ///     `'\0'`
     ///     `'\a'`
     ///     `'\b'`

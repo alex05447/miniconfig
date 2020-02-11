@@ -579,8 +579,7 @@ other_string = "foo"
 bool = false
 float = 7.62
 int = 9
-string = "bar"
-"#;
+string = "bar""#;
 
     let lua = rlua::Lua::new();
 
