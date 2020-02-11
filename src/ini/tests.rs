@@ -55,7 +55,14 @@ fn InvalidCharacterAtLineStart() {
         "a = \"\""
     ); // Valid key, empty value.
     DynConfig::from_ini("`~@$%^&*()_-+,<.>/? =").unwrap(); // Weird key.
-    DynConfig::from_ini_opts("a:", IniOptions { key_value_separator: IniKeyValueSeparator::Colon, ..IniOptions::default() }).unwrap(); // Valid key, empty value.
+    DynConfig::from_ini_opts(
+        "a:",
+        IniOptions {
+            key_value_separator: IniKeyValueSeparator::Colon,
+            ..IniOptions::default()
+        },
+    )
+    .unwrap(); // Valid key, empty value.
     DynConfig::from_ini("[a]").unwrap(); // Section
     DynConfig::from_ini(";").unwrap(); // Comment
     DynConfig::from_ini_opts(
@@ -81,7 +88,15 @@ fn InvalidCharacterInSectionName() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini_opts("[:", IniOptions { key_value_separator: IniKeyValueSeparator::Colon, ..IniOptions::default() }).err().unwrap(),
+        DynConfig::from_ini_opts(
+            "[:",
+            IniOptions {
+                key_value_separator: IniKeyValueSeparator::Colon,
+                ..IniOptions::default()
+            }
+        )
+        .err()
+        .unwrap(),
         IniError {
             line: 1,
             column: 2,
@@ -99,7 +114,15 @@ fn InvalidCharacterInSectionName() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini_opts("[a;", IniOptions { comments: IniCommentSeparator::NumberSign, ..IniOptions::default() }).err().unwrap(),
+        DynConfig::from_ini_opts(
+            "[a;",
+            IniOptions {
+                comments: IniCommentSeparator::NumberSign,
+                ..IniOptions::default()
+            }
+        )
+        .err()
+        .unwrap(),
         IniError {
             line: 1,
             column: 3,
@@ -246,7 +269,14 @@ fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
     // But this succeeds (empty value).
 
     DynConfig::from_ini("a=").unwrap();
-    DynConfig::from_ini_opts("a:", IniOptions { key_value_separator: IniKeyValueSeparator::Colon, ..IniOptions::default() }).unwrap();
+    DynConfig::from_ini_opts(
+        "a:",
+        IniOptions {
+            key_value_separator: IniKeyValueSeparator::Colon,
+            ..IniOptions::default()
+        },
+    )
+    .unwrap();
 }
 
 #[test]

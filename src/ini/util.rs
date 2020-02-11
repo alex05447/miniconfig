@@ -54,7 +54,7 @@ where
             Value::Table(value) => {
                 debug_assert!(level < 2);
                 value.fmt_ini(writer, level)
-            },
+            }
 
             Value::Array(_) => Err(ArraysNotSupported),
         }
@@ -66,7 +66,11 @@ where
 /// and INI special characters
 /// ('[', ']', ';', '#', '=', ':'),
 /// and, if in addition `quoted` is `false`, spaces (' ').
-pub(crate) fn write_ini_string<W: Write>(w: &mut W, string: &str, quoted: bool) -> std::fmt::Result {
+pub(crate) fn write_ini_string<W: Write>(
+    w: &mut W,
+    string: &str,
+    quoted: bool,
+) -> std::fmt::Result {
     for c in string.chars() {
         write_char(w, c, true, quoted)?;
     }

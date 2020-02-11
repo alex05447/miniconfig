@@ -5,7 +5,12 @@ use std::fmt::Write;
 /// If `ini` is `true`, also escapes INI special characters
 /// ('[', ']', ';', '#', '=', ':')
 /// and, if in addition `quoted` is `false`, spaces (' ').
-pub(crate) fn write_char<W: Write>(w: &mut W, c: char, ini: bool, quoted: bool) -> std::fmt::Result {
+pub(crate) fn write_char<W: Write>(
+    w: &mut W,
+    c: char,
+    ini: bool,
+    quoted: bool,
+) -> std::fmt::Result {
     match c {
         '\\' => write!(w, "\\\\"),
         '\'' => write!(w, "\\\'"),

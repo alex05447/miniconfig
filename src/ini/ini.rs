@@ -438,15 +438,19 @@ impl<'s> IniParser<'s> {
 
         match self.state {
             IniParserState::Section => return Err(self.error(UnexpectedEndOfFileInSectionName)),
-            IniParserState::Key | IniParserState::KeyValueSeparator => return Err(self.error(UnexpectedEndOfFileBeforeKeyValueSeparator)),
-            IniParserState::QuotedString => return Err(self.error(UnexpectedEndOfFileInQuotedString)),
+            IniParserState::Key | IniParserState::KeyValueSeparator => {
+                return Err(self.error(UnexpectedEndOfFileBeforeKeyValueSeparator))
+            }
+            IniParserState::QuotedString => {
+                return Err(self.error(UnexpectedEndOfFileInQuotedString))
+            }
 
             // Add the last value if we were parsing it right before EOF.
             IniParserState::Value | IniParserState::BeforeValue => {
                 self.add_value(&mut root, &section, &key, &buffer, quote.is_some())?;
-            },
+            }
 
-            _ => {},
+            _ => {}
         }
 
         Ok(config)

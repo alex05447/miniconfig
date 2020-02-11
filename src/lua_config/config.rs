@@ -10,7 +10,7 @@ use crate::{BinConfigWriter, BinConfigWriterError};
 use crate::{DisplayINI, ToINIStringError};
 
 #[cfg(feature = "dyn")]
-use crate::{DynConfig, DynTableMut, DynArrayMut, DynArray, DynTable};
+use crate::{DynArray, DynArrayMut, DynConfig, DynTable, DynTableMut};
 
 use rlua::{Context, RegistryKey};
 
@@ -254,7 +254,11 @@ impl<'lua> LuaConfig<'lua> {
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_table(key: &str, value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>, dyn_table: &mut DynTableMut<'_>) {
+    fn value_to_dyn_table(
+        key: &str,
+        value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
+        dyn_table: &mut DynTableMut<'_>,
+    ) {
         use Value::*;
 
         match value {
@@ -284,7 +288,10 @@ impl<'lua> LuaConfig<'lua> {
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_array(value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>, dyn_array: &mut DynArrayMut<'_>) {
+    fn value_to_dyn_array(
+        value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
+        dyn_array: &mut DynArrayMut<'_>,
+    ) {
         use Value::*;
 
         match value {

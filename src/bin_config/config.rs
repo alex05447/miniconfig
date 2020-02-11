@@ -12,7 +12,7 @@ use crate::{
 use crate::{DisplayINI, ToINIStringError};
 
 #[cfg(feature = "dyn")]
-use crate::{DynConfig, DynTableMut, DynArrayMut, DynArray, DynTable};
+use crate::{DynArray, DynArrayMut, DynConfig, DynTable, DynTableMut};
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
@@ -373,7 +373,11 @@ impl BinConfig {
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_table(key: &str, value: Value<&'_ str, BinArray<'_>, BinTable<'_>>, dyn_table: &mut DynTableMut<'_>) {
+    fn value_to_dyn_table(
+        key: &str,
+        value: Value<&'_ str, BinArray<'_>, BinTable<'_>>,
+        dyn_table: &mut DynTableMut<'_>,
+    ) {
         use Value::*;
 
         match value {
@@ -403,7 +407,10 @@ impl BinConfig {
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_array(value: Value<&'_ str, BinArray<'_>, BinTable<'_>>, dyn_array: &mut DynArrayMut<'_>) {
+    fn value_to_dyn_array(
+        value: Value<&'_ str, BinArray<'_>, BinTable<'_>>,
+        dyn_array: &mut DynArrayMut<'_>,
+    ) {
         use Value::*;
 
         match value {
