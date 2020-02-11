@@ -119,6 +119,8 @@ Requires some path dependencies in the parent directory - see `Dependencies` sec
 
 - If "lua" feature is enabled (it is by default), [`rlua`](https://crates.io/crates/rlua) and [`rlua_ext`](https://github.com/alex05447/rlua_ext) as a path dependency (TODO - github dependency?).
 
+- If "ini" feature is enabled, [`bitflags`](https://crates.io/crates/bitflags) for INI parser options.
+
 ## Problems / missing features
 
 Despite the fact that all configs implement a common interface, it is currently impossible to implement a Rust trait to encapsulate that
