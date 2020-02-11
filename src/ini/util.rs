@@ -40,8 +40,6 @@ where
     fn fmt_ini<W: Write>(&self, writer: &mut W, level: u32) -> Result<(), ToINIStringError> {
         use ToINIStringError::*;
 
-        debug_assert!(level < 2);
-
         match self {
             Value::Bool(value) => {
                 write!(writer, "{}", if *value { "true" } else { "false" }).map_err(|_| WriteError)
@@ -53,7 +51,10 @@ where
                 write_ini_string(writer, value.as_ref(), true).map_err(|_| WriteError)?;
                 write!(writer, "\"").map_err(|_| WriteError)
             }
-            Value::Table(value) => value.fmt_ini(writer, level),
+            Value::Table(value) => {
+                debug_assert!(level < 2);
+                value.fmt_ini(writer, level)
+            },
 
             Value::Array(_) => Err(ArraysNotSupported),
         }
