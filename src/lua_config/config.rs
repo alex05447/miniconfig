@@ -9,6 +9,9 @@ use crate::{BinConfigWriter, BinConfigWriterError};
 #[cfg(feature = "ini")]
 use crate::{DisplayINI, ToINIStringError};
 
+#[cfg(feature = "dyn")]
+use crate::{DynConfig, DynTableMut, DynArrayMut, DynArray, DynTable};
+
 use rlua::{Context, RegistryKey};
 
 /// Represents a Lua-interned string.
@@ -150,6 +153,19 @@ impl<'lua> LuaConfig<'lua> {
         Ok(result)
     }
 
+    /// Serializes this [`config`] to a [`dynamic config`].
+    ///
+    /// [`config`]: struct.LuaConfig.html
+    /// [`dynamic config`]: struct.DynConfig.html
+    #[cfg(feature = "dyn")]
+    pub fn to_dyn_config(&self) -> DynConfig {
+        let mut result = DynConfig::new();
+
+        Self::table_to_dyn_table(self.root(), &mut result.root_mut());
+
+        result
+    }
+
     #[cfg(feature = "bin")]
     fn table_to_bin_config(
         table: LuaTable<'_>,
@@ -221,6 +237,82 @@ impl<'lua> LuaConfig<'lua> {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "dyn")]
+    fn table_to_dyn_table(table: LuaTable<'_>, dyn_table: &mut DynTableMut<'_>) {
+        for (key, value) in table.iter() {
+            Self::value_to_dyn_table(key.as_ref(), value, dyn_table);
+        }
+    }
+
+    #[cfg(feature = "dyn")]
+    fn array_to_dyn_array(array: LuaArray<'_>, dyn_array: &mut DynArrayMut<'_>) {
+        for value in array.iter() {
+            Self::value_to_dyn_array(value, dyn_array);
+        }
+    }
+
+    #[cfg(feature = "dyn")]
+    fn value_to_dyn_table(key: &str, value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>, dyn_table: &mut DynTableMut<'_>) {
+        use Value::*;
+
+        match value {
+            Bool(value) => {
+                dyn_table.set(key, Value::Bool(value)).unwrap();
+            }
+            I64(value) => {
+                dyn_table.set(key, Value::I64(value)).unwrap();
+            }
+            F64(value) => {
+                dyn_table.set(key, Value::F64(value)).unwrap();
+            }
+            String(value) => {
+                dyn_table.set(key, Value::String(value.as_ref())).unwrap();
+            }
+            Array(value) => {
+                dyn_table.set(key, Value::Array(DynArray::new())).unwrap();
+                let mut array = dyn_table.get_mut(key).unwrap().array().unwrap();
+                Self::array_to_dyn_array(value, &mut array);
+            }
+            Table(value) => {
+                dyn_table.set(key, Value::Table(DynTable::new())).unwrap();
+                let mut table = dyn_table.get_mut(key).unwrap().table().unwrap();
+                Self::table_to_dyn_table(value, &mut table);
+            }
+        }
+    }
+
+    #[cfg(feature = "dyn")]
+    fn value_to_dyn_array(value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>, dyn_array: &mut DynArrayMut<'_>) {
+        use Value::*;
+
+        match value {
+            Bool(value) => {
+                dyn_array.push(Value::Bool(value)).unwrap();
+            }
+            I64(value) => {
+                dyn_array.push(Value::I64(value)).unwrap();
+            }
+            F64(value) => {
+                dyn_array.push(Value::F64(value)).unwrap();
+            }
+            String(value) => {
+                dyn_array.push(Value::String(value.as_ref())).unwrap();
+            }
+            Array(value) => {
+                dyn_array.push(Value::Array(DynArray::new())).unwrap();
+                let last = dyn_array.len() - 1;
+                let mut array = dyn_array.get_mut(last).unwrap().array().unwrap();
+                Self::array_to_dyn_array(value, &mut array);
+            }
+            Table(value) => {
+                dyn_array.push(Value::Table(DynTable::new())).unwrap();
+                let last = dyn_array.len() - 1;
+                let mut table = dyn_array.get_mut(last).unwrap().table().unwrap();
+                Self::table_to_dyn_table(value, &mut table);
+            }
+        }
     }
 }
 

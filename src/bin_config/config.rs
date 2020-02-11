@@ -11,6 +11,9 @@ use crate::{
 #[cfg(feature = "ini")]
 use crate::{DisplayINI, ToINIStringError};
 
+#[cfg(feature = "dyn")]
+use crate::{DynConfig, DynTableMut, DynArrayMut, DynArray, DynTable};
+
 /// Represents an immutable config with a root hashmap [`table`].
 ///
 /// [`table`]: struct.BinTable.html
@@ -75,6 +78,19 @@ impl BinConfig {
         result.shrink_to_fit();
 
         Ok(result)
+    }
+
+    /// Serializes this [`config`] to a [`dynamic config`].
+    ///
+    /// [`config`]: struct.BinConfig.html
+    /// [`dynamic config`]: struct.DynConfig.html
+    #[cfg(feature = "dyn")]
+    pub fn to_dyn_config(&self) -> DynConfig {
+        let mut result = DynConfig::new();
+
+        Self::table_to_dyn_table(self.root(), &mut result.root_mut());
+
+        result
     }
 
     // Returns the pointer to the start of the config data blob w.r.t. which
@@ -340,6 +356,82 @@ impl BinConfig {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "dyn")]
+    fn table_to_dyn_table(table: BinTable<'_>, dyn_table: &mut DynTableMut<'_>) {
+        for (key, value) in table.iter() {
+            Self::value_to_dyn_table(key, value, dyn_table);
+        }
+    }
+
+    #[cfg(feature = "dyn")]
+    fn array_to_dyn_array(array: BinArray<'_>, dyn_array: &mut DynArrayMut<'_>) {
+        for value in array.iter() {
+            Self::value_to_dyn_array(value, dyn_array);
+        }
+    }
+
+    #[cfg(feature = "dyn")]
+    fn value_to_dyn_table(key: &str, value: Value<&'_ str, BinArray<'_>, BinTable<'_>>, dyn_table: &mut DynTableMut<'_>) {
+        use Value::*;
+
+        match value {
+            Bool(value) => {
+                dyn_table.set(key, Value::Bool(value)).unwrap();
+            }
+            I64(value) => {
+                dyn_table.set(key, Value::I64(value)).unwrap();
+            }
+            F64(value) => {
+                dyn_table.set(key, Value::F64(value)).unwrap();
+            }
+            String(value) => {
+                dyn_table.set(key, Value::String(value)).unwrap();
+            }
+            Array(value) => {
+                dyn_table.set(key, Value::Array(DynArray::new())).unwrap();
+                let mut array = dyn_table.get_mut(key).unwrap().array().unwrap();
+                Self::array_to_dyn_array(value, &mut array);
+            }
+            Table(value) => {
+                dyn_table.set(key, Value::Table(DynTable::new())).unwrap();
+                let mut table = dyn_table.get_mut(key).unwrap().table().unwrap();
+                Self::table_to_dyn_table(value, &mut table);
+            }
+        }
+    }
+
+    #[cfg(feature = "dyn")]
+    fn value_to_dyn_array(value: Value<&'_ str, BinArray<'_>, BinTable<'_>>, dyn_array: &mut DynArrayMut<'_>) {
+        use Value::*;
+
+        match value {
+            Bool(value) => {
+                dyn_array.push(Value::Bool(value)).unwrap();
+            }
+            I64(value) => {
+                dyn_array.push(Value::I64(value)).unwrap();
+            }
+            F64(value) => {
+                dyn_array.push(Value::F64(value)).unwrap();
+            }
+            String(value) => {
+                dyn_array.push(Value::String(value)).unwrap();
+            }
+            Array(value) => {
+                dyn_array.push(Value::Array(DynArray::new())).unwrap();
+                let last = dyn_array.len() - 1;
+                let mut array = dyn_array.get_mut(last).unwrap().array().unwrap();
+                Self::array_to_dyn_array(value, &mut array);
+            }
+            Table(value) => {
+                dyn_array.push(Value::Table(DynTable::new())).unwrap();
+                let last = dyn_array.len() - 1;
+                let mut table = dyn_array.get_mut(last).unwrap().table().unwrap();
+                Self::table_to_dyn_table(value, &mut table);
+            }
+        }
     }
 }
 
