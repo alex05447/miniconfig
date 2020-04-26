@@ -331,12 +331,38 @@ fn InvalidCharacterInValue() {
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
+    // Unescaped special character in quoted string.
+    assert_eq!(
+        DynConfig::from_ini("a=\"=\"").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::InvalidCharacterInValue
+        }
+    );
     // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini("a=:").err().unwrap(),
         IniError {
             line: 1,
             column: 3,
+            error: IniErrorKind::InvalidCharacterInValue
+        }
+    );
+    // Unescaped special character in quoted string.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=\':\'",
+            IniOptions {
+                string_quotes: IniStringQuote::Single,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
@@ -357,6 +383,23 @@ fn InvalidCharacterInValue() {
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
+    // Unescaped special character in quoted string.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a:\"=\"",
+            IniOptions {
+                key_value_separator: IniKeyValueSeparator::Colon,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::InvalidCharacterInValue
+        }
+    );
     // Unescaped special character.
     assert_eq!(
         DynConfig::from_ini_opts(
@@ -374,6 +417,24 @@ fn InvalidCharacterInValue() {
             error: IniErrorKind::InvalidCharacterInValue
         }
     );
+    // Unescaped special character in quoted string.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a:\':\'",
+            IniOptions {
+                key_value_separator: IniKeyValueSeparator::Colon,
+                string_quotes: IniStringQuote::Single,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::InvalidCharacterInValue
+        }
+    );
     // Inline comments not supported.
     assert_eq!(
         DynConfig::from_ini("a=a;").err().unwrap(),
@@ -386,8 +447,17 @@ fn InvalidCharacterInValue() {
 
     // But this succeeds.
 
-    DynConfig::from_ini("a=\\=").unwrap(); // Special character in value.
+    DynConfig::from_ini("a=\\=").unwrap(); // Escaped special character in value.
+    DynConfig::from_ini("a=\"\\=\"").unwrap(); // Escaped special character in quoted value.
     DynConfig::from_ini("a=\\:").unwrap(); // Special character in value.
+    DynConfig::from_ini_opts(
+        "a=\'\\:\'",
+        IniOptions {
+            string_quotes: IniStringQuote::Single,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Escaped special character in quoted value.
     DynConfig::from_ini_opts(
         "a:\\=",
         IniOptions {
@@ -395,7 +465,15 @@ fn InvalidCharacterInValue() {
             ..Default::default()
         },
     )
-    .unwrap(); // Special character in value.
+    .unwrap(); // Escaped special character in value.
+    DynConfig::from_ini_opts(
+        "a:\"\\=\"",
+        IniOptions {
+            key_value_separator: IniKeyValueSeparator::Colon,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Escaped special character in quoted value.
     DynConfig::from_ini_opts(
         "a:\\:",
         IniOptions {
@@ -403,7 +481,16 @@ fn InvalidCharacterInValue() {
             ..Default::default()
         },
     )
-    .unwrap(); // Special character in value.
+    .unwrap(); // Escaped special character in value.
+    DynConfig::from_ini_opts(
+        "a:\'\\:\'",
+        IniOptions {
+            key_value_separator: IniKeyValueSeparator::Colon,
+            string_quotes: IniStringQuote::Single,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Escaped special character quoted in value.
     DynConfig::from_ini_opts(
         "a=a;",
         IniOptions {

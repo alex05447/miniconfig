@@ -57,7 +57,7 @@ pub struct IniOptions {
     /// Default: `true`.
     pub unquoted_strings: bool,
     /// Whether escape sequences (a character sequence following a backslash ('\'))
-    /// in string values are supported.
+    /// in keys, section names and string values are supported.
     /// If `true`, the following escape sequences are supported:
     ///     `' '` (space)
     ///     `'\0'`
@@ -77,7 +77,7 @@ pub struct IniOptions {
     /// Default: `true`.
     pub escape: bool,
     /// Whether line ontinuation esacpe sequences (a backslash followed by a newline)
-    /// are supported in string values.
+    /// are supported in keys, section names and string values.
     /// If `escape` is `false`, this value is ignored.
     /// Default: `false`.
     pub line_continuation: bool,

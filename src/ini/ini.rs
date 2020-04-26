@@ -122,7 +122,7 @@ impl<'s> IniParser<'s> {
                     // Skip whitespace at the start of the line (including new lines).
                     if current.is_whitespace() {
 
-                        // Section start - parse the section name.
+                        // Section start delimiter - parse the section name.
                     } else if current == '[' {
                         self.state = IniParserState::Section;
 
