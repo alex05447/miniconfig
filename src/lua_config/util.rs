@@ -1,8 +1,8 @@
 use std::fmt::{Formatter, Write};
 
 use crate::{
-    value_type_from_u32, value_type_to_u32, write_char, LuaArray, LuaConfigError, LuaString,
-    LuaTable, Value, ValueType,
+    value_type_from_u32, value_type_to_u32, write_char, LuaArray, LuaConfigError, LuaConfigValue,
+    LuaString, LuaTable, Value, ValueType,
 };
 
 use rlua;
@@ -165,7 +165,7 @@ fn validate_lua_config_table_impl<'lua>(
         };
 
         // For (potential) arrays, ensure all values are the same Lua type
-        // (even they are invalid config values).
+        // (even if they are invalid config values).
         if is_array {
             let lua_value_type = value_type(&value);
 
@@ -329,7 +329,7 @@ pub(super) enum ValueFromLuaValueError {
 
 pub(super) fn value_from_lua_value(
     value: rlua::Value<'_>,
-) -> Result<Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>, ValueFromLuaValueError> {
+) -> Result<LuaConfigValue<'_>, ValueFromLuaValueError> {
     use ValueFromLuaValueError::*;
 
     match value {
@@ -389,7 +389,7 @@ fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
 }
 
 /// Writes the Lua table `key` to the writer `w`.
-/// Writes the string as-si if it's a valid Lua identifier,
+/// Writes the string as-is if it's a valid Lua identifier,
 /// otherwise encloses it in brackets / quotes, and escapes special characters
 /// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r').
 pub(crate) fn write_lua_key<W: Write>(w: &mut W, key: &str) -> std::fmt::Result {

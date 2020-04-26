@@ -10,6 +10,27 @@ use crate::{BinConfigWriter, BinConfigWriterError};
 #[cfg(feature = "ini")]
 use crate::{ini::dyn_config_from_ini, DisplayINI, IniError, IniOptions, ToINIStringError};
 
+/// A [`value`] returned when accessing a dynamic [`array`] or [`table`].
+///
+/// [`value`]: enum.Value.html
+/// [`array`]: struct.DynArray.html
+/// [`table`]: struct.DynTable.html
+pub type DynConfigValue = Value<String, DynArray, DynTable>;
+
+/// A [`value`] returned when accessing a dynamic [`array`] or [`table`] by reference.
+///
+/// [`value`]: enum.Value.html
+/// [`array`]: struct.DynArray.html
+/// [`table`]: struct.DynTable.html
+pub type DynConfigValueRef<'at> = Value<&'at str, DynArrayRef<'at>, DynTableRef<'at>>;
+
+/// A [`value`] returned when accessing a dynamic [`array`] or [`table`] by mutable reference.
+///
+/// [`value`]: enum.Value.html
+/// [`array`]: struct.DynArray.html
+/// [`table`]: struct.DynTable.html
+pub type DynConfigValueMut<'at> = Value<&'at str, DynArrayMut<'at>, DynTableMut<'at>>;
+
 /// Represents a mutable config with a root hashmap [`table`].
 ///
 /// [`table`]: struct.DynTable.html
@@ -42,7 +63,7 @@ impl DynConfig {
 
     /// Tries to serialize this [`config`] to a [`binary config`].
     ///
-    /// [`config`]: struct.LuaConfig.html
+    /// [`config`]: struct.DynConfig.html
     /// [`binary config`]: struct.BinConfig.html
     #[cfg(feature = "bin")]
     pub fn to_bin_config(&self) -> Result<Box<[u8]>, BinConfigWriterError> {
@@ -115,17 +136,17 @@ impl DynConfig {
         writer: &mut BinConfigWriter,
     ) -> Result<(), BinConfigWriterError> {
         // Gather the keys.
-        let mut key_strins: Vec<_> = table.iter().map(|(key, _)| key).collect();
+        let mut keys: Vec<_> = table.iter().map(|(key, _)| key).collect();
 
         // Sort the keys in alphabetical order.
-        key_strins.sort_by(|l, r| l.cmp(r));
+        keys.sort_by(|l, r| l.cmp(r));
 
         // Iterate the table using the sorted keys.
-        for key_string in key_strins.into_iter() {
+        for key in keys.into_iter() {
             // Must succeed.
-            let value = table.get(key_string).unwrap();
+            let value = table.get(key).unwrap();
 
-            Self::value_to_bin_config(Some(key_string), value, writer)?;
+            Self::value_to_bin_config(Some(key), value, writer)?;
         }
 
         Ok(())
@@ -147,7 +168,7 @@ impl DynConfig {
     #[cfg(feature = "bin")]
     fn value_to_bin_config(
         key: Option<&str>,
-        value: Value<&'_ str, DynArrayRef<'_>, DynTableRef<'_>>,
+        value: DynConfigValueRef<'_>,
         writer: &mut BinConfigWriter,
     ) -> Result<(), BinConfigWriterError> {
         use Value::*;
@@ -193,13 +214,13 @@ impl<'a> Display for Value<&'a str, DynArray, DynTable> {
     }
 }
 
-impl<'a> Display for Value<&'a str, DynArrayRef<'a>, DynTableRef<'a>> {
+impl<'a> Display for DynConfigValueRef<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.fmt_lua(f, 0)
     }
 }
 
-impl<'a> Display for Value<&'a str, DynArrayMut<'a>, DynTableMut<'a>> {
+impl<'a> Display for DynConfigValueMut<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.fmt_lua(f, 0)
     }

@@ -3,7 +3,8 @@ use std::ops::{Deref, DerefMut};
 use std::slice::Iter as VecIter;
 
 use crate::{
-    DisplayLua, DynArrayGetError, DynArraySetError, DynTable, DynTableMut, DynTableRef, Value,
+    DisplayLua, DynArrayGetError, DynArraySetError, DynConfigValue, DynConfigValueMut,
+    DynConfigValueRef, DynTable, DynTableMut, DynTableRef, Value,
 };
 
 /// Represents a mutable array of [`Value`]'s with integer 0-based indices.
@@ -27,142 +28,186 @@ impl DynArray {
     }
 
     /// Tries to get a reference to a [`value`] in the [`array`] at `index`.
+    ///
     /// Returns an [`error`] if `index` is out of bounds.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.DynConfigValueRef.html
     /// [`array`]: struct.DynArray.html
     /// [`error`]: struct.DynArrayGetError.html
-    pub fn get(
-        &self,
-        index: u32,
-    ) -> Result<Value<&'_ str, DynArrayRef<'_>, DynTableRef<'_>>, DynArrayGetError> {
+    pub fn get(&self, index: u32) -> Result<DynConfigValueRef<'_>, DynArrayGetError> {
         self.get_impl(index)
     }
 
-    /// Tries to get a `bool` [`value`] in the [`array`] at `index`.
+    /// Tries to get a [`bool`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`bool`].
+    ///
+    /// [`bool`]: enum.Value.html#variant.Bool
+    /// [`value`]: type.DynConfigValueRef.html
     /// [`array`]: struct.DynArray.html
+    /// [`error`]: struct.DynArrayGetError.html
     pub fn get_bool(&self, index: u32) -> Result<bool, DynArrayGetError> {
         let val = self.get(index)?;
         val.bool()
-            .ok_or_else(|| DynArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(DynArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `i64` [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`i64`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`i64`].
+    ///
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.DynConfigValueRef.html
     /// [`array`]: struct.DynArray.html
+    /// [`error`]: struct.DynArrayGetError.html
     pub fn get_i64(&self, index: u32) -> Result<i64, DynArrayGetError> {
         let val = self.get(index)?;
         val.i64()
-            .ok_or_else(|| DynArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(DynArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `f64` [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`f64`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`f64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`value`]: type.DynConfigValueRef.html
     /// [`array`]: struct.DynArray.html
+    /// [`error`]: struct.DynArrayGetError.html
     pub fn get_f64(&self, index: u32) -> Result<f64, DynArrayGetError> {
         let val = self.get(index)?;
         val.f64()
-            .ok_or_else(|| DynArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(DynArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a string [`value`] in the [`array`] at `index`.
+    /// Tries to get a [`string`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`string`].
+    ///
+    /// [`string`]: enum.Value.html#variant.String
+    /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
+    /// [`error`]: struct.DynArrayGetError.html
     pub fn get_string(&self, index: u32) -> Result<&str, DynArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or_else(|| DynArrayGetError::IncorrectValueType(val_type))
+            .ok_or(DynArrayGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an [`array`] [`value`] in the [`array`] at `index`.
+    /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
     ///
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`array`](enum.Value.html#variant.Array).
+    ///
+    /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
-    /// [`value`]: enum.Value.html
+    /// [`error`]: struct.DynArrayGetError.html
     pub fn get_array(&self, index: u32) -> Result<DynArrayRef<'_>, DynArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or_else(|| DynArrayGetError::IncorrectValueType(val_type))
+            .ok_or(DynArrayGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get a [`table`] [`value`] in the [`array`] at `index`.
+    /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
-    /// [`table`]: struct.DynTable.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`table`].
+    ///
+    /// [`table`]: enum.Value.html#variant.Table
+    /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
+    /// [`error`]: struct.DynArrayGetError.html
     pub fn get_table(&self, index: u32) -> Result<DynTableRef<'_>, DynArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or_else(|| DynArrayGetError::IncorrectValueType(val_type))
+            .ok_or(DynArrayGetError::IncorrectValueType(val_type))
     }
 
-    /// Returns an in-order [`iterator`] over [`values`] in the [`array`].
+    /// Returns an in-order iterator over [`values`] in the [`array`].
     ///
-    /// [`iterator`]: struct.DynArrayIter.html
     /// [`values`]: enum.Value.html
     /// [`array`]: struct.DynArray.html
-    pub fn iter(&self) -> DynArrayIter<'_> {
+    pub fn iter(&self) -> impl Iterator<Item = DynConfigValueRef<'_>> {
         DynArrayIter(self.0.iter())
     }
 
     /// Tries to get a mutable reference to a [`value`] in the [`array`] at `index`.
     ///
+    /// Returns an [`error`] if `index` is out of bounds.
+    ///
     /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
     /// Use [`set`] to mutate other value types in the [`array`].
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.DynConfigValueMut.html
     /// [`array`]: struct.DynArray.html
     /// [`arrays`]: enum.Value.html#variant.Array
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
-    pub fn get_mut(
-        &mut self,
-        index: u32,
-    ) -> Result<Value<&'_ str, DynArrayMut<'_>, DynTableMut<'_>>, DynArrayGetError> {
+    /// [`error`]: struct.DynArrayGetError.html
+    pub fn get_mut(&mut self, index: u32) -> Result<DynConfigValueMut<'_>, DynArrayGetError> {
         self.get_mut_impl(index)
     }
 
+    /// Tries to get a mutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
+    ///
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`array`](enum.Value.html#variant.Array).
+    ///
+    /// [`value`]: type.DynConfigValue.html
+    /// [`array`]: struct.DynArray.html
+    /// [`error`]: struct.DynArrayGetError.html
+    pub fn get_array_mut(&mut self, index: u32) -> Result<DynArrayMut<'_>, DynArrayGetError> {
+        let val = self.get_mut(index)?;
+        let val_type = val.get_type();
+        val.array()
+            .ok_or(DynArrayGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get a mutable reference to a [`table`] [`value`] in the [`array`] at `index`.
+    ///
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`table`].
+    ///
+    /// [`table`]: enum.Value.html#variant.Table
+    /// [`value`]: type.DynConfigValue.html
+    /// [`array`]: struct.DynArray.html
+    /// [`error`]: struct.DynArrayGetError.html
+    pub fn get_table_mut(&mut self, index: u32) -> Result<DynTableMut<'_>, DynArrayGetError> {
+        let val = self.get_mut(index)?;
+        let val_type = val.get_type();
+        val.table()
+            .ok_or(DynArrayGetError::IncorrectValueType(val_type))
+    }
+
     /// Changes the [`value`] in the [`array`] at `index` to `value`.
+    ///
     /// Returns an [`error`] if `index` is out of bounds or if `value` is of invalid type.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
     /// [`error`]: struct.DynArraySetError.html
-    pub fn set<'s>(
-        &mut self,
-        index: u32,
-        value: Value<&'s str, DynArray, DynTable>,
-    ) -> Result<(), DynArraySetError> {
+    pub fn set<'s>(&mut self, index: u32, value: DynConfigValue) -> Result<(), DynArraySetError> {
         self.set_impl(index, value)
     }
 
     /// Pushes the [`value`] to the back of the [`array`].
+    ///
     /// Returns an [`error`] if `value` is of invalid type.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
     /// [`error`]: struct.DynArraySetError.html
-    pub fn push<'s>(
-        &mut self,
-        value: Value<&'s str, DynArray, DynTable>,
-    ) -> Result<(), DynArraySetError> {
+    pub fn push<'s>(&mut self, value: DynConfigValue) -> Result<(), DynArraySetError> {
         self.push_impl(value)
     }
 
     /// Pops the [`value`] off the back of the [`array`].
+    ///
     /// Returns an [`error`] if the [`array`] is empty.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
     /// [`error`]: struct.DynArrayGetError.html
-    pub fn pop(&mut self) -> Result<Value<String, DynArray, DynTable>, DynArrayGetError> {
+    pub fn pop(&mut self) -> Result<DynConfigValue, DynArrayGetError> {
         self.pop_impl()
     }
 
@@ -170,10 +215,7 @@ impl DynArray {
         self.0.len() as u32
     }
 
-    fn get_impl(
-        &self,
-        index: u32,
-    ) -> Result<Value<&'_ str, DynArrayRef<'_>, DynTableRef<'_>>, DynArrayGetError> {
+    fn get_impl(&self, index: u32) -> Result<DynConfigValueRef<'_>, DynArrayGetError> {
         use DynArrayGetError::*;
 
         let len = self.len();
@@ -196,10 +238,7 @@ impl DynArray {
         }
     }
 
-    fn get_mut_impl(
-        &mut self,
-        index: u32,
-    ) -> Result<Value<&'_ str, DynArrayMut<'_>, DynTableMut<'_>>, DynArrayGetError> {
+    fn get_mut_impl(&mut self, index: u32) -> Result<DynConfigValueMut<'_>, DynArrayGetError> {
         use DynArrayGetError::*;
 
         let len = self.len();
@@ -243,11 +282,7 @@ impl DynArray {
         Ok(())
     }
 
-    fn set_impl<'s>(
-        &mut self,
-        index: u32,
-        value: Value<&'s str, DynArray, DynTable>,
-    ) -> Result<(), DynArraySetError> {
+    fn set_impl<'s>(&mut self, index: u32, value: DynConfigValue) -> Result<(), DynArraySetError> {
         use DynArraySetError::*;
 
         // Validate the index.
@@ -266,7 +301,7 @@ impl DynArray {
             Value::Bool(value) => self.0[index] = Value::Bool(value),
             Value::I64(value) => self.0[index] = Value::I64(value),
             Value::F64(value) => self.0[index] = Value::F64(value),
-            Value::String(value) => self.0[index] = Value::String(value.to_owned()),
+            Value::String(value) => self.0[index] = Value::String(value),
             Value::Array(value) => self.0[index] = Value::Array(value),
             Value::Table(value) => self.0[index] = Value::Table(value),
         }
@@ -274,10 +309,7 @@ impl DynArray {
         Ok(())
     }
 
-    fn push_impl<'s>(
-        &mut self,
-        value: Value<&'s str, DynArray, DynTable>,
-    ) -> Result<(), DynArraySetError> {
+    fn push_impl<'s>(&mut self, value: DynConfigValue) -> Result<(), DynArraySetError> {
         // Validate the value type.
         self.validate_value_type(&value)?;
 
@@ -285,7 +317,7 @@ impl DynArray {
             Value::Bool(value) => self.0.push(Value::Bool(value)),
             Value::I64(value) => self.0.push(Value::I64(value)),
             Value::F64(value) => self.0.push(Value::F64(value)),
-            Value::String(value) => self.0.push(Value::String(value.to_owned())),
+            Value::String(value) => self.0.push(Value::String(value)),
             Value::Array(value) => self.0.push(Value::Array(value)),
             Value::Table(value) => self.0.push(Value::Table(value)),
         };
@@ -293,7 +325,7 @@ impl DynArray {
         Ok(())
     }
 
-    fn pop_impl(&mut self) -> Result<Value<String, DynArray, DynTable>, DynArrayGetError> {
+    fn pop_impl(&mut self) -> Result<DynConfigValue, DynArrayGetError> {
         self.0.pop().ok_or(DynArrayGetError::ArrayEmpty)
     }
 
@@ -326,7 +358,6 @@ impl DynArray {
         Ok(())
     }
 }
-
 /// Represents an immutable reference to an [`array`].
 ///
 /// [`array`]: struct.DynArray.html
@@ -336,9 +367,27 @@ impl<'a> DynArrayRef<'a> {
     pub(super) fn new(inner: &'a DynArray) -> Self {
         Self(inner)
     }
+
+    // Needed to return a table with `'a` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_table<'k, K: Into<&'k str>>(
+        &self,
+        index: u32,
+    ) -> Result<DynTableRef<'a>, DynArrayGetError> {
+        self.0.get_table(index)
+    }
+
+    // Needed to return an array with `'a` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_array<'k, K: Into<&'k str>>(
+        &self,
+        index: u32,
+    ) -> Result<DynArrayRef<'a>, DynArrayGetError> {
+        self.0.get_array(index)
+    }
 }
 
-impl<'a> std::ops::Deref for DynArrayRef<'a> {
+impl<'a> Deref for DynArrayRef<'a> {
     type Target = DynArray;
 
     fn deref(&self) -> &Self::Target {
@@ -355,6 +404,24 @@ pub struct DynArrayMut<'a>(&'a mut DynArray);
 impl<'a> DynArrayMut<'a> {
     pub(super) fn new(inner: &'a mut DynArray) -> Self {
         Self(inner)
+    }
+
+    // Needed to return a table with `'a` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_table_mut<'k, K: Into<&'k str>>(
+        self,
+        index: u32,
+    ) -> Result<DynTableMut<'a>, DynArrayGetError> {
+        self.0.get_table_mut(index)
+    }
+
+    // Needed to return an array with `'a` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_array_mut<'k, K: Into<&'k str>>(
+        self,
+        index: u32,
+    ) -> Result<DynArrayMut<'a>, DynArrayGetError> {
+        self.0.get_array_mut(index)
     }
 }
 
@@ -374,12 +441,12 @@ impl<'a> DerefMut for DynArrayMut<'a> {
 
 /// In-order iterator over [`values`] in the [`array`].
 ///
-/// [`values`]: enum.Value.html
+/// [`values`]: type.DynConfigValue.html
 /// [`array`]: struct.DynArray.html
-pub struct DynArrayIter<'a>(VecIter<'a, Value<String, DynArray, DynTable>>);
+struct DynArrayIter<'a>(VecIter<'a, DynConfigValue>);
 
 impl<'a> Iterator for DynArrayIter<'a> {
-    type Item = Value<&'a str, DynArrayRef<'a>, DynTableRef<'a>>;
+    type Item = DynConfigValueRef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(value) = self.0.next() {

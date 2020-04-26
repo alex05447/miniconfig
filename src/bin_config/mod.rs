@@ -14,4 +14,5 @@ pub use array::BinArray;
 pub use config::BinConfig;
 pub use error::*;
 pub use table::BinTable;
+pub use value::BinConfigValue;
 pub use writer::BinConfigWriter;

@@ -3,8 +3,8 @@ use std::fmt::{Display, Formatter, Write};
 use std::ops::{Deref, DerefMut};
 
 use crate::{
-    write_lua_key, DisplayLua, DynArray, DynArrayMut, DynArrayRef, DynTableGetError,
-    DynTableSetError, Value,
+    write_lua_key, DisplayLua, DynArray, DynArrayMut, DynArrayRef, DynConfigValue,
+    DynConfigValueMut, DynConfigValueRef, DynTableGetError, DynTableSetError, Value,
 };
 
 #[cfg(feature = "ini")]
@@ -32,61 +32,83 @@ impl DynTable {
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key`.
+    ///
+    /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get<'t, 'k, K: Into<&'k str>>(
         &'t self,
         key: K,
-    ) -> Result<Value<&'t str, DynArrayRef<'t>, DynTableRef<'t>>, DynTableGetError> {
+    ) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
         self.get_impl(key.into())
     }
 
-    /// Tries to get a `bool` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    ///
+    /// [`bool`]: enum.Value.html#variant.Bool
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get_bool<'k, K: Into<&'k str>>(&self, key: K) -> Result<bool, DynTableGetError> {
         let val = self.get(key)?;
         val.bool()
-            .ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `i64` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`i64`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`].
+    ///
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get_i64<'k, K: Into<&'k str>>(&self, key: K) -> Result<i64, DynTableGetError> {
         let val = self.get(key)?;
         val.i64()
-            .ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `f64` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`f64`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get_f64<'k, K: Into<&'k str>>(&self, key: K) -> Result<f64, DynTableGetError> {
         let val = self.get(key)?;
         val.f64()
-            .ok_or_else(|| DynTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a string [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`string`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
+    ///
+    /// [`string`]: enum.Value.html#variant.String
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get_string<'k, K: Into<&'k str>>(&self, key: K) -> Result<&str, DynTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
+            .ok_or(DynTableGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`array`]: struct.DynArray.html
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get_array<'k, K: Into<&'k str>>(
         &self,
         key: K,
@@ -94,13 +116,16 @@ impl DynTable {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
+            .ok_or(DynTableGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get a [`table`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    ///
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get_table<'k, K: Into<&'k str>>(
         &self,
         key: K,
@@ -108,39 +133,81 @@ impl DynTable {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or_else(|| DynTableGetError::IncorrectValueType(val_type))
+            .ok_or(DynTableGetError::IncorrectValueType(val_type))
     }
 
-    /// Returns an [`iterator`] over (`key`, [`value`]) tuples of the [`table`], in unspecified order.
+    /// Returns an iterator over (`key`, [`value`]) pairs of the [`table`], in unspecified order.
     ///
-    /// [`iterator`]: struct.DynTableIter.html
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
-    pub fn iter(&self) -> DynTableIter<'_> {
+    pub fn iter(&self) -> impl Iterator<Item = (&'_ str, DynConfigValueRef<'_>)> {
         DynTableIter(self.0.iter())
     }
 
     /// Tries to get a mutable reference to a [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key`.
+    ///
+    /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
+    /// Use [`set`] to mutate other value types in the [`table`].
+    ///
+    /// [`value`]: type.DynConfigValueMut.html
     /// [`table`]: struct.DynTable.html
-    //pub fn get_mut<'t, 'k, K: Into<&'k str>>(
+    /// [`arrays`]: enum.Value.html#variant.Array
+    /// [`tables`]: enum.Value.html#variant.Table
+    /// [`set`]: #method.set
+    /// [`error`]: struct.DynTableGetError.html
     pub fn get_mut<'k, K: Into<&'k str>>(
         &mut self,
         key: K,
-    ) -> Result<Value<&'_ str, DynArrayMut<'_>, DynTableMut<'_>>, DynTableGetError> {
+    ) -> Result<DynConfigValueMut<'_>, DynTableGetError> {
         self.get_mut_impl(key.into())
+    }
+
+    /// Tries to get a mutable reference to an [`array`] [`value`] in the [`table`] with the string `key`.
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`value`]: type.DynConfigValue.html
+    /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
+    pub fn get_array_mut<'k, K: Into<&'k str>>(
+        &mut self,
+        key: K,
+    ) -> Result<DynArrayMut<'_>, DynTableGetError> {
+        let val = self.get_mut(key)?;
+        let val_type = val.get_type();
+        val.array()
+            .ok_or(DynTableGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    ///
+    /// [`value`]: type.DynConfigValue.html
+    /// [`table`]: struct.DynTable.html
+    /// [`error`]: struct.DynTableGetError.html
+    pub fn get_table_mut<'k, K: Into<&'k str>>(
+        &mut self,
+        key: K,
+    ) -> Result<DynTableMut<'_>, DynTableGetError> {
+        let val = self.get_mut(key)?;
+        let val_type = val.get_type();
+        val.table()
+            .ok_or(DynTableGetError::IncorrectValueType(val_type))
     }
 
     /// If [`value`] is `Some`, inserts or changes the value at `key`.
     /// If [`value`] is `None`, tries to remove the value at `key`.
     /// Returns an [`error`] if the `key` does not exist in this case.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.DynConfigValue.html
     /// [`error`]: struct.DynTableSetError.html
     pub fn set<'s, V>(&mut self, key: &str, value: V) -> Result<(), DynTableSetError>
     where
-        V: Into<Option<Value<&'s str, DynArray, DynTable>>>,
+        V: Into<Option<DynConfigValue>>,
     {
         self.set_impl(key, value.into())
     }
@@ -149,10 +216,7 @@ impl DynTable {
         self.0.len() as u32
     }
 
-    fn get_impl<'t>(
-        &'t self,
-        key: &str,
-    ) -> Result<Value<&'t str, DynArrayRef<'t>, DynTableRef<'t>>, DynTableGetError> {
+    fn get_impl<'t>(&'t self, key: &str) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
         if let Some(value) = self.0.get(key) {
             let value = match value {
                 Value::Bool(value) => Value::Bool(*value),
@@ -172,7 +236,7 @@ impl DynTable {
     fn set_impl<'s>(
         &mut self,
         key: &str,
-        value: Option<Value<&'s str, DynArray, DynTable>>,
+        value: Option<DynConfigValue>,
     ) -> Result<(), DynTableSetError> {
         use DynTableSetError::*;
 
@@ -208,7 +272,7 @@ impl DynTable {
     fn get_mut_impl<'t>(
         &'t mut self,
         key: &str,
-    ) -> Result<Value<&'t str, DynArrayMut<'t>, DynTableMut<'t>>, DynTableGetError> {
+    ) -> Result<DynConfigValueMut<'_>, DynTableGetError> {
         if let Some(value) = self.0.get_mut(key) {
             let value = match value {
                 Value::Bool(value) => Value::Bool(*value),
@@ -349,9 +413,27 @@ impl<'t> DynTableRef<'t> {
     pub(super) fn new(inner: &'t DynTable) -> Self {
         Self(inner)
     }
+
+    // Needed to return a table with `'t` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_table<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<DynTableRef<'t>, DynTableGetError> {
+        self.0.get_table(key)
+    }
+
+    // Needed to return an array with `'t` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_array<'k, K: Into<&'k str>>(
+        &self,
+        key: K,
+    ) -> Result<DynArrayRef<'t>, DynTableGetError> {
+        self.0.get_array(key)
+    }
 }
 
-impl<'t> std::ops::Deref for DynTableRef<'t> {
+impl<'t> Deref for DynTableRef<'t> {
     type Target = DynTable;
 
     fn deref(&self) -> &Self::Target {
@@ -367,6 +449,24 @@ pub struct DynTableMut<'t>(&'t mut DynTable);
 impl<'t> DynTableMut<'t> {
     pub(super) fn new(inner: &'t mut DynTable) -> Self {
         Self(inner)
+    }
+
+    // Needed to return a table with `'t` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_table_mut<'k, K: Into<&'k str>>(
+        self,
+        key: K,
+    ) -> Result<DynTableMut<'t>, DynTableGetError> {
+        self.0.get_table_mut(key)
+    }
+
+    // Needed to return an array with `'t` lifetime
+    // instead of that with `self` lifetime if deferred to `Deref`.
+    pub fn get_array_mut<'k, K: Into<&'k str>>(
+        self,
+        key: K,
+    ) -> Result<DynArrayMut<'t>, DynTableGetError> {
+        self.0.get_array_mut(key)
     }
 }
 
@@ -388,10 +488,10 @@ impl<'t> DerefMut for DynTableMut<'t> {
 ///
 /// [`value`]: enum.Value.html
 /// [`table`]: struct.DynTable.html
-pub struct DynTableIter<'t>(HashMapIter<'t, String, Value<String, DynArray, DynTable>>);
+struct DynTableIter<'t>(HashMapIter<'t, String, Value<String, DynArray, DynTable>>);
 
 impl<'t> Iterator for DynTableIter<'t> {
-    type Item = (&'t str, Value<&'t str, DynArrayRef<'t>, DynTableRef<'t>>);
+    type Item = (&'t str, DynConfigValueRef<'t>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((key, value)) = self.0.next() {

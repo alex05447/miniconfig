@@ -693,7 +693,7 @@ impl<'s> IniParser<'s> {
             Bool(val) => table.set(key, Value::Bool(val)).unwrap(),
             I64(val) => table.set(key, Value::I64(val)).unwrap(),
             F64(val) => table.set(key, Value::F64(val)).unwrap(),
-            String(val) => table.set(key, Value::String(val)).unwrap(),
+            String(val) => table.set(key, Value::String(val.into())).unwrap(),
         }
     }
 

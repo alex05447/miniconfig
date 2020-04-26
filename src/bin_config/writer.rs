@@ -1,5 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 use std::io::{Cursor, Seek, SeekFrom, Write};
+use std::mem::size_of;
+use std::str::from_utf8_unchecked;
 
 use super::config::BinConfigHeader;
 use super::util::string_hash_fnv1a;
@@ -18,9 +20,9 @@ pub struct BinConfigWriter {
     // Maps string hashes to their offsets and lengths in bytes
     // (NOTE - offsets are w.r.t. the string section during recording,
     // then fixed up to full offsets w.r.t. the data blob when the recording is finished).
-    strings: HashMap<u32, BinConfigString>,
+    strings: HashMap<u32, Vec<BinConfigString>>,
     // Binary config string section writer.
-    // Contains TF-8 strings.
+    // Contains UTF-8 strings.
     // NOTE - null-terminated just in case.
     string_writer: Vec<u8>,
 
@@ -72,11 +74,10 @@ impl BinConfigWriter {
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::Bool)?;
 
         // Write the packed value.
-        let value = BinConfigPackedValue::new_bool(key, value);
         Self::write_value(
             &mut self.config_writer,
             &mut self.stack,
-            value,
+            BinConfigPackedValue::new_bool(key, value),
             value_offset,
         )?;
 
@@ -98,11 +99,10 @@ impl BinConfigWriter {
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::I64)?;
 
         // Write the packed value.
-        let value = BinConfigPackedValue::new_i64(key, value);
         Self::write_value(
             &mut self.config_writer,
             &mut self.stack,
-            value,
+            BinConfigPackedValue::new_i64(key, value),
             value_offset,
         )?;
 
@@ -124,11 +124,10 @@ impl BinConfigWriter {
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::F64)?;
 
         // Write the packed value.
-        let value = BinConfigPackedValue::new_f64(key, value);
         Self::write_value(
             &mut self.config_writer,
             &mut self.stack,
-            value,
+            BinConfigPackedValue::new_f64(key, value),
             value_offset,
         )?;
 
@@ -150,14 +149,13 @@ impl BinConfigWriter {
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::String)?;
 
         // Lookup or intern the string.
-        let string = Self::intern_string(&mut self.strings, &mut self.string_writer, value)?.string;
+        let string = Self::intern_string(&mut self.strings, &mut self.string_writer, value).string;
 
         // Write the packed value.
-        let value = BinConfigPackedValue::new_string(key, string.offset, string.len);
         Self::write_value(
             &mut self.config_writer,
             &mut self.stack,
-            value,
+            BinConfigPackedValue::new_string(key, string.offset, string.len),
             value_offset,
         )?;
 
@@ -272,14 +270,14 @@ impl BinConfigWriter {
         // Write the header.
         BinConfigHeader::write(&mut self.config_writer, len)?;
 
-        self.data_offset += std::mem::size_of::<BinConfigHeader>() as u32;
+        self.data_offset += size_of::<BinConfigHeader>() as u32;
 
         // Push the root table on the stack.
         self.stack
             .push(BinConfigArrayOrTable::new(true, len, self.data_offset));
 
         // Bump the data offset by the combined table value length.
-        self.data_offset += len * std::mem::size_of::<BinConfigPackedValue>() as u32;
+        self.data_offset += len * size_of::<BinConfigPackedValue>() as u32;
 
         Ok(())
     }
@@ -302,15 +300,10 @@ impl BinConfigWriter {
 
         // Write the packed value.
         // Offset to the array's/table's values is the current data offset.
-        let value = if table {
-            BinConfigPackedValue::new_table(key, self.data_offset, len)
-        } else {
-            BinConfigPackedValue::new_array(key, self.data_offset, len)
-        };
         Self::write_value(
             &mut self.config_writer,
             &mut self.stack,
-            value,
+            BinConfigPackedValue::new_array_or_table(key, self.data_offset, len, table),
             value_offset,
         )?;
 
@@ -321,16 +314,16 @@ impl BinConfigWriter {
         }
 
         // Bump the data offset by the combined value length.
-        self.data_offset += len * std::mem::size_of::<BinConfigPackedValue>() as u32;
+        self.data_offset += len * size_of::<BinConfigPackedValue>() as u32;
 
         Ok(())
     }
 
-    /// For tables, looks up/interns the required `key_string`
+    /// For tables, looks up/interns the required `key` string
     /// and returns its hash / offset w.r.t. the string section / length.
     /// For arrays returns a default key.
     fn key(
-        strings: &mut HashMap<u32, BinConfigString>,
+        strings: &mut HashMap<u32, Vec<BinConfigString>>,
         string_writer: &mut Vec<u8>,
         parent_table: Option<&mut BinConfigArrayOrTable>,
         key: Option<&str>,
@@ -346,16 +339,24 @@ impl BinConfigWriter {
                 }
 
                 // Lookup / intern the key string, return its hash / offset / length.
-                let key = Self::intern_string(strings, string_writer, key)?;
+                let key = Self::intern_string(strings, string_writer, key);
 
                 let entry = parent_table.keys.entry(key.hash);
 
                 match entry {
-                    // Make sure the key is unique.
-                    Entry::Occupied(_) => return Err(NonUniqueKey),
-                    // Update the table keys.
+                    // Non-unique key (error) or hash collision.
+                    Entry::Occupied(mut keys) => {
+                        // Make sure the key is unique.
+                        if keys.get().contains(&key.string) {
+                            return Err(NonUniqueKey);
+                        }
+
+                        // Add the new key with the same hash.
+                        keys.get_mut().push(key.string);
+                    }
+                    // New unique key - update the table keys.
                     Entry::Vacant(_) => {
-                        entry.or_insert(key.string);
+                        entry.or_insert(vec![key.string]);
                     }
                 }
 
@@ -376,18 +377,56 @@ impl BinConfigWriter {
     /// If not found, interns the string.
     /// Returns its hash and offset / length w.r.t. the string section.
     fn intern_string(
-        strings: &mut HashMap<u32, BinConfigString>,
+        strings: &mut HashMap<u32, Vec<BinConfigString>>,
         string_writer: &mut Vec<u8>,
         string: &str,
-    ) -> Result<BinConfigStringAndHash, BinConfigWriterError> {
+    ) -> BinConfigStringAndHash {
         // Hash the string.
         let hash = string_hash_fnv1a(string);
 
         // Lookup the key string offset and length.
-        let string = if let Some(string) = strings.get(&hash) {
-            *string
+        let string = if let Some(strings) = strings.get_mut(&hash) {
+            // Hashes match - now compare the strings.
+            let mut result = None;
 
-        // Or write a new string and add its offset to the hashmap.
+            fn lookup_string<'s>(string: &BinConfigString, strings: &'s mut Vec<u8>) -> &'s str {
+                unsafe {
+                    from_utf8_unchecked(strings.get_unchecked(
+                        string.offset as usize..(string.offset + string.len) as usize,
+                    ))
+                }
+            }
+
+            for interned_string in strings.iter() {
+                if lookup_string(interned_string, string_writer) == string {
+                    result.replace(*interned_string);
+                    break;
+                }
+            }
+
+            // If we found a matching string, return it('s offset and length).
+            if let Some(string) = result {
+                string
+
+            // Else there's a hash collision - write a new string and add its offset/length to the hashmap.
+            } else {
+                // Offset to the start of the string is the current length of the string writer.
+                let offset = string_writer.len() as u32;
+
+                // Write the unique string and the null terminator.
+                string_writer.write_all(string.as_bytes()).unwrap();
+                string_writer.write_all(&[b'\0']).unwrap();
+
+                let len = string.len() as u32;
+
+                let string = BinConfigString { offset, len };
+
+                strings.push(string);
+
+                string
+            }
+
+        // Or write a new string and add its offset/length to the hashmap.
         } else {
             // Offset to the start of the string is the current length of the string writer.
             let offset = string_writer.len() as u32;
@@ -400,12 +439,12 @@ impl BinConfigWriter {
 
             let string = BinConfigString { offset, len };
 
-            strings.insert(hash, string);
+            strings.insert(hash, vec![string]);
 
             string
         };
 
-        Ok(BinConfigStringAndHash { hash, string })
+        BinConfigStringAndHash { hash, string }
     }
 
     /// Returns the packed binary config value key
@@ -488,7 +527,7 @@ impl BinConfigWriter {
         parent.current_len += 1;
 
         // Bump the parent array's/table's value offset for the next value.
-        parent.value_offset += std::mem::size_of::<BinConfigPackedValue>() as u32;
+        parent.value_offset += size_of::<BinConfigPackedValue>() as u32;
     }
 
     /// Adds `string_offset` to all string offsets in the binary config `data` blob
@@ -499,9 +538,7 @@ impl BinConfigWriter {
 
         let base = data.as_mut_ptr() as *mut u8;
 
-        let begin = unsafe {
-            base.add(std::mem::size_of::<BinConfigHeader>()) as *mut BinConfigPackedValue
-        };
+        let begin = unsafe { base.add(size_of::<BinConfigHeader>()) as *mut BinConfigPackedValue };
         let end = unsafe { begin.offset(len as isize) };
 
         Self::fixup_string_offsets_impl(base, begin, end, string_offset);
@@ -604,7 +641,7 @@ struct BinConfigArrayOrTable {
     // Offset in bytes to the current array/table element w.r.t. config data blob.
     value_offset: u32,
     // Must keep track of table keys to ensure key uniqueness.
-    keys: HashMap<u32, BinConfigString>,
+    keys: HashMap<u32, Vec<BinConfigString>>,
     // For arrays must keep track of value type to ensure no mixed arrays.
     array_type: Option<ValueType>,
 }

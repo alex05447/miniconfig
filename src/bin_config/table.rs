@@ -1,13 +1,14 @@
 use std::fmt::{Display, Formatter, Write};
 use std::iter::Iterator;
 
-use super::array_or_table::BinArrayOrTable;
-use super::util::string_hash_fnv1a;
-use super::value::BinConfigValue;
-use crate::{write_lua_key, BinArray, BinTableGetError, DisplayLua, Value};
+use crate::{write_lua_key, BinArray, BinConfigValue, BinTableGetError, DisplayLua, Value};
 
 #[cfg(feature = "ini")]
 use crate::{write_ini_section, write_ini_string, DisplayINI, ToINIStringError, ValueType};
+
+use super::array_or_table::BinArrayOrTable;
+use super::util::string_hash_fnv1a;
+use super::value::BinConfigUnpackedValue;
 
 /// Represents an immutable map of [`Value`]'s with string keys.
 ///
@@ -22,93 +23,117 @@ impl<'t> BinTable<'t> {
         self.0.len
     }
 
-    /// Tries to get an immutable reference to a [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a reference to a [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key`.
+    ///
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
+    /// [`error`]: struct.BinTableGetError.html
     pub fn get<'k, K: Into<&'k str>>(
         &self,
         key: K,
-    ) -> Result<Value<&'t str, BinArray<'t>, BinTable<'t>>, BinTableGetError> {
+    ) -> Result<BinConfigValue<'t>, BinTableGetError> {
         self.get_impl(key.into())
     }
 
-    /// Tries to get a `bool` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    ///
+    /// [`bool`]: enum.Value.html#variant.Bool
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
+    /// [`error`]: struct.BinTableGetError.html
     pub fn get_bool<'k, K: Into<&'k str>>(&self, key: K) -> Result<bool, BinTableGetError> {
         let val = self.get(key)?;
         val.bool()
-            .ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `i64` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`i64`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`].
+    ///
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
+    /// [`error`]: struct.BinTableGetError.html
     pub fn get_i64<'k, K: Into<&'k str>>(&self, key: K) -> Result<i64, BinTableGetError> {
         let val = self.get(key)?;
         val.i64()
-            .ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `f64` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`f64`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
+    /// [`error`]: struct.BinTableGetError.html
     pub fn get_f64<'k, K: Into<&'k str>>(&self, key: K) -> Result<f64, BinTableGetError> {
         let val = self.get(key)?;
         val.f64()
-            .ok_or_else(|| BinTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a string [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`string`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
+    ///
+    /// [`string`]: enum.Value.html#variant.String
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    pub fn get_string<'k, K: Into<&'k str>>(&self, key: K) -> Result<&str, BinTableGetError> {
+    /// [`error`]: struct.BinTableGetError.html
+    pub fn get_string<'k, K: Into<&'k str>>(&self, key: K) -> Result<&'t str, BinTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
+            .ok_or(BinTableGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`array`]: struct.BinArray.html
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
+    /// [`error`]: struct.BinTableGetError.html
     pub fn get_array<'k, K: Into<&'k str>>(
         &self,
         key: K,
-    ) -> Result<BinArray<'_>, BinTableGetError> {
+    ) -> Result<BinArray<'t>, BinTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
+            .ok_or(BinTableGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get a [`table`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    ///
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
+    /// [`error`]: struct.BinTableGetError.html
     pub fn get_table<'k, K: Into<&'k str>>(
         &self,
         key: K,
-    ) -> Result<BinTable<'_>, BinTableGetError> {
+    ) -> Result<BinTable<'t>, BinTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or_else(|| BinTableGetError::IncorrectValueType(val_type))
+            .ok_or(BinTableGetError::IncorrectValueType(val_type))
     }
 
-    /// Returns an [`iterator`] over (`key`, [`value`]) tuples of the [`table`], in unspecified order.
+    /// Returns an iterator over (`key`, [`value`]) pairs of the [`table`], in unspecified order.
     ///
-    /// [`iterator`]: struct.BinTableIter.html
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    pub fn iter(&self) -> BinTableIter<'_, 't> {
+    pub fn iter<'i>(&'i self) -> impl Iterator<Item = (&'t str, BinConfigValue<'t>)> + 'i {
         BinTableIter::new(self)
     }
 
@@ -116,10 +141,7 @@ impl<'t> BinTable<'t> {
         Self(table)
     }
 
-    fn get_impl(
-        &self,
-        key: &str,
-    ) -> Result<Value<&'t str, BinArray<'t>, BinTable<'t>>, BinTableGetError> {
+    fn get_impl(&self, key: &str) -> Result<BinConfigValue<'t>, BinTableGetError> {
         use BinTableGetError::*;
 
         // Hash the key string to compare against table keys.
@@ -143,14 +165,16 @@ impl<'t> BinTable<'t> {
         Err(KeyDoesNotExist)
     }
 
-    fn get_value(&self, value: BinConfigValue) -> Value<&'t str, BinArray<'t>, BinTable<'t>> {
-        use BinConfigValue::*;
+    fn get_value(&self, value: BinConfigUnpackedValue) -> BinConfigValue<'t> {
+        use BinConfigUnpackedValue::*;
 
         match value {
             Bool(val) => Value::Bool(val),
             I64(val) => Value::I64(val),
             F64(val) => Value::F64(val),
-            String { offset, len } => Value::String(unsafe { self.0.string(offset, len) }), // Safe to call - the string was validated.
+            BinConfigUnpackedValue::String { offset, len } => {
+                Value::String(unsafe { self.0.string(offset, len) })
+            } // Safe to call - the string was validated.
             Array { offset, len } => Value::Array(BinArray::new(BinArrayOrTable::new(
                 self.0.base,
                 offset,
@@ -279,11 +303,11 @@ impl<'t> BinTable<'t> {
     }
 }
 
-/// Iterator over (`key`, [`value`]) tuples of the [`table`], in unspecified order.
+/// Iterator over (`key`, [`value`]) pairs of the [`table`], in unspecified order.
 ///
-/// [`value`]: enum.Value.html
+/// [`value`]: type.BinConfigValue.html
 /// [`table`]: struct.BinTable.html
-pub struct BinTableIter<'i, 't> {
+struct BinTableIter<'i, 't> {
     table: &'i BinTable<'t>,
     index: u32,
 }
@@ -295,7 +319,7 @@ impl<'i, 't> BinTableIter<'i, 't> {
 }
 
 impl<'i, 't> Iterator for BinTableIter<'i, 't> {
-    type Item = (&'t str, Value<&'t str, BinArray<'t>, BinTable<'t>>);
+    type Item = (&'t str, BinConfigValue<'t>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index;

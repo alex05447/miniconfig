@@ -194,9 +194,7 @@ fn writer() {
 
     let config = BinConfig::new(data).unwrap();
 
-    let root = config.root();
-
-    let array_value = root.get_array("array_value").unwrap();
+    let array_value = config.root().get_array("array_value").unwrap();
 
     assert_eq!(array_value.len(), 3);
     assert_eq!(array_value.get_i64(0).unwrap(), 54);
@@ -206,15 +204,15 @@ fn writer() {
     assert_eq!(array_value.get_i64(2).unwrap(), 78);
     assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
 
-    assert_eq!(root.get_bool("bool_value").unwrap(), true);
+    assert_eq!(config.root().get_bool("bool_value").unwrap(), true);
 
-    assert!(cmp_f64(root.get_f64("float_value").unwrap(), 3.14));
+    assert!(cmp_f64(config.root().get_f64("float_value").unwrap(), 3.14));
 
-    assert_eq!(root.get_i64("int_value").unwrap(), 7);
+    assert_eq!(config.root().get_i64("int_value").unwrap(), 7);
 
-    assert_eq!(root.get_string("string_value").unwrap(), "foo");
+    assert_eq!(config.root().get_string("string_value").unwrap(), "foo");
 
-    let table_value = root.get_table("table_value").unwrap();
+    let table_value = config.root().get_table("table_value").unwrap();
 
     assert_eq!(table_value.len(), 3);
     assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
@@ -302,9 +300,7 @@ fn to_dyn_config() {
     // Serialize to dynamic config.
     let dyn_config = config.to_dyn_config();
 
-    let root = dyn_config.root();
-
-    let array_value = root.get_array("array_value").unwrap();
+    let array_value = dyn_config.root().get_array("array_value").unwrap();
 
     assert_eq!(array_value.len(), 3);
     assert_eq!(array_value.get_i64(0).unwrap(), 54);
@@ -314,19 +310,39 @@ fn to_dyn_config() {
     assert_eq!(array_value.get_i64(2).unwrap(), 78);
     assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
 
-    assert_eq!(root.get_bool("bool_value").unwrap(), true);
+    assert_eq!(dyn_config.root().get_bool("bool_value").unwrap(), true);
 
-    assert!(cmp_f64(root.get_f64("float_value").unwrap(), 3.14));
+    assert!(cmp_f64(
+        dyn_config.root().get_f64("float_value").unwrap(),
+        3.14
+    ));
 
-    assert_eq!(root.get_i64("int_value").unwrap(), 7);
+    assert_eq!(dyn_config.root().get_i64("int_value").unwrap(), 7);
 
-    assert_eq!(root.get_string("string_value").unwrap(), "foo");
+    assert_eq!(dyn_config.root().get_string("string_value").unwrap(), "foo");
 
-    let table_value = root.get_table("table_value").unwrap();
+    let table_value = dyn_config.root().get_table("table_value").unwrap();
 
     assert_eq!(table_value.len(), 3);
     assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
     assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
     assert_eq!(table_value.get_string("baz").unwrap(), "hello");
     assert_eq!(table_value.get_bool("foo").unwrap(), false);
+}
+
+#[test]
+fn hash_collisions() {
+    // See `fnv1a_hash_collisions()`.
+
+    let mut writer = BinConfigWriter::new(2).unwrap();
+
+    writer.string("costarring", "declinate").unwrap();
+    writer.string("liquid", "macallums").unwrap();
+
+    let data = writer.finish().unwrap();
+
+    let config = BinConfig::new(data).unwrap();
+
+    assert_eq!(config.root().get_string("liquid").unwrap(), "macallums");
+    assert_eq!(config.root().get_string("costarring").unwrap(), "declinate");
 }

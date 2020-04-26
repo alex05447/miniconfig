@@ -162,3 +162,29 @@ impl Display for IniError {
         )
     }
 }
+
+/// An error returned by `to_ini_string`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ToINIStringError {
+    /// Array values are not supported in INI configs.
+    ArraysNotSupported,
+    /// Tables nested within tables are not supported in INI configs.
+    NestedTablesNotSupported,
+    /// General write error (out of memory?).
+    WriteError,
+}
+
+impl Display for ToINIStringError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use ToINIStringError::*;
+
+        match self {
+            ArraysNotSupported => write!(f, "Array values are not supported in INI configs."),
+            NestedTablesNotSupported => write!(
+                f,
+                "Tables nested within tables are not supported in INI configs."
+            ),
+            WriteError => write!(f, "General write error (out of memory?)."),
+        }
+    }
+}

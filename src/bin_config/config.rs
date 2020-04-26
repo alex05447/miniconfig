@@ -1,18 +1,22 @@
 use std::fmt::{Display, Formatter};
 use std::io::Write;
+use std::mem::size_of;
+use std::ops::DerefMut;
+
+use crate::{
+    BinArray, BinConfigError, BinConfigValue, BinConfigWriterError, BinTable, DisplayLua, Value,
+    ValueType,
+};
 
 use super::array_or_table::BinArrayOrTable;
-use super::util::string_hash_fnv1a;
+use super::util::{string_hash_fnv1a, u32_from_bin, u32_to_bin_bytes};
 use super::value::BinConfigPackedValue;
-use crate::{
-    BinArray, BinConfigError, BinConfigWriterError, BinTable, DisplayLua, Value, ValueType,
-};
 
 #[cfg(feature = "ini")]
 use crate::{DisplayINI, ToINIStringError};
 
 #[cfg(feature = "dyn")]
-use crate::{DynArray, DynArrayMut, DynConfig, DynTable, DynTableMut};
+use crate::{DynArray, DynConfig, DynTable};
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
@@ -20,14 +24,10 @@ use crate::{DynArray, DynArrayMut, DynConfig, DynTable, DynTableMut};
 #[derive(Debug)]
 pub struct BinConfig(Box<[u8]>);
 
-impl std::cmp::PartialEq for BinConfig {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
 impl BinConfig {
     const MAX_SIZE: u32 = std::u32::MAX;
+    const MAX_ARRAY_OR_TABLE_LEN: u32 = (Self::MAX_SIZE - size_of::<BinConfigHeader>() as u32)
+        / size_of::<BinConfigPackedValue>() as u32;
 
     /// Creates a new [`config`] from the `data` binary blob.
     ///
@@ -88,7 +88,7 @@ impl BinConfig {
     pub fn to_dyn_config(&self) -> DynConfig {
         let mut result = DynConfig::new();
 
-        Self::table_to_dyn_table(self.root(), &mut result.root_mut());
+        Self::table_to_dyn_table(self.root(), result.root_mut());
 
         result
     }
@@ -113,8 +113,8 @@ impl BinConfig {
     /// NOTE - the caller ensures that data is a valid binary config header.
     unsafe fn root_raw_impl(data: &[u8]) -> BinArrayOrTable<'_> {
         BinArrayOrTable::new(
-            Self::base(data),                              // Base address of the binary config.
-            std::mem::size_of::<BinConfigHeader>() as u32, // Offset to the first value of the root table is the size of the header.
+            Self::base(data),                    // Base address of the binary config.
+            size_of::<BinConfigHeader>() as u32, // Offset to the first value of the root table is the size of the header.
             Self::header(data).len(), // Config root table length as read from the header.
         )
     }
@@ -122,8 +122,8 @@ impl BinConfig {
     fn validate_data(data: &[u8]) -> Result<(), BinConfigError> {
         use BinConfigError::*;
 
-        // Make sure the data is large enough to contain at least the header.
-        if data.len() < std::mem::size_of::<BinConfigHeader>() {
+        // Make sure the data is large enough to contain at least the header and one value.
+        if data.len() < size_of::<BinConfigHeader>() + size_of::<BinConfigPackedValue>() {
             return Err(InvalidBinaryConfigData);
         }
 
@@ -140,8 +140,16 @@ impl BinConfig {
             return Err(InvalidBinaryConfigData);
         }
 
+        // Check the root table.
         if header.len() > 0 {
             let root = unsafe { Self::root_raw_impl(data) };
+
+            // Make sure the root table slice lies within the config data blob.
+            // Offset to the first value of the root table is the size of the header.
+            Self::validate_range(
+                (size_of::<BinConfigHeader>() as u32, data.len() as u32),
+                root.offset_range(),
+            )?;
 
             Self::validate_table(data, &root)
 
@@ -159,52 +167,59 @@ impl BinConfig {
             return Err(InvalidBinaryConfigData);
         }
 
-        // Minimum offset to string/array/table values in the table is just past the table packed value.
-        let min_offset = table.offset + std::mem::size_of::<BinConfigPackedValue>() as u32;
+        if table.len > Self::MAX_ARRAY_OR_TABLE_LEN {
+            return Err(InvalidBinaryConfigData);
+        }
 
-        // Valid data offset range.
-        let valid_range = (min_offset, data.len() as u32 - min_offset);
+        if table.len > 0 {
+            // Valid data offset range for table values.
+            // Minimum offset to string/array/table values in the table is just past the table's packed values.
+            let valid_range = (
+                table.offset + table.len * size_of::<BinConfigPackedValue>() as u32,
+                data.len() as u32,
+            );
 
-        // For each table element.
-        for index in 0..table.len {
-            let value = unsafe { table.packed_value(index) };
+            // For each table element.
+            for index in 0..table.len {
+                let value = unsafe { table.packed_value(index) };
 
-            // All values in the table must have a key.
-            let key = value.key();
+                // All values in the table must have a key.
+                let key = value.key();
 
-            // Validate the key.
-            //----------------------------------------------------------------------------------
-            // Key length must be positive.
-            if key.len == 0 {
-                return Err(InvalidBinaryConfigData);
+                // Validate the key.
+                //----------------------------------------------------------------------------------
+                // Key length must be positive.
+                if key.len == 0 {
+                    return Err(InvalidBinaryConfigData);
+                }
+
+                // Make sure the key string and the null terminator lie within the config data blob (`+ 1`for null terminator).
+                Self::validate_range(valid_range, (key.offset, key.offset + key.len + 1))?;
+
+                // Make sure the key string is null-terminated.
+                let null_terminator = unsafe { table.slice(key.offset + key.len, 1) };
+
+                if null_terminator[0] != b'\0' {
+                    return Err(InvalidBinaryConfigData);
+                }
+
+                // Make sure the key string is valid UTF-8.
+                let key_slice = unsafe { table.slice(key.offset, key.len) };
+
+                let key_string =
+                    std::str::from_utf8(key_slice).map_err(|_| InvalidBinaryConfigData)?;
+
+                // Make sure the key hash matches the string.
+                if string_hash_fnv1a(key_string) != key.hash {
+                    return Err(InvalidBinaryConfigData);
+                }
+                //----------------------------------------------------------------------------------
+                // The key seems to be OK.
+
+                // Validate the value.
+                Self::validate_value(data, table, valid_range, value)?;
+                // The value seems to be OK.
             }
-
-            // Make sure the key string and the null terminator lie within the config data blob (`+ 1`for null terminator).
-            Self::validate_range(valid_range, (key.offset, key.len + 1))?;
-
-            // Make sure the key string is null-terminated.
-            let null_terminator = unsafe { table.slice(key.offset + key.len, 1) };
-
-            if null_terminator[0] != b'\0' {
-                return Err(InvalidBinaryConfigData);
-            }
-
-            // Make sure the key string is valid UTF-8.
-            let key_slice = unsafe { table.slice(key.offset, key.len) };
-
-            let key_string = std::str::from_utf8(key_slice).map_err(|_| InvalidBinaryConfigData)?;
-
-            // Make sure the key hash matches the string.
-            if string_hash_fnv1a(key_string) != key.hash {
-                return Err(InvalidBinaryConfigData);
-            }
-            //----------------------------------------------------------------------------------
-            // The key seems to be OK.
-
-            // Validate the value.
-            let value_offset = unsafe { table.packed_value_offset(index) };
-            Self::validate_value(data, table, value_offset, value)?;
-            // The value seems to be OK.
         }
 
         Ok(())
@@ -218,6 +233,17 @@ impl BinConfig {
             return Err(InvalidBinaryConfigData);
         }
 
+        if array.len > Self::MAX_ARRAY_OR_TABLE_LEN {
+            return Err(InvalidBinaryConfigData);
+        }
+
+        // Valid data offset range for array values.
+        // Minimum offset to string/array/table values in the array is just past the array's packed values.
+        let valid_range = (
+            array.offset + array.len * size_of::<BinConfigPackedValue>() as u32,
+            data.len() as u32,
+        );
+
         // For each array element.
         for index in 0..array.len {
             let value = unsafe { array.packed_value(index) };
@@ -230,8 +256,7 @@ impl BinConfig {
             }
 
             // Validate the value.
-            let value_offset = unsafe { array.packed_value_offset(index) };
-            Self::validate_value(data, array, value_offset, value)?;
+            Self::validate_value(data, array, valid_range, value)?;
             // The value seems to be OK.
         }
 
@@ -241,19 +266,11 @@ impl BinConfig {
     fn validate_range(valid_range: (u32, u32), range: (u32, u32)) -> Result<(), BinConfigError> {
         use BinConfigError::*;
 
-        if range.1 > valid_range.1 {
-            return Err(InvalidBinaryConfigData);
-        }
-
         if range.0 < valid_range.0 {
             return Err(InvalidBinaryConfigData);
         }
 
-        if range.0 > (valid_range.0 + valid_range.1) {
-            return Err(InvalidBinaryConfigData);
-        }
-
-        if (range.0 + range.1) > (valid_range.0 + valid_range.1) {
+        if range.1 > valid_range.1 {
             return Err(InvalidBinaryConfigData);
         }
 
@@ -263,16 +280,10 @@ impl BinConfig {
     fn validate_value(
         data: &[u8],
         array_or_table: &BinArrayOrTable<'_>, // Validated value's parent array/table.
-        value_offset: u32, // Offset to the validated packed value in the data blob.
+        valid_range: (u32, u32), // Valid range of offsets within the binary data blob for this string/array/table value.
         value: &BinConfigPackedValue,
     ) -> Result<(), BinConfigError> {
         use BinConfigError::*;
-
-        // Minimum offset to string/array/table values in the table is just past the packed value itself.
-        let min_offset = value_offset + std::mem::size_of::<BinConfigPackedValue>() as u32;
-
-        // Valid data offset range.
-        let valid_range = (min_offset, data.len() as u32 - min_offset);
 
         // Make sure the value type is valid.
         let value_type = value.try_value_type().ok_or(InvalidBinaryConfigData)?;
@@ -287,7 +298,10 @@ impl BinConfig {
                 // Non-empty strings have a positive offset to data.
                 if value.len() > 0 {
                     // Make sure the string and the null terminator lie within the config data blob (`+ 1`for null terminator).
-                    Self::validate_range(valid_range, (value.offset(), value.len() + 1))?;
+                    Self::validate_range(
+                        valid_range,
+                        (value.offset(), value.offset() + value.len() + 1),
+                    )?;
 
                     // Make sure the value string is null-terminated.
                     let null_terminator =
@@ -307,48 +321,31 @@ impl BinConfig {
                     return Err(InvalidBinaryConfigData);
                 }
             }
-            ValueType::Array => {
-                // Non-empty arrays have a positive offset to data.
-                if value.len() > 0 {
-                    // Make sure the array slice lies within the config data blob.
-                    Self::validate_range(
-                        valid_range,
-                        (
-                            value.offset(),
-                            value.len() * std::mem::size_of::<BinConfigPackedValue>() as u32,
-                        ),
-                    )?;
-
-                    // Validate the array values.
-                    Self::validate_array(
-                        data,
-                        &BinArrayOrTable::new(Self::base(data), value.offset(), value.len()),
-                    )?;
-
-                // Empty arrays must have no offset.
-                } else if value.offset() != 0 {
+            ValueType::Array | ValueType::Table => {
+                if value.len() > Self::MAX_ARRAY_OR_TABLE_LEN {
                     return Err(InvalidBinaryConfigData);
                 }
-            }
-            ValueType::Table => {
-                // Non-empty tables have a positive offset to data.
+
+                // Non-empty arrays/tables have a positive offset to data.
                 if value.len() > 0 {
-                    // Make sure the table slice lies within the config data blob.
-                    Self::validate_range(
-                        valid_range,
-                        (
-                            value.offset(),
-                            value.len() * std::mem::size_of::<BinConfigPackedValue>() as u32,
-                        ),
-                    )?;
+                    let array_or_table =
+                        BinArrayOrTable::new(Self::base(data), value.offset(), value.len());
 
-                    // Validate the table values.
-                    Self::validate_table(
-                        data,
-                        &BinArrayOrTable::new(Self::base(data), value.offset(), value.len()),
-                    )?;
+                    // Make sure the array/table slice lies within the config data blob.
+                    Self::validate_range(valid_range, array_or_table.offset_range())?;
 
-                // Empty arrays must have no offset.
+                    // Validate the array/table values.
+                    match value_type {
+                        ValueType::Array => {
+                            Self::validate_array(data, &array_or_table)?;
+                        }
+                        ValueType::Table => {
+                            Self::validate_table(data, &array_or_table)?;
+                        }
+                        _ => unreachable!(),
+                    }
+
+                // Empty arrays/tables must have no offset.
                 } else if value.offset() != 0 {
                     return Err(InvalidBinaryConfigData);
                 }
@@ -359,25 +356,28 @@ impl BinConfig {
     }
 
     #[cfg(feature = "dyn")]
-    fn table_to_dyn_table(table: BinTable<'_>, dyn_table: &mut DynTableMut<'_>) {
+    fn table_to_dyn_table<'t, T: DerefMut<Target = DynTable>>(
+        table: BinTable<'_>,
+        mut dyn_table: T,
+    ) {
+        let dyn_table = dyn_table.deref_mut();
+
         for (key, value) in table.iter() {
             Self::value_to_dyn_table(key, value, dyn_table);
         }
     }
 
     #[cfg(feature = "dyn")]
-    fn array_to_dyn_array(array: BinArray<'_>, dyn_array: &mut DynArrayMut<'_>) {
+    fn array_to_dyn_array<A: DerefMut<Target = DynArray>>(array: BinArray<'_>, mut dyn_array: A) {
+        let dyn_array = dyn_array.deref_mut();
+
         for value in array.iter() {
             Self::value_to_dyn_array(value, dyn_array);
         }
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_table(
-        key: &str,
-        value: Value<&'_ str, BinArray<'_>, BinTable<'_>>,
-        dyn_table: &mut DynTableMut<'_>,
-    ) {
+    fn value_to_dyn_table(key: &str, value: BinConfigValue<'_>, dyn_table: &mut DynTable) {
         use Value::*;
 
         match value {
@@ -391,26 +391,23 @@ impl BinConfig {
                 dyn_table.set(key, Value::F64(value)).unwrap();
             }
             String(value) => {
-                dyn_table.set(key, Value::String(value)).unwrap();
+                dyn_table.set(key, Value::String(value.into())).unwrap();
             }
             Array(value) => {
-                dyn_table.set(key, Value::Array(DynArray::new())).unwrap();
-                let mut array = dyn_table.get_mut(key).unwrap().array().unwrap();
+                let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
+                dyn_table.set(key, Value::Array(array)).unwrap();
             }
             Table(value) => {
-                dyn_table.set(key, Value::Table(DynTable::new())).unwrap();
-                let mut table = dyn_table.get_mut(key).unwrap().table().unwrap();
+                let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
+                dyn_table.set(key, Value::Table(table)).unwrap();
             }
         }
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_array(
-        value: Value<&'_ str, BinArray<'_>, BinTable<'_>>,
-        dyn_array: &mut DynArrayMut<'_>,
-    ) {
+    fn value_to_dyn_array(value: BinConfigValue<'_>, dyn_array: &mut DynArray) {
         use Value::*;
 
         match value {
@@ -424,19 +421,17 @@ impl BinConfig {
                 dyn_array.push(Value::F64(value)).unwrap();
             }
             String(value) => {
-                dyn_array.push(Value::String(value)).unwrap();
+                dyn_array.push(Value::String(value.to_owned())).unwrap();
             }
             Array(value) => {
-                dyn_array.push(Value::Array(DynArray::new())).unwrap();
-                let last = dyn_array.len() - 1;
-                let mut array = dyn_array.get_mut(last).unwrap().array().unwrap();
+                let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
+                dyn_array.push(Value::Array(array)).unwrap();
             }
             Table(value) => {
-                dyn_array.push(Value::Table(DynTable::new())).unwrap();
-                let last = dyn_array.len() - 1;
-                let mut table = dyn_array.get_mut(last).unwrap().table().unwrap();
+                let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
+                dyn_array.push(Value::Table(table)).unwrap();
             }
         }
     }
@@ -448,31 +443,32 @@ impl Display for BinConfig {
     }
 }
 
-impl<'a> Display for Value<&'a str, BinArray<'a>, BinTable<'a>> {
+impl<'a> Display for BinConfigValue<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.fmt_lua(f, 0)
     }
 }
 
 /// Binary config data blob header.
-/// Fields are little-endian.
+///
+/// Fields are in whatever endianness we use; see `super::util::__to_bin_bytes(), _from_bin()`.
 #[repr(C, packed)]
 pub(super) struct BinConfigHeader {
     // Arbitrary magic value for a quick sanity check.
-    magic: [u8; 4],
+    magic: u32,
     // Followed by the root table length.
     len: u32,
 }
 
-const BIN_CONFIG_HEADER_MAGIC: [u8; 4] = [b'b', b'c', b'f', b'g'];
+const BIN_CONFIG_HEADER_MAGIC: u32 = 0x67666362; // `bcfg`, little endian.
 
 impl BinConfigHeader {
     fn check_magic(&self) -> bool {
-        u32::from_le_bytes(self.magic) == u32::from_le_bytes(BIN_CONFIG_HEADER_MAGIC)
+        u32_from_bin(self.magic) == BIN_CONFIG_HEADER_MAGIC
     }
 
     pub(super) fn len(&self) -> u32 {
-        u32::from_le(self.len)
+        u32_from_bin(self.len)
     }
 
     pub(super) fn write<W: Write>(writer: &mut W, len: u32) -> Result<(), BinConfigWriterError> {
@@ -480,11 +476,13 @@ impl BinConfigHeader {
 
         // Magic.
         writer
-            .write(&BIN_CONFIG_HEADER_MAGIC)
+            .write(&u32_to_bin_bytes(BIN_CONFIG_HEADER_MAGIC))
             .map_err(|_| WriteError)?;
 
         // Root table length.
-        writer.write(&len.to_le_bytes()).map_err(|_| WriteError)?;
+        writer
+            .write(&u32_to_bin_bytes(len))
+            .map_err(|_| WriteError)?;
 
         Ok(())
     }

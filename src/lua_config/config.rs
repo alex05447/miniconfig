@@ -31,6 +31,13 @@ impl<'lua> AsRef<str> for LuaString<'lua> {
     }
 }
 
+/// A [`value`] returned when accessing a Lua [`array`] or [`table`].
+///
+/// [`value`]: enum.Value.html
+/// [`array`]: struct.LuaArray.html
+/// [`table`]: struct.LuaTable.html
+pub type LuaConfigValue<'lua> = Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>;
+
 /// Represents a mutable config with a root [`Lua table`] within the [`Lua context`].
 ///
 /// [`Lua table`]: struct.LuaTable.html
@@ -172,19 +179,19 @@ impl<'lua> LuaConfig<'lua> {
         writer: &mut BinConfigWriter,
     ) -> Result<(), BinConfigWriterError> {
         // Gather the keys.
-        let mut key_strins: Vec<_> = table.iter().map(|(key, _)| key).collect();
+        let mut keys: Vec<_> = table.iter().map(|(key, _)| key).collect();
 
         // Sort the keys in alphabetical order.
-        key_strins.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
+        keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
 
         // Iterate the table using the sorted keys.
-        for key_string in key_strins.into_iter() {
-            let key_string = key_string.as_ref();
+        for key in keys.into_iter() {
+            let key_str = key.as_ref();
 
             // Must succeed.
-            let value = table.get(key_string).unwrap();
+            let value = table.get(key_str).unwrap();
 
-            Self::value_to_bin_config(Some(key_string), value, writer)?;
+            Self::value_to_bin_config(Some(key_str), value, writer)?;
         }
 
         Ok(())
@@ -272,7 +279,9 @@ impl<'lua> LuaConfig<'lua> {
                 dyn_table.set(key, Value::F64(value)).unwrap();
             }
             String(value) => {
-                dyn_table.set(key, Value::String(value.as_ref())).unwrap();
+                dyn_table
+                    .set(key, Value::String(value.as_ref().into()))
+                    .unwrap();
             }
             Array(value) => {
                 dyn_table.set(key, Value::Array(DynArray::new())).unwrap();
@@ -305,7 +314,9 @@ impl<'lua> LuaConfig<'lua> {
                 dyn_array.push(Value::F64(value)).unwrap();
             }
             String(value) => {
-                dyn_array.push(Value::String(value.as_ref())).unwrap();
+                dyn_array
+                    .push(Value::String(value.as_ref().to_owned()))
+                    .unwrap();
             }
             Array(value) => {
                 dyn_array.push(Value::Array(DynArray::new())).unwrap();

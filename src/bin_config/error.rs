@@ -24,9 +24,6 @@ pub enum BinArrayGetError {
     /// Contains the [`array`] length.
     /// [`array`]: struct.BinArray.html
     IndexOutOfBounds(u32),
-    /// Tried to pop an empty [`array`].
-    /// [`array`]: struct.BinArray.html
-    ArrayEmpty,
     /// Value is of incorrect [`type`].
     /// Contains the value [`type`].
     /// [`type`]: struct.ValueType.html
@@ -41,7 +38,6 @@ impl Display for BinArrayGetError {
             IndexOutOfBounds(len) => {
                 write!(f, "Array index was out of bounds (length is {}).", len)
             }
-            ArrayEmpty => write!(f, "Tried to pop an empty array."),
             IncorrectValueType(invalid_type) => {
                 write!(f, "Value is of incorrect type ({}).", invalid_type)
             }

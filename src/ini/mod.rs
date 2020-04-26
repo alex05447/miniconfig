@@ -13,4 +13,3 @@ pub(crate) use util::{write_ini_section, write_ini_string, DisplayINI};
 
 pub use error::*;
 pub use options::*;
-pub use util::ToINIStringError;

@@ -1,9 +1,14 @@
 use std::io::Write;
 
-use crate::{value_type_from_u32, value_type_to_u32, ValueType};
+use crate::{value_type_from_u32, value_type_to_u32, Value, ValueType};
+
+use super::array::BinArray;
+use super::table::BinTable;
+use super::util::{u32_from_bin, u32_to_bin, u64_from_bin, u64_to_bin};
 
 /// Represents a single config value as stored in the binary config data blob.
-/// Fields are little-endian.
+///
+/// Fields are in whatever endianness we use; see `super::util::__to_bin_bytes(), _from_bin()`.
 #[repr(C, packed)]
 pub(crate) struct BinConfigPackedValue {
     /// Config value type and, if it's a table element, key string length, packed.
@@ -73,31 +78,19 @@ impl BinConfigPackedValue {
         result
     }
 
-    /// Create a new packed value representing an array.
-    pub(super) fn new_array(key: BinTableKey, offset: u32, len: u32) -> Self {
+    /// Create a new packed value representing an array / table.
+    pub(super) fn new_array_or_table(key: BinTableKey, offset: u32, len: u32, table: bool) -> Self {
         if len == 0 {
             debug_assert_eq!(offset, 0);
         }
 
         let mut result = Self::default();
 
-        result.set_value_type(ValueType::Array);
-        result.set_key(key);
-        result.set_offset(offset);
-        result.set_len(len);
-
-        result
-    }
-
-    /// Create a new packed value representing a table.
-    pub(super) fn new_table(key: BinTableKey, offset: u32, len: u32) -> Self {
-        if len == 0 {
-            debug_assert_eq!(offset, 0);
-        }
-
-        let mut result = Self::default();
-
-        result.set_value_type(ValueType::Table);
+        result.set_value_type(if table {
+            ValueType::Table
+        } else {
+            ValueType::Array
+        });
         result.set_key(key);
         result.set_offset(offset);
         result.set_len(len);
@@ -117,10 +110,12 @@ impl BinConfigPackedValue {
 
     /// Serialize the packed value to the writer.
     pub(crate) fn write<W: Write>(&self, writer: &mut W) -> std::io::Result<u32> {
-        let mut written = writer.write(&self.type_and_key_len.to_le_bytes())? as u32;
-        written += writer.write(&self.key_hash.to_le_bytes())? as u32;
-        written += writer.write(&self.key_offset.to_le_bytes())? as u32;
-        written += writer.write(&self.value_or_offset_and_len.to_le_bytes())? as u32;
+        // NOTE - all fields are already packed in correct endianness, so use `to_ne_bytes()`.
+        let mut written = writer.write(&self.type_and_key_len.to_ne_bytes())? as u32;
+        written += writer.write(&self.key_hash.to_ne_bytes())? as u32;
+        written += writer.write(&self.key_offset.to_ne_bytes())? as u32;
+        written += writer.write(&self.value_or_offset_and_len.to_ne_bytes())? as u32;
+
         Ok(written)
     }
 
@@ -149,20 +144,20 @@ impl BinConfigPackedValue {
 
         self.set_type_and_key_len(type_and_key_len);
 
-        self.key_hash = key.hash.to_le();
-        self.key_offset = key.offset.to_le();
+        self.key_hash = u32_to_bin(key.hash);
+        self.key_offset = u32_to_bin(key.offset);
     }
 
-    /// Unpacks this value to an intermediate representation for a concrete value type.
+    /// Unpacks this value to an intermediate representation for native endianness and a concrete value type.
     /// NOTE - the caller ensures the value is valid.
-    pub(super) fn unpack(&self) -> BinConfigValue {
-        use BinConfigValue::*;
+    pub(super) fn unpack(&self) -> BinConfigUnpackedValue {
+        use BinConfigUnpackedValue::*;
 
         match self.value_type() {
             ValueType::Bool => Bool(self.bool()),
             ValueType::I64 => I64(self.i64()),
             ValueType::F64 => F64(self.f64()),
-            ValueType::String => String {
+            ValueType::String => BinConfigUnpackedValue::String {
                 offset: self.offset(),
                 len: self.len(),
             },
@@ -235,12 +230,14 @@ impl BinConfigPackedValue {
     }
 
     /// Unpacks and returns the string/array/table length.
+    /// String length is in bytes; array/table length is in elements.
     /// NOTE - the caller ensures this value is a string/array/table.
     pub(super) fn len(&self) -> u32 {
         (self.value_or_offset_and_len() & 0x0000_0000_ffff_ffff) as u32
     }
 
     /// Packs the string/array/table value's length.
+    /// String length is in bytes; array/table length is in elements.
     /// NOTE - the caller ensures this value is a string/array/table.
     fn set_len(&mut self, len: u32) {
         let mut value_or_offset_and_len = self.value_or_offset_and_len();
@@ -273,32 +270,32 @@ impl BinConfigPackedValue {
 
     /// Unpacks this value's type/key length to `u32`.
     fn type_and_key_len(&self) -> u32 {
-        u32::from_le(self.type_and_key_len)
+        u32_from_bin(self.type_and_key_len)
     }
 
     /// Packs the value's type/key length.
     fn set_type_and_key_len(&mut self, type_and_key_len: u32) {
-        self.type_and_key_len = type_and_key_len.to_le();
+        self.type_and_key_len = u32_to_bin(type_and_key_len);
     }
 
     /// Unpacks this value's value/offset and length to `u64`.
     fn value_or_offset_and_len(&self) -> u64 {
-        u64::from_le(self.value_or_offset_and_len)
+        u64_from_bin(self.value_or_offset_and_len)
     }
 
     /// Packs the value's value/offset and length
     fn set_value_or_offset_and_len(&mut self, value_or_offset_and_len: u64) {
-        self.value_or_offset_and_len = value_or_offset_and_len.to_le();
+        self.value_or_offset_and_len = u64_to_bin(value_or_offset_and_len);
     }
 
     /// Unpacks the key hash to `u32`.
     fn key_hash(&self) -> u32 {
-        u32::from_le(self.key_hash)
+        u32_from_bin(self.key_hash)
     }
 
     /// Unpacks the key offset to `u32`.
     fn key_offset(&self) -> u32 {
-        u32::from_le(self.key_offset)
+        u32_from_bin(self.key_offset)
     }
 
     /// Unpacks the key length to `u32`.
@@ -335,7 +332,11 @@ impl Default for BinTableKey {
     }
 }
 
-pub(super) enum BinConfigValue {
+/// Represents a single config value as unpacked for native endianness and a concrete value type.
+/// It's a final representation for bools / ints / floats;
+/// an intermediate representation for strings / arrays / tables,
+/// which reference other data in the binary config data blob.
+pub(super) enum BinConfigUnpackedValue {
     Bool(bool),
     I64(i64),
     F64(f64),
@@ -343,3 +344,10 @@ pub(super) enum BinConfigValue {
     Array { offset: u32, len: u32 },
     Table { offset: u32, len: u32 },
 }
+
+/// A [`value`] returned when accessing a binary [`array`] or [`table`].
+///
+/// [`value`]: enum.Value.html
+/// [`array`]: struct.BinArray.html
+/// [`table`]: struct.BinTable.html
+pub type BinConfigValue<'at> = Value<&'at str, BinArray<'at>, BinTable<'at>>;

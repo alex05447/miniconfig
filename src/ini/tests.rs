@@ -421,6 +421,7 @@ fn InvalidCharacterInValue() {
         },
     )
     .unwrap(); // Supported inline comments.
+    DynConfig::from_ini("foo=\\x0066\\x006f\\x006f").unwrap(); // Unicode in value ("foo").
 }
 
 #[test]
@@ -678,36 +679,33 @@ fn cmp_f64(l: f64, r: f64) -> bool {
 
 #[test]
 fn basic() {
-    let ini = r#"
-bool = true
-int = 7
+    let ini = r#"bool = true
 float = 3.14
+int = 7
 ; "foo"
 string = "\x0066\x006f\x006f"
-
-[section]
-bool = false
-int = 9
-float = 7.62
-string = "bar"
 
 [other_section]
 other_bool = true
 other_int = 7
 other_float = 3.14
 other_string = "foo"
-"#;
+
+[section]
+bool = false
+int = 9
+float = 7.62
+string = "bar""#;
 
     let config = DynConfig::from_ini(ini).unwrap();
-    let root = config.root();
-    assert_eq!(root.len(), 4 + 2);
+    assert_eq!(config.root().len(), 4 + 2);
 
-    assert_eq!(root.get_bool("bool").unwrap(), true);
-    assert_eq!(root.get_i64("int").unwrap(), 7);
-    assert!(cmp_f64(root.get_f64("float").unwrap(), 3.14));
-    assert_eq!(root.get_string("string").unwrap(), "foo");
+    assert_eq!(config.root().get_bool("bool").unwrap(), true);
+    assert_eq!(config.root().get_i64("int").unwrap(), 7);
+    assert!(cmp_f64(config.root().get_f64("float").unwrap(), 3.14));
+    assert_eq!(config.root().get_string("string").unwrap(), "foo");
 
-    let section = root.get_table("section").unwrap();
+    let section = config.root().get_table("section").unwrap();
     assert_eq!(section.len(), 4);
 
     assert_eq!(section.get_bool("bool").unwrap(), false);
@@ -715,7 +713,7 @@ other_string = "foo"
     assert!(cmp_f64(section.get_f64("float").unwrap(), 7.62));
     assert_eq!(section.get_string("string").unwrap(), "bar");
 
-    let other_section = root.get_table("other_section").unwrap();
+    let other_section = config.root().get_table("other_section").unwrap();
     assert_eq!(other_section.len(), 4);
 
     assert_eq!(other_section.get_bool("other_bool").unwrap(), true);
@@ -741,9 +739,11 @@ fn ArraysNotSupported() {
 #[test]
 fn NestedTablesNotSupported() {
     let mut config = DynConfig::new();
-    let mut root = config.root_mut();
-    root.set("table", Value::Table(DynTable::new())).unwrap();
-    let mut table = root.get_mut("table").unwrap().table().unwrap();
+    config
+        .root_mut()
+        .set("table", Value::Table(DynTable::new()))
+        .unwrap();
+    let mut table = config.root_mut().get_table_mut("table").unwrap();
     table
         .set("nested_table", Value::Table(DynTable::new()))
         .unwrap();

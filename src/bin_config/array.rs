@@ -1,11 +1,12 @@
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
 
-use super::array_or_table::BinArrayOrTable;
-use super::value::BinConfigValue;
-use crate::{BinArrayGetError, BinTable, DisplayLua, Value};
+use crate::{BinArrayGetError, BinConfigValue, BinTable, DisplayLua, Value};
 
-/// Represents an immutable array of [`Value`]'s with integer 0-based indices.
+use super::array_or_table::BinArrayOrTable;
+use super::value::BinConfigUnpackedValue;
+
+/// Represents an immutable array of [`Value`]'s with integer `0`-based indices.
 ///
 /// [`Value`]: struct.Value.html
 pub struct BinArray<'a>(pub(super) BinArrayOrTable<'a>);
@@ -19,88 +20,107 @@ impl<'a> BinArray<'a> {
     }
 
     /// Tries to get a reference to a [`value`] in the [`array`] at `index`.
+    ///
     /// Returns an [`error`] if `index` is out of bounds.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
     /// [`error`]: struct.BinArrayGetError.html
-    pub fn get(
-        &self,
-        index: u32,
-    ) -> Result<Value<&'a str, BinArray<'a>, BinTable<'a>>, BinArrayGetError> {
+    pub fn get(&self, index: u32) -> Result<BinConfigValue<'a>, BinArrayGetError> {
         self.get_impl(index)
     }
 
-    /// Tries to get a `bool` [`value`] in the [`array`] at `index`.
+    /// Tries to get a [`bool`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`bool`].
+    ///
+    /// [`bool`]: enum.Value.html#variant.Bool
+    /// [`value`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
+    /// [`error`]: struct.BinArrayGetError.html
     pub fn get_bool(&self, index: u32) -> Result<bool, BinArrayGetError> {
         let val = self.get(index)?;
         val.bool()
-            .ok_or_else(|| BinArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(BinArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `i64` [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`i64`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`i64`].
+    ///
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
+    /// [`error`]: struct.BinArrayGetError.html
     pub fn get_i64(&self, index: u32) -> Result<i64, BinArrayGetError> {
         let val = self.get(index)?;
         val.i64()
-            .ok_or_else(|| BinArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(BinArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `f64` [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`f64`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`f64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`value`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
+    /// [`error`]: struct.BinArrayGetError.html
     pub fn get_f64(&self, index: u32) -> Result<f64, BinArrayGetError> {
         let val = self.get(index)?;
         val.f64()
-            .ok_or_else(|| BinArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(BinArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a string [`value`] in the [`array`] at `index`.
+    /// Tries to get a [`string`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`string`].
+    ///
+    /// [`string`]: enum.Value.html#variant.String
+    /// [`value`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
-    pub fn get_string(&self, index: u32) -> Result<&str, BinArrayGetError> {
+    /// [`error`]: struct.BinArrayGetError.html
+    pub fn get_string(&self, index: u32) -> Result<&'a str, BinArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or_else(|| BinArrayGetError::IncorrectValueType(val_type))
+            .ok_or(BinArrayGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an [`array`] [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
     ///
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`array`](enum.Value.html#variant.Array).
+    ///
+    /// [`value`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
-    /// [`value`]: enum.Value.html
-    pub fn get_array(&self, index: u32) -> Result<BinArray<'_>, BinArrayGetError> {
+    /// [`error`]: struct.BinArrayGetError.html
+    pub fn get_array(&self, index: u32) -> Result<BinArray<'a>, BinArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or_else(|| BinArrayGetError::IncorrectValueType(val_type))
+            .ok_or(BinArrayGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
-    /// [`table`]: struct.BinTable.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`table`].
+    ///
+    /// [`table`]: enum.Value.html#variant.Table
+    /// [`value`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
+    /// [`error`]: struct.BinArrayGetError.html
     pub fn get_table(&self, index: u32) -> Result<BinTable<'_>, BinArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or_else(|| BinArrayGetError::IncorrectValueType(val_type))
+            .ok_or(BinArrayGetError::IncorrectValueType(val_type))
     }
 
-    /// Returns an in-order [`iterator`] over [`values`] in the [`array`].
+    /// Returns an in-order iterator over [`values`] in the [`array`].
     ///
-    /// [`iterator`]: struct.BinArrayIter.html
-    /// [`values`]: enum.Value.html
+    /// [`values`]: type.BinConfigValue.html
     /// [`array`]: struct.BinArray.html
-    pub fn iter(&self) -> BinArrayIter<'_, 'a> {
+    pub fn iter<'i>(&'i self) -> impl Iterator<Item = BinConfigValue<'a>> + 'i {
         BinArrayIter::new(self)
     }
 
@@ -108,24 +128,23 @@ impl<'a> BinArray<'a> {
         Self(array)
     }
 
-    fn get_impl(
-        &self,
-        index: u32,
-    ) -> Result<Value<&'a str, BinArray<'a>, BinTable<'a>>, BinArrayGetError> {
+    fn get_impl(&self, index: u32) -> Result<BinConfigValue<'a>, BinArrayGetError> {
         use BinArrayGetError::*;
 
         // Index out of bounds.
         if index >= self.len() {
             Err(IndexOutOfBounds(self.len()))
         } else {
-            use BinConfigValue::*;
+            use BinConfigUnpackedValue::*;
 
             // Safe to call - the config was validated.
             let value = match unsafe { self.0.value(index) } {
                 Bool(val) => Value::Bool(val),
                 I64(val) => Value::I64(val),
                 F64(val) => Value::F64(val),
-                String { offset, len } => Value::String(unsafe { self.0.string(offset, len) }), // Safe to call - the string was validated.
+                BinConfigUnpackedValue::String { offset, len } => {
+                    Value::String(unsafe { self.0.string(offset, len) })
+                } // Safe to call - the string was validated.
                 Array { offset, len } => Value::Array(BinArray::new(BinArrayOrTable::new(
                     self.0.base,
                     offset,
@@ -143,7 +162,7 @@ impl<'a> BinArray<'a> {
     }
 
     fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
-        writeln!(f, "{{ ")?;
+        writeln!(f, "{{")?;
 
         // Iterate the array.
         for (index, value) in self.iter().enumerate() {
@@ -174,9 +193,9 @@ impl<'a> BinArray<'a> {
 
 /// In-order iterator over [`values`] in the [`array`].
 ///
-/// [`values`]: enum.Value.html
+/// [`values`]: type.BinConfigValue.html
 /// [`array`]: struct.BinArray.html
-pub struct BinArrayIter<'i, 'a> {
+struct BinArrayIter<'i, 'a> {
     array: &'i BinArray<'a>,
     index: u32,
 }

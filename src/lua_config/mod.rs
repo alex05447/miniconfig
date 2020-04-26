@@ -9,7 +9,7 @@ mod tests;
 
 pub(crate) use util::{write_lua_key, DisplayLua};
 
-pub use array::{LuaArray, LuaArrayIter};
-pub use config::{LuaConfig, LuaConfigKey, LuaString};
+pub use array::LuaArray;
+pub use config::{LuaConfig, LuaConfigKey, LuaConfigValue, LuaString};
 pub use error::*;
-pub use table::{LuaTable, LuaTableIter};
+pub use table::LuaTable;

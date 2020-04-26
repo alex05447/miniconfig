@@ -1,15 +1,16 @@
 use std::fmt::{Display, Formatter, Write};
 
-use super::util::{
-    new_table, set_table_len, table_len, value_from_lua_value, ValueFromLuaValueError,
-};
 use crate::{
-    write_lua_key, DisplayLua, LuaArray, LuaString, LuaTableGetError, LuaTableSetError, Value,
-    ValueType,
+    write_lua_key, DisplayLua, LuaArray, LuaConfigValue, LuaString, LuaTableGetError,
+    LuaTableSetError, Value, ValueType,
 };
 
 #[cfg(feature = "ini")]
 use crate::{write_ini_section, write_ini_string, DisplayINI, ToINIStringError};
+
+use super::util::{
+    new_table, set_table_len, table_len, value_from_lua_value, ValueFromLuaValueError,
+};
 
 use rlua::Context;
 
@@ -35,49 +36,68 @@ impl<'lua> LuaTable<'lua> {
 
     /// Tries to get a reference to a [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key`.
+    ///
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
+    /// [`error`]: struct.LuaTableGetError.html
     pub fn get<'k, K: Into<&'k str>>(
         &self,
         key: K,
-    ) -> Result<Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>, LuaTableGetError> {
+    ) -> Result<LuaConfigValue<'lua>, LuaTableGetError> {
         self.get_impl(key.into())
     }
 
-    /// Tries to get a `bool` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    ///
+    /// [`bool`]: enum.Value.html#variant.Bool
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
+    /// [`error`]: struct.LuaTableGetError.html
     pub fn get_bool<'k, K: Into<&'k str>>(&self, key: K) -> Result<bool, LuaTableGetError> {
         let val = self.get(key)?;
         val.bool()
-            .ok_or_else(|| LuaTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(LuaTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `i64` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`i64`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`].
+    ///
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
+    /// [`error`]: struct.LuaTableGetError.html
     pub fn get_i64<'k, K: Into<&'k str>>(&self, key: K) -> Result<i64, LuaTableGetError> {
         let val = self.get(key)?;
         val.i64()
-            .ok_or_else(|| LuaTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(LuaTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `f64` [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`f64`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
+    /// [`error`]: struct.LuaTableGetError.html
     pub fn get_f64<'k, K: Into<&'k str>>(&self, key: K) -> Result<f64, LuaTableGetError> {
         let val = self.get(key)?;
         val.f64()
-            .ok_or_else(|| LuaTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(LuaTableGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a string [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`string`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
+    ///
+    /// [`string`]: enum.Value.html#variant.String
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
+    /// [`error`]: struct.LuaTableGetError.html
     pub fn get_string<'k, K: Into<&'k str>>(
         &self,
         key: K,
@@ -85,14 +105,17 @@ impl<'lua> LuaTable<'lua> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or_else(|| LuaTableGetError::IncorrectValueType(val_type))
+            .ok_or(LuaTableGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`array`]: struct.LuaArray.html
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
+    /// [`error`]: struct.LuaTableGetError.html
     pub fn get_array<'k, K: Into<&'k str>>(
         &self,
         key: K,
@@ -100,13 +123,16 @@ impl<'lua> LuaTable<'lua> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or_else(|| LuaTableGetError::IncorrectValueType(val_type))
+            .ok_or(LuaTableGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get a [`table`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    ///
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
+    /// [`error`]: struct.LuaTableGetError.html
     pub fn get_table<'k, K: Into<&'k str>>(
         &self,
         key: K,
@@ -114,16 +140,15 @@ impl<'lua> LuaTable<'lua> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or_else(|| LuaTableGetError::IncorrectValueType(val_type))
+            .ok_or(LuaTableGetError::IncorrectValueType(val_type))
     }
 
-    /// Returns an [`iterator`] over ([`key`], [`value`]) tuples of the [`table`], in unspecified order.
+    /// Returns an iterator over ([`key`], [`value`]) pairs of the [`table`], in unspecified order.
     ///
-    /// [`iterator`]: struct.LuaTableIter.html
     /// [`key`]: struct.LuaString.html
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
-    pub fn iter(&self) -> LuaTableIter<'lua> {
+    pub fn iter(&self) -> impl Iterator<Item = (LuaString<'lua>, LuaConfigValue<'lua>)> {
         LuaTableIter(self.0.clone().pairs())
     }
 
@@ -152,10 +177,7 @@ impl<'lua> LuaTable<'lua> {
         table_len(&self.0)
     }
 
-    fn get_impl(
-        &self,
-        key: &str,
-    ) -> Result<Value<LuaString<'lua>, LuaArray<'lua>, Self>, LuaTableGetError> {
+    fn get_impl(&self, key: &str) -> Result<LuaConfigValue<'lua>, LuaTableGetError> {
         use LuaTableGetError::*;
 
         let value: rlua::Value = self.0.get(key).map_err(|_| KeyDoesNotExist)?;
@@ -169,7 +191,7 @@ impl<'lua> LuaTable<'lua> {
     fn set_impl<'s>(
         &mut self,
         key: &str,
-        value: Option<Value<&'s str, LuaArray<'lua>, Self>>,
+        value: Option<Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>>,
     ) -> Result<(), LuaTableSetError> {
         use LuaTableSetError::*;
 
@@ -341,17 +363,15 @@ impl<'lua> LuaTable<'lua> {
     }
 }
 
-/// Iterator over (`key`, [`value`]) tuples of the [`table`], in unspecified order.
+/// Iterator over ([`key`], [`value`]) tuples of the [`table`], in unspecified order.
 ///
+/// [`key`]: struct.LuaString.html
 /// [`value`]: enum.Value.html
 /// [`table`]: struct.LuaTable.html
-pub struct LuaTableIter<'lua>(rlua::TablePairs<'lua, rlua::Value<'lua>, rlua::Value<'lua>>);
+struct LuaTableIter<'lua>(rlua::TablePairs<'lua, rlua::Value<'lua>, rlua::Value<'lua>>);
 
 impl<'lua> std::iter::Iterator for LuaTableIter<'lua> {
-    type Item = (
-        LuaString<'lua>,
-        Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>,
-    );
+    type Item = (LuaString<'lua>, LuaConfigValue<'lua>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(pair) = self.0.next() {

@@ -1,32 +1,6 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::Write;
 
-use crate::{write_char, Value};
-
-/// An error returned by `to_ini_string`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ToINIStringError {
-    /// Array values are not supported in INI configs.
-    ArraysNotSupported,
-    /// Tables nested within tables are not supported in INI configs.
-    NestedTablesNotSupported,
-    /// General write error (out of memory?).
-    WriteError,
-}
-
-impl Display for ToINIStringError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use ToINIStringError::*;
-
-        match self {
-            ArraysNotSupported => write!(f, "Array values are not supported in INI configs."),
-            NestedTablesNotSupported => write!(
-                f,
-                "Tables nested within tables are not supported in INI configs."
-            ),
-            WriteError => write!(f, "General write error (out of memory?)."),
-        }
-    }
-}
+use crate::{write_char, ToINIStringError, Value};
 
 pub(crate) trait DisplayINI {
     fn fmt_ini<W: Write>(&self, writer: &mut W, level: u32) -> Result<(), ToINIStringError>;

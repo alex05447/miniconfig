@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
+use std::mem::size_of;
 
-use super::value::{BinConfigPackedValue, BinConfigValue, BinTableKey};
+use super::value::{BinConfigPackedValue, BinConfigUnpackedValue, BinTableKey};
 
 /// Represents a binary array/table, as unpacked from the binary config data blob.
 pub(super) struct BinArrayOrTable<'at> {
@@ -38,18 +39,18 @@ impl<'at> BinArrayOrTable<'at> {
     pub(super) unsafe fn packed_value_offset(&self, index: u32) -> u32 {
         debug_assert!(index < self.len, "`index` must be in range.");
 
-        self.offset + index * std::mem::size_of::<BinConfigPackedValue>() as u32
+        self.offset + index * size_of::<BinConfigPackedValue>() as u32
     }
 
     /// Reads and returns an unpacked value at `index` of this array/table.
     /// NOTE - the caller ensures the array/table is not empty and `index` is in range.
-    pub(super) unsafe fn value(&self, index: u32) -> BinConfigValue {
+    pub(super) unsafe fn value(&self, index: u32) -> BinConfigUnpackedValue {
         self.packed_value(index).unpack()
     }
 
     /// Reads and returns a table key and an unpacked value at `index` of this array/table.
     /// NOTE - the caller ensures it's a table, it's not empty and `index` is in range.
-    pub(super) unsafe fn key_and_value(&self, index: u32) -> (BinTableKey, BinConfigValue) {
+    pub(super) unsafe fn key_and_value(&self, index: u32) -> (BinTableKey, BinConfigUnpackedValue) {
         let packed = self.packed_value(index);
         (packed.key(), packed.unpack())
     }
@@ -64,5 +65,12 @@ impl<'at> BinArrayOrTable<'at> {
     /// NOTE - the caller ensures `offset` and `len` are valid and that the string contains valid UTF-8.
     pub(super) unsafe fn string(&self, offset: u32, len: u32) -> &'at str {
         std::str::from_utf8_unchecked(self.slice(offset, len))
+    }
+
+    pub(super) fn offset_range(&self) -> (u32, u32) {
+        (
+            self.offset,
+            self.offset + self.len * size_of::<BinConfigPackedValue>() as u32,
+        )
     }
 }

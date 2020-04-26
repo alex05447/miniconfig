@@ -1,10 +1,13 @@
 use std::fmt::{Display, Formatter};
 
+use crate::{
+    DisplayLua, LuaArrayGetError, LuaArraySetError, LuaConfigValue, LuaString, LuaTable, Value,
+};
+
 use super::util::{
     array_value_type, new_array, set_array_value_type, set_table_len, table_len,
     value_from_lua_value,
 };
-use crate::{DisplayLua, LuaArrayGetError, LuaArraySetError, LuaString, LuaTable, Value};
 
 use rlua::Context;
 
@@ -29,95 +32,115 @@ impl<'lua> LuaArray<'lua> {
     }
 
     /// Tries to get a reference to a [`value`] in the [`array`] at `index`.
+    ///
     /// Returns an [`error`] if `index` is out of bounds.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: struct.LuaArrayGetError.html
-    pub fn get(
-        &self,
-        index: u32,
-    ) -> Result<Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>, LuaArrayGetError> {
+    pub fn get(&self, index: u32) -> Result<LuaConfigValue<'lua>, LuaArrayGetError> {
         self.get_impl(index)
     }
 
-    /// Tries to get a `bool` [`value`] in the [`array`] at `index`.
+    /// Tries to get a [`bool`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`bool`].
+    ///
+    /// [`bool`]: enum.Value.html#variant.Bool
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
+    /// [`error`]: struct.LuaArrayGetError.html
     pub fn get_bool(&self, index: u32) -> Result<bool, LuaArrayGetError> {
         let val = self.get(index)?;
         val.bool()
-            .ok_or_else(|| LuaArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(LuaArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `i64` [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`i64`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`i64`].
+    ///
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
+    /// [`error`]: struct.LuaArrayGetError.html
     pub fn get_i64(&self, index: u32) -> Result<i64, LuaArrayGetError> {
         let val = self.get(index)?;
         val.i64()
-            .ok_or_else(|| LuaArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(LuaArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an `f64` [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`f64`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`f64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
+    /// [`error`]: struct.LuaArrayGetError.html
     pub fn get_f64(&self, index: u32) -> Result<f64, LuaArrayGetError> {
         let val = self.get(index)?;
         val.f64()
-            .ok_or_else(|| LuaArrayGetError::IncorrectValueType(val.get_type()))
+            .ok_or(LuaArrayGetError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a string [`value`] in the [`array`] at `index`.
+    /// Tries to get a [`string`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`string`].
+    ///
+    /// [`string`]: enum.Value.html#variant.String
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
+    /// [`error`]: struct.LuaArrayGetError.html
     pub fn get_string(&self, index: u32) -> Result<LuaString<'lua>, LuaArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or_else(|| LuaArrayGetError::IncorrectValueType(val_type))
+            .ok_or(LuaArrayGetError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an [`array`] [`value`] in the [`array`] at `index`.
+    /// Tries to get an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
     ///
+    /// Returns an [`error`] if `index` is out of bounds or if value is not an [`array`](enum.Value.html#variant.Array).
+    ///
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
-    /// [`value`]: enum.Value.html
+    /// [`error`]: struct.LuaArrayGetError.html
     pub fn get_array(&self, index: u32) -> Result<LuaArray<'lua>, LuaArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or_else(|| LuaArrayGetError::IncorrectValueType(val_type))
+            .ok_or(LuaArrayGetError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`] [`value`] in the [`array`] at `index`.
     ///
-    /// [`value`]: enum.Value.html
-    /// [`table`]: struct.LuaTable.html
+    /// Returns an [`error`] if `index` is out of bounds or if value is not a [`table`].
+    ///
+    /// [`table`]: enum.Value.html#variant.Table
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
+    /// [`error`]: struct.LuaArrayGetError.html
     pub fn get_table(&self, index: u32) -> Result<LuaTable<'lua>, LuaArrayGetError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or_else(|| LuaArrayGetError::IncorrectValueType(val_type))
+            .ok_or(LuaArrayGetError::IncorrectValueType(val_type))
     }
 
-    /// Returns an in-order [`iterator`] over [`values`] in the [`array`].
+    /// Returns an in-order iterator over [`values`] in the [`array`].
     ///
-    /// [`iterator`]: struct.LuaArrayIter.html
     /// [`values`]: enum.Value.html
     /// [`array`]: struct.LuaArray.html
-    pub fn iter(&self) -> LuaArrayIter<'lua> {
+    pub fn iter(&self) -> impl Iterator<Item = LuaConfigValue<'lua>> {
         LuaArrayIter(self.0.clone().sequence_values())
     }
 
     /// Changes the [`value`] in the [`array`] at `index` to `value`.
+    ///
     /// Returns an [`error`] if `index` is out of bounds or if `value` is of invalid type.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: struct.LuaArrayGetError.html
     pub fn set<'s>(
@@ -129,10 +152,12 @@ impl<'lua> LuaArray<'lua> {
     }
 
     /// Pushes the [`value`] to the back of the [`array`].
+    ///
     /// Returns an [`error`] if `value` is of invalid type.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
+    /// [`error`]: struct.LuaArrayGetError.html
     pub fn push<'s>(
         &mut self,
         value: Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
@@ -141,14 +166,13 @@ impl<'lua> LuaArray<'lua> {
     }
 
     /// Pops the [`value`] off the back of the [`array`].
+    ///
     /// Returns an [`error`] if the [`array`] is empty.
     ///
-    /// [`value`]: enum.Value.html
+    /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: struct.LuaArraySetError.html
-    pub fn pop(
-        &mut self,
-    ) -> Result<Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>, LuaArrayGetError> {
+    pub fn pop(&mut self) -> Result<LuaConfigValue<'lua>, LuaArrayGetError> {
         self.pop_impl()
     }
 
@@ -160,10 +184,7 @@ impl<'lua> LuaArray<'lua> {
         table_len(&self.0)
     }
 
-    fn get_impl(
-        &self,
-        index: u32,
-    ) -> Result<Value<LuaString<'lua>, Self, LuaTable<'lua>>, LuaArrayGetError> {
+    fn get_impl(&self, index: u32) -> Result<LuaConfigValue<'lua>, LuaArrayGetError> {
         use LuaArrayGetError::*;
 
         let len = table_len(&self.0);
@@ -182,7 +203,7 @@ impl<'lua> LuaArray<'lua> {
     fn validate_value_type<'s>(
         &self,
         len: u32,
-        value: &Value<&'s str, Self, LuaTable<'lua>>,
+        value: &Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
     ) -> Result<(), LuaArraySetError> {
         use LuaArraySetError::*;
 
@@ -210,7 +231,7 @@ impl<'lua> LuaArray<'lua> {
     fn set_impl<'s>(
         &mut self,
         index: u32,
-        value: Value<&'s str, Self, LuaTable<'lua>>,
+        value: Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
     ) -> Result<(), LuaArraySetError> {
         use LuaArraySetError::*;
 
@@ -241,7 +262,7 @@ impl<'lua> LuaArray<'lua> {
 
     fn push_impl<'s>(
         &mut self,
-        value: Value<&'s str, Self, LuaTable<'lua>>,
+        value: Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
     ) -> Result<(), LuaArraySetError> {
         let len = table_len(&self.0);
 
@@ -265,9 +286,7 @@ impl<'lua> LuaArray<'lua> {
         Ok(())
     }
 
-    fn pop_impl(
-        &mut self,
-    ) -> Result<Value<LuaString<'lua>, Self, LuaTable<'lua>>, LuaArrayGetError> {
+    fn pop_impl(&mut self) -> Result<LuaConfigValue<'lua>, LuaArrayGetError> {
         use LuaArrayGetError::*;
 
         let len = table_len(&self.0);
@@ -326,12 +345,12 @@ impl<'lua> LuaArray<'lua> {
 
 /// In-order iterator over [`values`] in the [`array`].
 ///
-/// [`values`]: enum.Value.html
+/// [`values`]: type.LuaConfigValue.html
 /// [`array`]: struct.LuaArray.html
-pub struct LuaArrayIter<'lua>(rlua::TableSequence<'lua, rlua::Value<'lua>>);
+struct LuaArrayIter<'lua>(rlua::TableSequence<'lua, rlua::Value<'lua>>);
 
 impl<'lua> std::iter::Iterator for LuaArrayIter<'lua> {
-    type Item = Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>;
+    type Item = LuaConfigValue<'lua>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(value) = self.0.next() {
