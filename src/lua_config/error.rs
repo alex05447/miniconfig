@@ -35,6 +35,11 @@ pub enum LuaConfigError {
         /// UTF-8 parse error.
         error: rlua::Error,
     },
+    /// Empty key string.
+    EmptyKey {
+        /// Path to the table, or an empty string for the root table.
+        path: String,
+    },
     /// Invalid integer array index.
     /// Contains the path to the array, or an empty string for the root table.
     InvalidArrayIndex(String),
@@ -71,6 +76,7 @@ impl Display for LuaConfigError {
                 ),
             InvalidKeyType{ path, invalid_type } => write!(f, "Invalid key type ({}) in the Lua table \"{}\" - only strings and numbers are allowed.", invalid_type, if path.is_empty() { "<root>" } else { path }),
             InvalidKeyUTF8{ path, .. } => write!(f, "Invalid string key UTF-8 in Lua table \"{}\".", if path.is_empty() { "<root>" } else { path }),
+            EmptyKey{ path } => write!(f, "Empty key string in Lua table \"{}\".", if path.is_empty() { "<root>" } else { path }),
             InvalidArrayIndex(path) => write!(f, "Invalid integer array index in Lua table \"{}\".", if path.is_empty() { "<root>" } else { path }),
             InvalidValueType{ path, invalid_type } => write!(f, "Invalid Lua value type ({}) for any config value at \"{}\".", invalid_type, path),
             InvalidValueUTF8{ path, .. } => write!(f, "Invalid string value UTF-8 at \"{}\".", path),

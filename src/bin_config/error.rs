@@ -77,9 +77,6 @@ pub enum BinConfigWriterError {
     /// A non-empty string key is required for a [`table`] element.
     /// [`table`]: struct.BinTable.html
     TableKeyRequired,
-    /// Provided [`table`] key is invalid (contains non-alphanumeric ASCII characters or underscores).
-    /// [`table`]: struct.BinTable.html
-    InvalidKey,
     /// A string key is not required for an [`array`] element.
     /// [`array`]: struct.BinArray.html
     ArrayKeyNotRequired,
@@ -122,7 +119,6 @@ impl Display for BinConfigWriterError {
         match self {
             EmptyRootTable => write!(f, "Empty binary config root tables are not supported."),
             TableKeyRequired => write!(f, "A non-empty string key is required for a table element."),
-            InvalidKey => write!(f, "Provided table key is invalid (contains non-alphanumeric ASCII characters or underscores)."),
             ArrayKeyNotRequired => write!(f, "A string key is not required for an array element."),
             MixedArray { expected, found } => write!(f, "Mixed (and non-convertible) type values in the array. Expected \"{}\", found \"{}\".", expected, found),
             NonUniqueKey => write!(f, "A non-unique string key was provided for a table element."),

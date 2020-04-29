@@ -105,11 +105,15 @@ fn validate_lua_config_table_impl<'lua>(
                     table_key_type.replace(LuaTableKeyType::String);
                 }
 
-                // Ensure string keys are valid UTF-8.
+                // Ensure string keys are non-empty and are valid UTF-8.
                 let key = key.to_str().map_err(|error| InvalidKeyUTF8 {
                     path: path.clone(),
                     error,
                 })?;
+
+                if key.is_empty() {
+                    return Err(EmptyKey { path: path.clone() });
+                }
 
                 len += 1;
 

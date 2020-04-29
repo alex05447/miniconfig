@@ -124,6 +124,22 @@ fn script_errors() {
             lua,
             r#"{
                 table = {
+                    [""] = 7
+                }
+            }"#,
+            |err| {
+                if let LuaConfigError::EmptyKey { path, .. } = err {
+                    assert_eq!(path, "table");
+                } else {
+                    panic!("Wrong error.");
+                }
+            },
+        );
+
+        assert_script_error(
+            lua,
+            r#"{
+                table = {
                     [0] = 7
                 }
             }"#,
