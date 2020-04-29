@@ -140,8 +140,6 @@ impl<'s> IniParser<'s> {
 
         // Read the chars until EOF, process according to current state.
         while let Some(current) = self.next() {
-            println!("current: {}", current);
-
             match self.state {
                 IniParserState::StartLine => {
                     // Skip whitespace at the start of the line (including new lines).
