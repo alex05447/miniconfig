@@ -36,10 +36,10 @@ where
 }
 
 /// Writes the `string` to the writer `w`, escaping special characters
-/// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r')
-/// and INI special characters
-/// ('[', ']', ';', '#', '=', ':'),
-/// and, if in addition `quoted` is `false`, spaces (' ').
+/// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f')
+/// and, if `quoted` is `false`, string quotes ('\'', '"'),
+/// INI special characters ('[', ']', ';', '#', '=', ':') and spaces (' ').
+/// If `quoted` is `true`, single quotes ('\'') are not escaped.
 pub(crate) fn write_ini_string<W: Write>(
     w: &mut W,
     string: &str,
@@ -52,12 +52,46 @@ pub(crate) fn write_ini_string<W: Write>(
     Ok(())
 }
 
-/// Writes the `section` to the writer `w`, enclosing it in brackets and escaping special characters
-/// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r')
-/// and INI special characters
-/// ('[', ']', ';', '#', '=', ':').
+fn section_needs_quotes(section: &str) -> bool {
+    for c in section.chars() {
+        match c {
+            // Special characters.
+            '\\' | '\0' | '\x07' /* '\a' */ | '\x08' /* '\b' */ | '\t' | '\n' | '\r' | '\x0b' /* '\v' */ | '\x0c' /* '\f' */ => { return true; },
+            // Space.
+            ' ' => { return true; },
+            // INI special characters.
+            '[' | ']' | ';' | '#' | '=' | ':' => { return true; },
+            // Quotes.
+            '\'' | '"' => { return true; },
+            _ => {},
+        }
+    }
+
+    false
+}
+
+/// Writes the `section` to the writer `w`, enclosing it in brackets.
+/// If the section contains special characters
+/// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
+/// string quotes ('\'', '"'),
+/// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
+/// it is additionally enclosed in quotes ('"').
 pub(crate) fn write_ini_section<W: Write>(w: &mut W, section: &str) -> std::fmt::Result {
+    debug_assert!(!section.is_empty());
+
     write!(w, "[")?;
-    write_ini_string(w, section, false)?;
+
+    let needs_quotes = section_needs_quotes(section);
+
+    if needs_quotes {
+        write!(w, "\"")?;
+    }
+
+    write_ini_string(w, section, needs_quotes)?;
+
+    if needs_quotes {
+        write!(w, "\"")?;
+    }
+
     write!(w, "]")
 }

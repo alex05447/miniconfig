@@ -191,9 +191,9 @@ pub enum LuaTableSetError {
     /// [`value`]: enum.Value.html
     /// [`table`]: struct.LuaTable.html
     KeyDoesNotExist,
-    /// Provided [`table`] key is invalid (contains non-alphanumeric ASCII characters or underscores).
+    /// Provided [`table`] key is empty.
     /// [`table`]: struct.LuaTable.html
-    InvalidKey,
+    EmptyKey,
 }
 
 impl Display for LuaTableSetError {
@@ -202,7 +202,7 @@ impl Display for LuaTableSetError {
 
         match self {
             KeyDoesNotExist => write!(f, "Tried to remove a non-existant value from the table."),
-            InvalidKey => write!(f, "Provided table key is invalid (contains non-alphanumeric ASCII characters or underscores)."),
+            EmptyKey => write!(f, "Provided table key is empty."),
         }
     }
 }

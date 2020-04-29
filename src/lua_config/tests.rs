@@ -172,6 +172,7 @@ fn script_errors() {
 }
 
 const SCRIPT: &str = "{
+\t[\"'fancy value'\"] = \"\\t\",
 \tarray_value = {
 \t\t54,
 \t\t12,
@@ -213,6 +214,12 @@ fn basic_table() {
         assert_eq!(config.root().len(), 0);
 
         let mut root = config.root();
+
+        // Empty key.
+        assert_eq!(
+            root.set("", Value::Bool(true)),
+            Err(LuaTableSetError::EmptyKey)
+        );
 
         // Add a value.
         root.set("bool", Value::Bool(true)).unwrap();
@@ -518,6 +525,11 @@ fn to_bin_config() {
 
         assert_eq!(bin_config.root().get_bool("bool_value").unwrap(), true);
 
+        assert_eq!(
+            bin_config.root().get_string("'fancy value'").unwrap(),
+            "\t"
+        );
+
         assert!(cmp_f64(
             bin_config.root().get_f64("float_value").unwrap(),
             3.14
@@ -551,7 +563,7 @@ fn to_ini_string() {
     -- "foo"
     string = "\x66\x6f\x6f",
 
-    other_section = {
+    ["'other' section"] = {
         other_bool = true,
         other_float = 3.14,
         other_int = 7,
@@ -572,7 +584,7 @@ float = 3.14
 int = 7
 string = "foo"
 
-[other_section]
+["'other' section"]
 other_bool = true
 other_float = 3.14
 other_int = 7

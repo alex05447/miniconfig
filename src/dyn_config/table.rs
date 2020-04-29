@@ -240,6 +240,10 @@ impl DynTable {
     ) -> Result<(), DynTableSetError> {
         use DynTableSetError::*;
 
+        if key.is_empty() {
+            return Err(EmptyKey);
+        }
+
         // Add or modify a value - always succeeds.
         if let Some(value) = value {
             let value = match value {

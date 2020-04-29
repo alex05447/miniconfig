@@ -81,7 +81,11 @@ pub struct IniOptions {
     /// If `escape` is `false`, this value is ignored.
     /// Default: `false`.
     pub line_continuation: bool,
-    /// Whether to allow duplicate keys in sections.
+    /// Whether to allow duplicate sections.
+    /// If `true`, later sections are merged with prior.
+    /// Default: `true`.
+    pub duplicate_sections: bool,
+    /// Whether to allow duplicate keys in the root table and sections.
     /// If `true`, later keys overwrite the prior.
     /// Default: `false`.
     pub duplicate_keys: bool,
@@ -97,6 +101,7 @@ impl Default for IniOptions {
             unquoted_strings: true,
             escape: true,
             line_continuation: false,
+            duplicate_sections: true,
             duplicate_keys: false,
         }
     }

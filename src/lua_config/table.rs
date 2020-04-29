@@ -195,6 +195,10 @@ impl<'lua> LuaTable<'lua> {
     ) -> Result<(), LuaTableSetError> {
         use LuaTableSetError::*;
 
+        if key.is_empty() {
+            return Err(EmptyKey);
+        }
+
         let contains_key = self.contains_key(key);
 
         // Add or modify a value - always succeeds.

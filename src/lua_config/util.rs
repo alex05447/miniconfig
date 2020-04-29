@@ -377,12 +377,12 @@ where
 }
 
 /// Writes the `string` to the writer `w`, enclosing it in quotes and escaping special characters
-/// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r').
+/// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f') and quotes ('"').
 fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
     write!(w, "\"")?;
 
     for c in string.chars() {
-        write_char(w, c, false, false)?;
+        write_char(w, c, false, true)?;
     }
 
     write!(w, "\"")
@@ -390,9 +390,11 @@ fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
 
 /// Writes the Lua table `key` to the writer `w`.
 /// Writes the string as-is if it's a valid Lua identifier,
-/// otherwise encloses it in brackets / quotes, and escapes special characters
-/// ('\\', '\'', '\"', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r').
+/// otherwise encloses it in brackets and quotes, and escapes special characters
+/// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f') and quotes ('"').
 pub(crate) fn write_lua_key<W: Write>(w: &mut W, key: &str) -> std::fmt::Result {
+    debug_assert!(!key.is_empty());
+
     if is_lua_identifier_key(key) {
         write!(w, "{}", key)
     } else {

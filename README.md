@@ -11,8 +11,6 @@ A minimalistic config file crate written in Rust.
     These are the special characters which must be escaped:
 
     - `\`
-    - `'`
-    - `"`
     - `\0`
     - `\a`
     - `\b`
@@ -22,7 +20,9 @@ A minimalistic config file crate written in Rust.
     - `\f`
     - `\r`
 
-    In Lua configs (requires `"lua"` feature), keys work according to Lua rules: keys which are not valid Lua identifiers (i.e. do not contain only from ASCII alphanumerical characters and underscores and start with an ASCII alphabetical character) must be enclosed in brackets and quotes (e.g. `["áéíóú"]`). Unicode 2-digit hexadecimal escape sequences work according to Lua rules.
+    In Lua configs (requires `"lua"` feature), keys work according to Lua rules: keys which are not valid Lua identifiers (i.e. do not contain only from ASCII alphanumerical characters and underscores and start with an ASCII alphabetical character) must be enclosed in brackets and quotes (`"` \ `'`) (e.g. `["áéíóú"]`). Within quoted strings, enclosed in (matching) single (`'`) or double (`"`) quotes, non-matching double (`"`) or single (`'`) quotes and spaces (`' '`) don't have to be escaped. Unicode 2-digit hexadecimal escape sequences work according to Lua rules.
+
+    ### **INI**
 
     In INI configs (requires `"ini"` feature), additionally, special INI characters must be escaped. These are the special INI characters:
 
@@ -33,15 +33,15 @@ A minimalistic config file crate written in Rust.
     - `=` (default key-value separator)
     - `:` (optional key-value separator)
 
-    Space (`' '`) must be escaped in key and section name strings.
+    Space (`' '`) must be escaped in section names (except leading whitespace, which is discarded), keys and string values.
+
+    Section names, keys and string values may be enclosed in (matching) single (`'`) or (`"`) double quotes. In this case space (`' '`), non-matching double (`"`) or single (`'`) quotes and special INI characters do not have to be (but may be) escaped.
 
 - **Values**
 
     Same rules as keys.
 
-    In Lua configs (requires `"lua"` feature) string values are always quoted.
-
-    In INI configs (requires `"ini"` feature) quoted string values may contain spaces; unquoted string values must escape spaces.
+    In Lua configs (requires `"lua"` feature) string values are always quoted in (matching) single (`'`) or (`"`) double quotes.
 
 - **Lua configs** (requires `"lua"` feature).
 

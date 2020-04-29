@@ -7,16 +7,24 @@ pub enum IniErrorKind {
     InvalidCharacterAtLineStart,
     /// Invalid character in section name - expected a valid string character or an escape sequence.
     InvalidCharacterInSectionName,
+    /// Unexpected new line in section name.
+    UnexpectedNewLineInSectionName,
     /// Unexpected end of file in section name.
     UnexpectedEndOfFileInSectionName,
     /// Empty section names are not allowed.
     EmptySectionName,
+    /// Duplicate section name encountered.
+    DuplicateSectionName,
     /// Invalid character at the end of the line - expected a new line (or an inline comment if supported).
     InvalidCharacterAtLineEnd,
     /// Invalid character in key name - expected a valid string character or an escape sequence.
     InvalidCharacterInKey,
     /// Unexpected new line encountered in key name before a key-value separator.
-    UnexpectedNewlineInKey,
+    UnexpectedNewLineInKey,
+    /// Empty keys are not allowed.
+    EmptyKey,
+    /// Duplicate key name encountered in the current section.
+    DuplicateKey,
     /// Unexpected end of file encountered before a key-value separator.
     UnexpectedEndOfFileBeforeKeyValueSeparator,
     /// Unexpected character encountered - expected a key-value separator.
@@ -29,7 +37,7 @@ pub enum IniErrorKind {
     ///
     /// NOTE: enable `line_continuation` in [`IniOptions`] to allow escaped new lines.
     /// [`IniOptions`]: struct.IniOptions.html
-    UnexpectedNewlineInEscapeSequence,
+    UnexpectedNewLineInEscapeSequence,
     /// Invalid character encountered when parsing an escape sequence.
     ///
     /// NOTE: see notes for `escape` in [`IniOptions`] for a list of supported escape characters.
@@ -38,13 +46,11 @@ pub enum IniErrorKind {
     /// Unexpected end of file encountered when parsing a Unicode escape sequence.
     UnexpectedEndOfFileInUnicodeEscapeSequence,
     /// Unexpected new line encountered when parsing a Unicode escape sequence.
-    UnexpectedNewlineInUnicodeEscapeSequence,
+    UnexpectedNewLineInUnicodeEscapeSequence,
     /// Invalid Unicode escape sequence.
     InvalidUnicodeEscapeSequence,
-    /// Duplicate key name encountered in the current section.
-    DuplicateKey,
     /// Unexpected new line encountered when parsing a quoted string value.
-    UnexpectedNewlineInQuotedString,
+    UnexpectedNewLineInQuotedString,
     /// Unexpected end of file encountered when parsing a quoted string value.
     UnexpectedEndOfFileInQuotedString,
     /// Encountered an unsupported unquoted string value.
@@ -77,6 +83,10 @@ impl Display for IniErrorKind {
                 f,
                 "Invalid character in section name - expected a valid string character or an escape sequence."
             ),
+            UnexpectedNewLineInSectionName => write!(
+                f,
+                "Unexpected new line in section name."
+            ),
             UnexpectedEndOfFileInSectionName => write!(
                 f,
                 "Unexpected end of file in section name."
@@ -84,6 +94,10 @@ impl Display for IniErrorKind {
             EmptySectionName => write!(
                 f,
                 "Empty section names are not allowed."
+            ),
+            DuplicateSectionName => write!(
+                f,
+                "Duplicate section name encountered."
             ),
             InvalidCharacterAtLineEnd => write!(
                 f,
@@ -93,9 +107,17 @@ impl Display for IniErrorKind {
                 f,
                 "Invalid character in key name - expected a valid string character or an escape sequence."
             ),
-            UnexpectedNewlineInKey => write!(
+            UnexpectedNewLineInKey => write!(
                 f,
                 "Unexpected new line encountered in key name before a key-value separator."
+            ),
+            EmptyKey => write!(
+                f,
+                "Empty keys are not allowed."
+            ),
+            DuplicateKey => write!(
+                f,
+                "Duplicate key name encountered in the current section."
             ),
             UnexpectedEndOfFileBeforeKeyValueSeparator => write!(
                 f,
@@ -113,7 +135,7 @@ impl Display for IniErrorKind {
                 f,
                 "Unexpected end of file encountered when parsing an escape sequence."
             ),
-            UnexpectedNewlineInEscapeSequence => write!(
+            UnexpectedNewLineInEscapeSequence => write!(
                 f,
                 "Unexpected new line encountered when parsing an escape sequence."
             ),
@@ -125,7 +147,7 @@ impl Display for IniErrorKind {
                 f,
                 "Unexpected end of file encountered when parsing a Unicode escape sequence."
             ),
-            UnexpectedNewlineInUnicodeEscapeSequence => write!(
+            UnexpectedNewLineInUnicodeEscapeSequence => write!(
                 f,
                 "Unexpected new line encountered when parsing a Unicode escape sequence."
             ),
@@ -133,11 +155,7 @@ impl Display for IniErrorKind {
                 f,
                 "Invalid Unicode escape sequence."
             ),
-            DuplicateKey => write!(
-                f,
-                "Duplicate key name encountered in the current section."
-            ),
-            UnexpectedNewlineInQuotedString => write!(
+            UnexpectedNewLineInQuotedString => write!(
                 f,
                 "Unexpected new line encountered when parsing a quoted string value."
             ),

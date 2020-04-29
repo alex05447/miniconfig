@@ -12,6 +12,12 @@ fn basic_table() {
 
     let mut root = config.root_mut();
 
+    // Empty key.
+    assert_eq!(
+        root.set("", Value::Bool(true)),
+        Err(DynTableSetError::EmptyKey)
+    );
+
     // Add a value.
     root.set("bool", Value::Bool(true)).unwrap();
     assert_eq!(root.len(), 1);
