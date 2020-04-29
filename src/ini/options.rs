@@ -31,6 +31,21 @@ bitflags! {
     }
 }
 
+/// Controls how duplicate sections in the INI config, if any, are handled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IniDuplicateSections {
+    /// Do not allow duplicate sections.
+    Forbid,
+    /// Use the first encountered instance of the section,
+    /// skip all following ones.
+    First,
+    /// Use the last encountered instance of the section,
+    /// overwriting all prior, if any.
+    Last,
+    /// Merge all encountered instances of the section into one.
+    Merge,
+}
+
 /// Configuration options for the INI parser.
 #[derive(Clone, Copy, Debug)]
 pub struct IniOptions {
@@ -87,10 +102,9 @@ pub struct IniOptions {
     /// If `escape` is `false`, this value is ignored.
     /// Default: `false`.
     pub line_continuation: bool,
-    /// Whether to allow duplicate sections.
-    /// If `true`, later sections are merged with prior.
-    /// Default: `true`.
-    pub duplicate_sections: bool,
+    /// Duplicate section handling policy.
+    /// Default: `Merge`.
+    pub duplicate_sections: IniDuplicateSections,
     /// Whether to allow duplicate keys in the root table and sections.
     /// If `true`, later keys overwrite the prior.
     /// Default: `false`.
@@ -107,7 +121,7 @@ impl Default for IniOptions {
             unquoted_strings: true,
             escape: true,
             line_continuation: false,
-            duplicate_sections: true,
+            duplicate_sections: IniDuplicateSections::Merge,
             duplicate_keys: false,
         }
     }

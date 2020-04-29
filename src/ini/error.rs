@@ -16,7 +16,7 @@ pub enum IniErrorKind {
     /// Empty section names are not allowed.
     EmptySectionName,
     /// Duplicate section name encountered.
-    DuplicateSectionName,
+    DuplicateSection,
     /// Invalid character at the end of the line - expected a new line or an inline comment, if supported.
     InvalidCharacterAtLineEnd,
     /// Invalid character in key name - expected a valid string character or an escape sequence.
@@ -101,7 +101,7 @@ impl Display for IniErrorKind {
                 f,
                 "Empty section names are not allowed."
             ),
-            DuplicateSectionName => write!(
+            DuplicateSection => write!(
                 f,
                 "Duplicate section name encountered."
             ),

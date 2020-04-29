@@ -2,7 +2,7 @@ use std::str::Chars;
 
 use crate::{
     DynConfig, DynTable, DynTableMut, IniCommentSeparator, IniError, IniErrorKind,
-    IniKeyValueSeparator, IniOptions, IniStringQuote, Value,
+    IniKeyValueSeparator, IniOptions, IniStringQuote, Value, IniDuplicateSections,
 };
 
 /// INI parser FSM states.
@@ -130,6 +130,10 @@ impl<'s> IniParser<'s> {
 
         // Current opening string quote, if any.
         let mut quote: Option<char> = None;
+
+        // Whether we need to skip all key/value pairs in the current section
+        // (i.e., when we encountered a duplicte section instance and we use the `First` duplicate section policy).
+        let mut skip_section = false;
 
         // Scratch buffer for unicode escape sequences, if supported.
         let mut unicode_buffer = if self.options.escape {
@@ -271,7 +275,7 @@ impl<'s> IniParser<'s> {
                         buffer.clear();
 
                         // Try to add the section to the config.
-                        self.add_section(&mut root, &section)?;
+                        skip_section = self.add_section(&mut root, &section)?;
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
 
@@ -283,7 +287,7 @@ impl<'s> IniParser<'s> {
                         buffer.clear();
 
                         // Try to add the section to the config.
-                        self.add_section(&mut root, &section)?;
+                        skip_section = self.add_section(&mut root, &section)?;
 
                         self.state = IniParserState::AfterSection;
 
@@ -313,7 +317,7 @@ impl<'s> IniParser<'s> {
                         buffer.clear();
 
                         // Try to add the section to the config.
-                        self.add_section(&mut root, &section)?;
+                        skip_section = self.add_section(&mut root, &section)?;
 
                         self.state = IniParserState::AfterSection;
 
@@ -400,7 +404,7 @@ impl<'s> IniParser<'s> {
                         key.push_str(&buffer);
                         buffer.clear();
 
-                        self.is_key_duplicate(&mut root, &section, &key)?;
+                        self.is_key_duplicate(&mut root, &section, &key, skip_section)?;
 
                         self.state = IniParserState::BeforeValue;
 
@@ -415,7 +419,7 @@ impl<'s> IniParser<'s> {
                         key.push_str(&buffer);
                         buffer.clear();
 
-                        self.is_key_duplicate(&mut root, &section, &key)?;
+                        self.is_key_duplicate(&mut root, &section, &key, skip_section)?;
 
                         self.state = IniParserState::KeyValueSeparator;
 
@@ -459,7 +463,7 @@ impl<'s> IniParser<'s> {
                         key.push_str(&buffer);
                         buffer.clear();
 
-                        self.is_key_duplicate(&mut root, &section, &key)?;
+                        self.is_key_duplicate(&mut root, &section, &key, skip_section)?;
 
                         self.state = IniParserState::KeyValueSeparator;
 
@@ -514,7 +518,7 @@ impl<'s> IniParser<'s> {
                     if current.is_whitespace() {
                         // Unless it's a new line - the value is empty.
                         if self.is_new_line(current) {
-                            self.add_value(&mut root, &section, &key, "", false)?;
+                            self.add_value(&mut root, &section, &key, "", false, skip_section)?;
                             key.clear();
 
                             self.state = IniParserState::StartLine;
@@ -522,7 +526,7 @@ impl<'s> IniParser<'s> {
 
                     // Inline comment (if supported) - the value is empty, skip the rest of the line.
                     } else if self.options.inline_comments && self.is_comment_char(current) {
-                        self.add_value(&mut root, &section, &key, "", false)?;
+                        self.add_value(&mut root, &section, &key, "", false, skip_section)?;
                         key.clear();
 
                         self.state = IniParserState::SkipLine;
@@ -565,7 +569,7 @@ impl<'s> IniParser<'s> {
 
                     // New line - finish the value, start the new line.
                     if self.is_new_line(current) {
-                        self.add_value(&mut root, &section, &key, &buffer, false)?;
+                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section)?;
                         buffer.clear();
                         key.clear();
 
@@ -574,7 +578,7 @@ impl<'s> IniParser<'s> {
                     // Whitespace (except a new line - handled above) - finish the value, skip the rest of the line.
                     } else if current.is_whitespace() {
                         debug_assert!(!self.is_new_line(current));
-                        self.add_value(&mut root, &section, &key, &buffer, false)?;
+                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section)?;
                         buffer.clear();
                         key.clear();
 
@@ -582,7 +586,7 @@ impl<'s> IniParser<'s> {
 
                     // Inline comment (if supported) - finish the value, skip the rest of the line.
                     } else if self.options.inline_comments && self.is_comment_char(current) {
-                        self.add_value(&mut root, &section, &key, &buffer, false)?;
+                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section)?;
                         buffer.clear();
                         key.clear();
 
@@ -619,7 +623,7 @@ impl<'s> IniParser<'s> {
 
                     // Closing quotes - finish the value (may be empty), skip the rest of the line.
                     } else if current == cur_quote {
-                        self.add_value(&mut root, &section, &key, &buffer, true)?;
+                        self.add_value(&mut root, &section, &key, &buffer, true, skip_section)?;
                         buffer.clear();
                         key.clear();
 
@@ -669,7 +673,7 @@ impl<'s> IniParser<'s> {
 
             // Add the last value if we were parsing it right before EOF.
             IniParserState::Value | IniParserState::BeforeValue => {
-                self.add_value(&mut root, &section, &key, &buffer, quote.is_some())?;
+                self.add_value(&mut root, &section, &key, &buffer, quote.is_some(), skip_section)?;
             }
 
             _ => {}
@@ -847,17 +851,30 @@ impl<'s> IniParser<'s> {
         }
     }
 
-    fn add_section(&self, root: &mut DynTableMut<'_>, section: &str) -> Result<(), IniError> {
+    /// Returns `Ok(true)` if we need to skip the current section;
+    /// else returns `Ok(false)`.
+    fn add_section(&self, root: &mut DynTableMut<'_>, section: &str) -> Result<bool, IniError> {
         // Section does not exist in the config - add it.
         if root.get(section).is_err() {
             root.set(section, Value::Table(DynTable::new())).unwrap();
+            Ok(false)
 
-        // Section already exists and we don't support duplicate sections - error.
-        } else if !self.options.duplicate_sections {
-            return Err(self.error(IniErrorKind::DuplicateSectionName));
+        // Section already exists.
+        } else {
+            match self.options.duplicate_sections {
+                // We don't support duplicate sections - error.
+                IniDuplicateSections::Forbid => return Err(self.error(IniErrorKind::DuplicateSection)),
+                // Skip this section.
+                IniDuplicateSections::First => Ok(true),
+                // Overwrite the previous instance section with the new one.
+                IniDuplicateSections::Last => {
+                    root.set(section, Value::Table(DynTable::new())).unwrap();
+                    Ok(false)
+                },
+                // Just add the new key/value pairs to the existing section.
+                IniDuplicateSections::Merge => Ok(false),
+            }
         }
-
-        Ok(())
     }
 
     /// Parses a string `value` and adds it to the config `section` at `key`.
@@ -871,8 +888,13 @@ impl<'s> IniParser<'s> {
         key: &str,
         value: &str,
         quoted: bool,
+        skip: bool,
     ) -> Result<(), IniError> {
         debug_assert!(!key.is_empty());
+
+        if skip {
+            return Ok(());
+        }
 
         let value = self.parse_value_string(value, quoted)?;
 
@@ -949,10 +971,15 @@ impl<'s> IniParser<'s> {
         root: &mut DynTableMut<'_>,
         section: &str,
         key: &str,
+        skip: bool,
     ) -> Result<(), IniError> {
         use IniErrorKind::*;
 
         debug_assert!(!key.is_empty());
+
+        if skip {
+            return Ok(());
+        }
 
         let is_unique = if section.is_empty() {
             root.get(key).is_err()
