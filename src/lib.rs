@@ -21,7 +21,7 @@ mod ini;
 mod util;
 mod value;
 
-pub(crate) use util::write_char;
+pub(crate) use util::{write_char, WriteCharError};
 
 #[cfg(feature = "lua")]
 pub(crate) use lua_config::DisplayLua;

@@ -32,6 +32,7 @@ bitflags! {
 }
 
 /// Configuration options for the INI parser.
+#[derive(Clone, Copy, Debug)]
 pub struct IniOptions {
     /// Valid comment separator character(s).
     /// If `None`, comments are not supported.
@@ -60,12 +61,16 @@ pub struct IniOptions {
     /// in keys, section names and string values are supported.
     /// If `true`, the following escape sequences are supported:
     ///     `' '` (space)
+    ////    `'"'`
+    ////    `'\''`
     ///     `'\0'`
     ///     `'\a'`
     ///     `'\b'`
     ///     `'\t'`
     ///     `'\r'`
     ///     `'\n'`
+    ///     `'\v'`
+    ///     `'\f'`
     ///     `'\\'`
     ///     `'\['`
     ///     `'\]'`
@@ -74,6 +79,7 @@ pub struct IniOptions {
     ///     `'\='`
     ///     `'\:'`
     ///     `'\x????'` (where `?` are 4 hexadecimal digits)
+    /// If `false`, backslash ('\') is treated as a normal section name / key / value character.
     /// Default: `true`.
     pub escape: bool,
     /// Whether line ontinuation esacpe sequences (a backslash followed by a newline)
@@ -104,5 +110,18 @@ impl Default for IniOptions {
             duplicate_sections: true,
             duplicate_keys: false,
         }
+    }
+}
+
+/// Configuration options for serializing a config to an `.ini` string.
+#[derive(Clone, Copy, Debug)]
+pub struct ToIniStringOptions {
+    /// See [`IniOptions`](struct.IniOptions.html)::`escape`.
+    pub escape: bool,
+}
+
+impl Default for ToIniStringOptions {
+    fn default() -> Self {
+        Self { escape: true }
     }
 }

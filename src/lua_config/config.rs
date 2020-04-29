@@ -7,7 +7,7 @@ use crate::{DisplayLua, LuaArray, LuaConfigError, LuaConfigKeyError, LuaTable, V
 use crate::{BinConfigWriter, BinConfigWriterError};
 
 #[cfg(feature = "ini")]
-use crate::{DisplayINI, ToINIStringError};
+use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
 
 #[cfg(feature = "dyn")]
 use crate::{DynArray, DynArrayMut, DynConfig, DynTable, DynTableMut};
@@ -146,14 +146,26 @@ impl<'lua> LuaConfig<'lua> {
         writer.finish()
     }
 
-    /// Tries to serialize this [`config`] to an INI string.
+    /// Tries to serialize this [`config`] to an `.ini` string.
     ///
     /// [`config`]: struct.LuaConfig.html
     #[cfg(feature = "ini")]
-    pub fn to_ini_string(&self) -> Result<String, ToINIStringError> {
+    pub fn to_ini_string(&self) -> Result<String, ToIniStringError> {
+        self.to_ini_string_opts(Default::default())
+    }
+
+    /// Tries to serialize this [`config`] to an `.ini` string using provided [`options`].
+    ///
+    /// [`config`]: struct.LuaConfig.html
+    /// [`options`]: struct.ToIniStringOptions.html
+    #[cfg(feature = "ini")]
+    pub fn to_ini_string_opts(
+        &self,
+        options: ToIniStringOptions,
+    ) -> Result<String, ToIniStringError> {
         let mut result = String::new();
 
-        self.root().fmt_ini(&mut result, 0)?;
+        self.root().fmt_ini(&mut result, 0, options)?;
 
         result.shrink_to_fit();
 

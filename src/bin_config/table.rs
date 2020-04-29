@@ -4,7 +4,9 @@ use std::iter::Iterator;
 use crate::{write_lua_key, BinArray, BinConfigValue, BinTableGetError, DisplayLua, Value};
 
 #[cfg(feature = "ini")]
-use crate::{write_ini_section, write_ini_string, DisplayINI, ToINIStringError, ValueType};
+use crate::{
+    write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions, ValueType,
+};
 
 use super::array_or_table::BinArrayOrTable;
 use super::util::string_hash_fnv1a;
@@ -230,8 +232,13 @@ impl<'t> BinTable<'t> {
     }
 
     #[cfg(feature = "ini")]
-    fn fmt_ini_impl<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
-        use ToINIStringError::*;
+    fn fmt_ini_impl<W: Write>(
+        &self,
+        w: &mut W,
+        level: u32,
+        options: ToIniStringOptions,
+    ) -> Result<(), ToIniStringError> {
+        use ToIniStringError::*;
 
         debug_assert!(level < 2);
 
@@ -275,11 +282,11 @@ impl<'t> BinTable<'t> {
                         writeln!(w).map_err(|_| WriteError)?;
                     }
 
-                    write_ini_section(w, key).map_err(|_| WriteError)?;
+                    write_ini_section(w, key, options.escape)?;
 
                     if value.len() > 0 {
                         writeln!(w).map_err(|_| WriteError)?;
-                        value.fmt_ini(w, level + 1)?;
+                        value.fmt_ini(w, level + 1, options)?;
                     }
 
                     if !last {
@@ -287,10 +294,11 @@ impl<'t> BinTable<'t> {
                     }
                 }
                 value => {
-                    write_ini_string(w, key, false).map_err(|_| WriteError)?;
+                    write_ini_key(w, key, options.escape)?;
+
                     write!(w, " = ").map_err(|_| WriteError)?;
 
-                    value.fmt_ini(w, level + 1)?;
+                    value.fmt_ini(w, level + 1, options)?;
 
                     if !last {
                         writeln!(w).map_err(|_| WriteError)?;
@@ -355,8 +363,13 @@ impl<'t> Display for BinTable<'t> {
 }
 
 #[cfg(feature = "ini")]
-impl<'t> DisplayINI for BinTable<'t> {
-    fn fmt_ini<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
-        self.fmt_ini_impl(w, level)
+impl<'t> DisplayIni for BinTable<'t> {
+    fn fmt_ini<W: Write>(
+        &self,
+        w: &mut W,
+        level: u32,
+        options: ToIniStringOptions,
+    ) -> Result<(), ToIniStringError> {
+        self.fmt_ini_impl(w, level, options)
     }
 }

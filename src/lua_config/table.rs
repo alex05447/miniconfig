@@ -6,7 +6,7 @@ use crate::{
 };
 
 #[cfg(feature = "ini")]
-use crate::{write_ini_section, write_ini_string, DisplayINI, ToINIStringError};
+use crate::{write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions};
 
 use super::util::{
     new_table, set_table_len, table_len, value_from_lua_value, ValueFromLuaValueError,
@@ -292,8 +292,13 @@ impl<'lua> LuaTable<'lua> {
     }
 
     #[cfg(feature = "ini")]
-    fn fmt_ini_impl<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
-        use ToINIStringError::*;
+    fn fmt_ini_impl<W: Write>(
+        &self,
+        w: &mut W,
+        level: u32,
+        options: ToIniStringOptions,
+    ) -> Result<(), ToIniStringError> {
+        use ToIniStringError::*;
 
         debug_assert!(level < 2);
 
@@ -339,11 +344,11 @@ impl<'lua> LuaTable<'lua> {
                         writeln!(w).map_err(|_| WriteError)?;
                     }
 
-                    write_ini_section(w, key).map_err(|_| WriteError)?;
+                    write_ini_section(w, key, options.escape)?;
 
                     if value.len() > 0 {
                         writeln!(w).map_err(|_| WriteError)?;
-                        value.fmt_ini(w, level + 1)?;
+                        value.fmt_ini(w, level + 1, options)?;
                     }
 
                     if !last {
@@ -351,10 +356,11 @@ impl<'lua> LuaTable<'lua> {
                     }
                 }
                 value => {
-                    write_ini_string(w, key, false).map_err(|_| WriteError)?;
+                    write_ini_key(w, key, options.escape)?;
+
                     write!(w, " = ").map_err(|_| WriteError)?;
 
-                    value.fmt_ini(w, level + 1)?;
+                    value.fmt_ini(w, level + 1, options)?;
 
                     if !last {
                         writeln!(w).map_err(|_| WriteError)?;
@@ -413,8 +419,13 @@ impl<'lua> Display for LuaTable<'lua> {
 }
 
 #[cfg(feature = "ini")]
-impl<'lua> DisplayINI for LuaTable<'lua> {
-    fn fmt_ini<W: Write>(&self, w: &mut W, level: u32) -> Result<(), ToINIStringError> {
-        self.fmt_ini_impl(w, level)
+impl<'lua> DisplayIni for LuaTable<'lua> {
+    fn fmt_ini<W: Write>(
+        &self,
+        w: &mut W,
+        level: u32,
+        options: ToIniStringOptions,
+    ) -> Result<(), ToIniStringError> {
+        self.fmt_ini_impl(w, level, options)
     }
 }

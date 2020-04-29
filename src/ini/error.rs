@@ -7,6 +7,8 @@ pub enum IniErrorKind {
     InvalidCharacterAtLineStart,
     /// Invalid character in section name - expected a valid string character or an escape sequence.
     InvalidCharacterInSectionName,
+    /// Invalid character after section name - expected whitespace or a section end delimiter.
+    InvalidCharacterAfterSectionName,
     /// Unexpected new line in section name.
     UnexpectedNewLineInSectionName,
     /// Unexpected end of file in section name.
@@ -15,7 +17,7 @@ pub enum IniErrorKind {
     EmptySectionName,
     /// Duplicate section name encountered.
     DuplicateSectionName,
-    /// Invalid character at the end of the line - expected a new line (or an inline comment if supported).
+    /// Invalid character at the end of the line - expected a new line or an inline comment, if supported.
     InvalidCharacterAtLineEnd,
     /// Invalid character in key name - expected a valid string character or an escape sequence.
     InvalidCharacterInKey,
@@ -83,6 +85,10 @@ impl Display for IniErrorKind {
                 f,
                 "Invalid character in section name - expected a valid string character or an escape sequence."
             ),
+            InvalidCharacterAfterSectionName => write!(
+                f,
+                "Invalid character after section name - expected whitespace or a section end delimiter."
+            ),
             UnexpectedNewLineInSectionName => write!(
                 f,
                 "Unexpected new line in section name."
@@ -101,7 +107,7 @@ impl Display for IniErrorKind {
             ),
             InvalidCharacterAtLineEnd => write!(
                 f,
-                "Invalid character at the end of the line - expected a new line (or an inline comment if supported)."
+                "Invalid character at the end of the line - expected a new line or an inline comment, if supported."
             ),
             InvalidCharacterInKey => write!(
                 f,
@@ -183,18 +189,21 @@ impl Display for IniError {
 
 /// An error returned by `to_ini_string`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ToINIStringError {
+pub enum ToIniStringError {
     /// Array values are not supported in INI configs.
     ArraysNotSupported,
     /// Tables nested within tables are not supported in INI configs.
     NestedTablesNotSupported,
     /// General write error (out of memory?).
     WriteError,
+    /// Encountered a disallowed escaped character.
+    /// Contains the escaped character.
+    EscapedCharacter(char),
 }
 
-impl Display for ToINIStringError {
+impl Display for ToIniStringError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use ToINIStringError::*;
+        use ToIniStringError::*;
 
         match self {
             ArraysNotSupported => write!(f, "Array values are not supported in INI configs."),
@@ -203,6 +212,9 @@ impl Display for ToINIStringError {
                 "Tables nested within tables are not supported in INI configs."
             ),
             WriteError => write!(f, "General write error (out of memory?)."),
+            EscapedCharacter(c) => {
+                write!(f, "Encountered a disallowed escaped character (\'{}\')", c)
+            }
         }
     }
 }

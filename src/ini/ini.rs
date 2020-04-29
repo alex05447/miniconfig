@@ -177,7 +177,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid key start - parse the key.
-                    } else if Self::is_key_or_value_char(current, quote) {
+                    } else if self.is_key_or_value_char(current, quote) {
                         debug_assert!(buffer.is_empty());
                         buffer.push(current);
 
@@ -223,7 +223,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid section name char (same rules as key chars) - start parsing the section name.
-                    } else if Self::is_key_or_value_char(current, quote) {
+                    } else if self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                         self.state = IniParserState::Section;
@@ -256,7 +256,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid section name char (same rules as key chars) - keep parsing the section name.
-                    } else if Self::is_key_or_value_char(current, quote) {
+                    } else if self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                     // Section end delimiter - finish the section name, skip the rest of the line.
@@ -276,12 +276,8 @@ impl<'s> IniParser<'s> {
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
 
                     // Whitespace after section name (new lines handle above) - skip it, finish the section name, parse the section end delimiter.
+                    // NOTE - section name is not empty if we got here.
                     } else if current.is_whitespace() {
-                        // Empty section names not allowed.
-                        if buffer.is_empty() {
-                            return Err(self.error(EmptySectionName));
-                        }
-
                         section.clear();
                         section.push_str(&buffer);
                         buffer.clear();
@@ -337,7 +333,7 @@ impl<'s> IniParser<'s> {
                         buffer.push(current);
 
                     // Space or valid value char - keep parsing the value.
-                    } else if current == ' ' || Self::is_key_or_value_char(current, quote) {
+                    } else if current == ' ' || self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -362,7 +358,7 @@ impl<'s> IniParser<'s> {
 
                     // Else an error.
                     } else {
-                        return Err(self.error(InvalidCharacterInSectionName));
+                        return Err(self.error(InvalidCharacterAfterSectionName));
                     }
                 }
                 IniParserState::SkipLine => {
@@ -435,7 +431,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid key char - keep parsing the key.
-                    } else if Self::is_key_or_value_char(current, quote) {
+                    } else if self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -483,7 +479,7 @@ impl<'s> IniParser<'s> {
                         buffer.push(current);
 
                     // Space or valid key char - keep parsing the key.
-                    } else if current == ' ' || Self::is_key_or_value_char(current, quote) {
+                    } else if current == ' ' || self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -553,7 +549,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - start parsing the unquoted value.
-                    } else if Self::is_key_or_value_char(current, quote) {
+                    } else if self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                         self.state = IniParserState::Value;
@@ -604,7 +600,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - keep parsing the value.
-                    } else if Self::is_key_or_value_char(current, quote) {
+                    } else if self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -647,7 +643,7 @@ impl<'s> IniParser<'s> {
                         buffer.push(current);
 
                     // Space or valid value char - keep parsing the value.
-                    } else if current == ' ' || Self::is_key_or_value_char(current, quote) {
+                    } else if current == ' ' || self.is_key_or_value_char(current, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -926,6 +922,7 @@ impl<'s> IniParser<'s> {
 
         // Else it's a string.
         } else {
+            // Unless we don't allow unquoted strings.
             if !self.options.unquoted_strings {
                 return Err(self.error(UnquotedString));
             }
@@ -975,14 +972,14 @@ impl<'s> IniParser<'s> {
         }
     }
 
-    fn is_key_or_value_char(val: char, quote: Option<char>) -> bool {
+    fn is_key_or_value_char(&self, val: char, quote: Option<char>) -> bool {
         if let Some(quote) = quote {
             debug_assert!(quote == '"' || quote == '\'');
         }
 
         match val {
-            // Escape char must always be escaped.
-            '\\' => false,
+            // Escape char must be escaped if escape sequences are supported.
+            '\\' if self.options.escape => false,
 
             // Non-matching quotes don't need to be escaped in quoted strings.
             '"' => quote == Some('\''),
@@ -1027,28 +1024,30 @@ mod tests {
 
     #[test]
     fn is_key_or_value_char() {
+        let parser = IniParser::new("".chars(), Default::default());
+
         for c in (b'0'..b'9').map(|c| char::from(c)) {
-            assert!(IniParser::is_key_or_value_char(c, None));
+            assert!(parser.is_key_or_value_char(c, None));
         }
 
         for c in (b'a'..b'z').map(|c| char::from(c)) {
-            assert!(IniParser::is_key_or_value_char(c, None));
+            assert!(parser.is_key_or_value_char(c, None));
         }
 
         for c in (b'A'..b'Z').map(|c| char::from(c)) {
-            assert!(IniParser::is_key_or_value_char(c, None));
+            assert!(parser.is_key_or_value_char(c, None));
         }
 
-        assert!(!IniParser::is_key_or_value_char('"', None));
-        assert!(IniParser::is_key_or_value_char('"', Some('\'')));
+        assert!(!parser.is_key_or_value_char('"', None));
+        assert!(parser.is_key_or_value_char('"', Some('\'')));
 
-        assert!(!IniParser::is_key_or_value_char('\'', None));
-        assert!(IniParser::is_key_or_value_char('\'', Some('"')));
+        assert!(!parser.is_key_or_value_char('\'', None));
+        assert!(parser.is_key_or_value_char('\'', Some('"')));
 
         let assert_ini_char = |c| {
-            assert!(!IniParser::is_key_or_value_char(c, None));
-            assert!(IniParser::is_key_or_value_char(c, Some('"')));
-            assert!(IniParser::is_key_or_value_char(c, Some('\'')));
+            assert!(!parser.is_key_or_value_char(c, None));
+            assert!(parser.is_key_or_value_char(c, Some('"')));
+            assert!(parser.is_key_or_value_char(c, Some('\'')));
         };
 
         assert_ini_char(' ');

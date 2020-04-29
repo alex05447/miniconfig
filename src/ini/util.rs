@@ -1,18 +1,28 @@
 use std::fmt::Write;
 
-use crate::{write_char, ToINIStringError, Value};
+use crate::{write_char, ToIniStringError, ToIniStringOptions, Value, WriteCharError};
 
-pub(crate) trait DisplayINI {
-    fn fmt_ini<W: Write>(&self, writer: &mut W, level: u32) -> Result<(), ToINIStringError>;
+pub(crate) trait DisplayIni {
+    fn fmt_ini<W: Write>(
+        &self,
+        writer: &mut W,
+        level: u32,
+        options: ToIniStringOptions,
+    ) -> Result<(), ToIniStringError>;
 }
 
-impl<S, A, T> DisplayINI for Value<S, A, T>
+impl<S, A, T> DisplayIni for Value<S, A, T>
 where
     S: AsRef<str>,
-    T: DisplayINI,
+    T: DisplayIni,
 {
-    fn fmt_ini<W: Write>(&self, writer: &mut W, level: u32) -> Result<(), ToINIStringError> {
-        use ToINIStringError::*;
+    fn fmt_ini<W: Write>(
+        &self,
+        writer: &mut W,
+        level: u32,
+        options: ToIniStringOptions,
+    ) -> Result<(), ToIniStringError> {
+        use ToIniStringError::*;
 
         match self {
             Value::Bool(value) => {
@@ -22,12 +32,12 @@ where
             Value::F64(value) => write!(writer, "{}", value).map_err(|_| WriteError),
             Value::String(value) => {
                 write!(writer, "\"").map_err(|_| WriteError)?;
-                write_ini_string(writer, value.as_ref(), true).map_err(|_| WriteError)?;
+                write_ini_string_impl(writer, value.as_ref(), true, options.escape)?;
                 write!(writer, "\"").map_err(|_| WriteError)
             }
             Value::Table(value) => {
                 debug_assert!(level < 2);
-                value.fmt_ini(writer, level)
+                value.fmt_ini(writer, level, options)
             }
 
             Value::Array(_) => Err(ArraysNotSupported),
@@ -40,19 +50,27 @@ where
 /// and, if `quoted` is `false`, string quotes ('\'', '"'),
 /// INI special characters ('[', ']', ';', '#', '=', ':') and spaces (' ').
 /// If `quoted` is `true`, single quotes ('\'') are not escaped.
-pub(crate) fn write_ini_string<W: Write>(
+pub(crate) fn write_ini_string_impl<W: Write>(
     w: &mut W,
     string: &str,
     quoted: bool,
-) -> std::fmt::Result {
+    escape: bool,
+) -> Result<(), ToIniStringError> {
     for c in string.chars() {
-        write_char(w, c, true, quoted)?;
+        write_char(w, c, true, quoted, escape).map_err(|err| match err {
+            WriteCharError::WriteError => ToIniStringError::WriteError,
+            WriteCharError::EscapedCharacter(c) => ToIniStringError::EscapedCharacter(c),
+        })?;
     }
 
     Ok(())
 }
 
-fn section_needs_quotes(section: &str) -> bool {
+/// Returns `true` if the string contains special characters
+/// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
+/// string quotes ('\'', '"'),
+/// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
+fn string_needs_quotes(section: &str) -> bool {
     for c in section.chars() {
         match c {
             // Special characters.
@@ -70,28 +88,64 @@ fn section_needs_quotes(section: &str) -> bool {
     false
 }
 
-/// Writes the `section` to the writer `w`, enclosing it in brackets.
-/// If the section contains special characters
+/// Writes the `section` to the writer `w`, enclosing it in brackets ('[' / ']').
+/// If the `section` contains special characters
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
 /// string quotes ('\'', '"'),
 /// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
-/// it is additionally enclosed in quotes ('"').
-pub(crate) fn write_ini_section<W: Write>(w: &mut W, section: &str) -> std::fmt::Result {
+/// it is additionally enclosed in double quotes ('"').
+pub(crate) fn write_ini_section<W: Write>(
+    w: &mut W,
+    section: &str,
+    escape: bool,
+) -> Result<(), ToIniStringError> {
+    use ToIniStringError::*;
+
     debug_assert!(!section.is_empty());
 
-    write!(w, "[")?;
+    write!(w, "[").map_err(|_| WriteError)?;
 
-    let needs_quotes = section_needs_quotes(section);
-
-    if needs_quotes {
-        write!(w, "\"")?;
-    }
-
-    write_ini_string(w, section, needs_quotes)?;
+    let needs_quotes = string_needs_quotes(section);
 
     if needs_quotes {
-        write!(w, "\"")?;
+        write!(w, "\"").map_err(|_| WriteError)?;
     }
 
-    write!(w, "]")
+    write_ini_string_impl(w, section, needs_quotes, escape)?;
+
+    if needs_quotes {
+        write!(w, "\"").map_err(|_| WriteError)?;
+    }
+
+    write!(w, "]").map_err(|_| WriteError)
+}
+
+/// Writes the `key` to the writer `w`.
+/// If the `key` contains special characters
+/// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
+/// string quotes ('\'', '"'),
+/// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
+/// it is additionally enclosed in double quotes ('"').
+pub(crate) fn write_ini_key<W: Write>(
+    w: &mut W,
+    key: &str,
+    escape: bool,
+) -> Result<(), ToIniStringError> {
+    use ToIniStringError::*;
+
+    debug_assert!(!key.is_empty());
+
+    let needs_quotes = string_needs_quotes(key);
+
+    if needs_quotes {
+        write!(w, "\"").map_err(|_| WriteError)?;
+    }
+
+    write_ini_string_impl(w, key, needs_quotes, escape)?;
+
+    if needs_quotes {
+        write!(w, "\"").map_err(|_| WriteError)?;
+    }
+
+    Ok(())
 }

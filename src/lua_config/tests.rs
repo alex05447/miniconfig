@@ -188,13 +188,13 @@ fn script_errors() {
 }
 
 const SCRIPT: &str = "{
-\t[\"'fancy value'\"] = \"\\t\",
 \tarray_value = {
 \t\t54,
 \t\t12,
 \t\t78.9,
 \t}, -- array_value
 \tbool_value = true,
+\t[\"fancy 'value'\"] = \"\\t'\\\"\",
 \tfloat_value = 3.14,
 \tint_value = 7,
 \tstring_value = \"foo{}[];#:=\",
@@ -542,8 +542,8 @@ fn to_bin_config() {
         assert_eq!(bin_config.root().get_bool("bool_value").unwrap(), true);
 
         assert_eq!(
-            bin_config.root().get_string("'fancy value'").unwrap(),
-            "\t"
+            bin_config.root().get_string("fancy 'value'").unwrap(),
+            "\t'\""
         );
 
         assert!(cmp_f64(

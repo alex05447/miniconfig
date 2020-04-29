@@ -13,7 +13,7 @@ use super::util::{string_hash_fnv1a, u32_from_bin, u32_to_bin_bytes};
 use super::value::BinConfigPackedValue;
 
 #[cfg(feature = "ini")]
-use crate::{DisplayINI, ToINIStringError};
+use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
 
 #[cfg(feature = "dyn")]
 use crate::{DynArray, DynConfig, DynTable};
@@ -66,14 +66,26 @@ impl BinConfig {
         Ok(result)
     }
 
-    /// Tries to serialize this [`config`] to an INI string.
+    /// Tries to serialize this [`config`] to an `.ini` string.
     ///
     /// [`config`]: struct.BinConfig.html
     #[cfg(feature = "ini")]
-    pub fn to_ini_string(&self) -> Result<String, ToINIStringError> {
+    pub fn to_ini_string(&self) -> Result<String, ToIniStringError> {
+        self.to_ini_string_opts(Default::default())
+    }
+
+    /// Tries to serialize this [`config`] to an `.ini` string using provided [`options`].
+    ///
+    /// [`config`]: struct.BinConfig.html
+    /// [`options`]: struct.ToIniStringOptions.html
+    #[cfg(feature = "ini")]
+    pub fn to_ini_string_opts(
+        &self,
+        options: ToIniStringOptions,
+    ) -> Result<String, ToIniStringError> {
         let mut result = String::new();
 
-        self.root().fmt_ini(&mut result, 0)?;
+        self.root().fmt_ini(&mut result, 0, options)?;
 
         result.shrink_to_fit();
 

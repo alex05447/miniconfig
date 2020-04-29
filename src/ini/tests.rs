@@ -137,15 +137,6 @@ fn InvalidCharacterInSectionName() {
             error: IniErrorKind::InvalidCharacterInSectionName
         }
     );
-    // Any character after closing quotes.
-    assert_eq!(
-        DynConfig::from_ini("[\"a\" b]").err().unwrap(),
-        IniError {
-            line: 1,
-            column: 6,
-            error: IniErrorKind::InvalidCharacterInSectionName
-        }
-    );
 
     // But this succeeds.
 
@@ -204,6 +195,37 @@ fn InvalidCharacterInSectionName() {
     )
     .unwrap(); // Non-matching quotes in quoted section name.
     assert_eq!(ini.root().get_table("\" a\"").unwrap().len(), 0);
+}
+
+#[test]
+fn InvalidCharacterAfterSectionName() {
+    // Any character after whitespace after section name.
+    assert_eq!(
+        DynConfig::from_ini("[a b]").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::InvalidCharacterAfterSectionName
+        }
+    );
+
+    // Any character after closing quotes.
+    assert_eq!(
+        DynConfig::from_ini("[\"a\" b]").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 6,
+            error: IniErrorKind::InvalidCharacterAfterSectionName
+        }
+    );
+
+    // But this succeeds.
+
+    let ini = DynConfig::from_ini("[\ta\\ b ]").unwrap(); // Escaped whitespace in unquoted section name.
+    assert_eq!(ini.root().get_table("a b").unwrap().len(), 0);
+
+    let ini = DynConfig::from_ini("[\t\"a b\" ]").unwrap(); // Unescaped whitespace in quoted section name.
+    assert_eq!(ini.root().get_table("a b").unwrap().len(), 0);
 }
 
 #[test]
@@ -1243,7 +1265,7 @@ fn ArraysNotSupported() {
 
     assert_eq!(
         config.to_ini_string(),
-        Err(ToINIStringError::ArraysNotSupported)
+        Err(ToIniStringError::ArraysNotSupported)
     );
 }
 
@@ -1261,7 +1283,7 @@ fn NestedTablesNotSupported() {
 
     assert_eq!(
         config.to_ini_string(),
-        Err(ToINIStringError::NestedTablesNotSupported)
+        Err(ToIniStringError::NestedTablesNotSupported)
     );
 }
 
@@ -1299,4 +1321,85 @@ fn section_merge() {
     assert_eq!(table.len(), 2);
     assert_eq!(table.get_i64("b").unwrap(), 7);
     assert_eq!(table.get_i64("c").unwrap(), 9);
+}
+
+#[test]
+fn escape() {
+    // With escape sequences supported.
+    let ini = DynConfig::from_ini_opts(
+        "[a\\ b]\n\"c\\t\" = '\\x0066\\x006f\\x006f'",
+        IniOptions {
+            string_quotes: IniStringQuote::Single | IniStringQuote::Double,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let section = ini.root().get_table("a b").unwrap();
+
+    assert_eq!(section.len(), 1);
+    assert_eq!(section.get_string("c\t").unwrap(), "foo");
+
+    // Section name enclosed in double quotes when serializing back to string.
+    assert_eq!(
+        ini.to_ini_string().unwrap(),
+        "[\"a b\"]\n\"c\\t\" = \"foo\""
+    );
+
+    // Attempt to serialize an escaped character with support for escaped characters disabled.
+    let ini = DynConfig::from_ini("a\\t = 7").unwrap();
+
+    assert_eq!(
+        ini.to_ini_string_opts(ToIniStringOptions { escape: false })
+            .err()
+            .unwrap(),
+        ToIniStringError::EscapedCharacter('\t')
+    );
+
+    // With escape sequences unsupported.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "[a\\ b]\n\"c\\t\" = '\\x0066\\x006f\\x006f'",
+            IniOptions {
+                escape: false,
+                string_quotes: IniStringQuote::Single | IniStringQuote::Double,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 5,
+            error: IniErrorKind::InvalidCharacterAfterSectionName
+        }
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "[\"a\\ b\"]\n\"c\\t\" = '\\x0066\\x006f\\x006f'",
+        IniOptions {
+            escape: false,
+            string_quotes: IniStringQuote::Single | IniStringQuote::Double,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        ini.root()
+            .get_table("a\\ b")
+            .unwrap()
+            .get_string("c\\t")
+            .unwrap(),
+        "\\x0066\\x006f\\x006f"
+    );
+
+    let string = "[\"a\\ b\"]\n\"c\\t\" = \"\\x0066\\x006f\\x006f\"";
+
+    assert_ne!(ini.to_ini_string().unwrap(), string);
+    assert_eq!(
+        ini.to_ini_string_opts(ToIniStringOptions { escape: false })
+            .unwrap(),
+        string
+    );
 }

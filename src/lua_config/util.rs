@@ -2,7 +2,7 @@ use std::fmt::{Formatter, Write};
 
 use crate::{
     value_type_from_u32, value_type_to_u32, write_char, LuaArray, LuaConfigError, LuaConfigValue,
-    LuaString, LuaTable, Value, ValueType,
+    LuaString, LuaTable, Value, ValueType, WriteCharError,
 };
 
 use rlua;
@@ -381,12 +381,15 @@ where
 }
 
 /// Writes the `string` to the writer `w`, enclosing it in quotes and escaping special characters
-/// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f') and quotes ('"').
+/// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f') and double quotes ('"').
 fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
     write!(w, "\"")?;
 
     for c in string.chars() {
-        write_char(w, c, false, true)?;
+        write_char(w, c, false, true, true).map_err(|err| match err {
+            WriteCharError::WriteError => std::fmt::Error,
+            WriteCharError::EscapedCharacter(_) => unreachable!(),
+        })?;
     }
 
     write!(w, "\"")
