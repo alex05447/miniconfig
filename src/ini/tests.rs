@@ -337,7 +337,7 @@ fn DuplicateSection() {
     // Duplicate sections not supported.
     assert_eq!(
         DynConfig::from_ini_opts(
-            "[a]\n[a]",
+            "[a]\n[b]\n[a]",
             IniOptions {
                 duplicate_sections: IniDuplicateSections::Forbid,
                 ..Default::default()
@@ -346,7 +346,7 @@ fn DuplicateSection() {
         .err()
         .unwrap(),
         IniError {
-            line: 2,
+            line: 3,
             column: 3,
             error: IniErrorKind::DuplicateSection
         }
@@ -356,30 +356,34 @@ fn DuplicateSection() {
 
     // Use the `First` section. Second section skipped, including duplicate keys.
     let ini = DynConfig::from_ini_opts(
-        "[a]\na=7\n[a]\na=9",
+        "[a]\na=7\n[a]\na=9\n[b]\na=42",
         IniOptions {
             duplicate_sections: IniDuplicateSections::First,
             ..Default::default()
         }
     ).unwrap();
+    assert_eq!(ini.root().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 7);
+    assert_eq!(ini.root().get_table("b").unwrap().len(), 1);
+    assert_eq!(ini.root().get_table("b").unwrap().get_i64("a").unwrap(), 42);
 
     // Use the `Last` section. First section overwritten.
     let ini = DynConfig::from_ini_opts(
-        "[a]\na=7\n[a]\na=9",
+        "[a]\na=7\n[a]\na=9\n[b]\na=42",
         IniOptions {
             duplicate_sections: IniDuplicateSections::Last,
             ..Default::default()
         }
     ).unwrap();
+    assert_eq!(ini.root().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 9);
 
     // `Merge` sections, duplicate keys.
     assert_eq!(
         DynConfig::from_ini_opts(
-            "[a]\na=7\n[a]\na=9",
+            "[a]\na=7\n[a]\na=9\n[b]\na=42",
             IniOptions {
                 duplicate_sections: IniDuplicateSections::Merge,
                 ..Default::default()
@@ -396,15 +400,19 @@ fn DuplicateSection() {
 
     // `Merge` sections, unique keys.
     let ini = DynConfig::from_ini_opts(
-        "[a]\na=7\n[a]\nb=9",
+        "[a]\na=7\n[b]\na=42\n[a]\nb=9\n[b]\nb=43",
         IniOptions {
             duplicate_sections: IniDuplicateSections::Merge,
             ..Default::default()
         }
     ).unwrap();
+    assert_eq!(ini.root().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 7);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("b").unwrap(), 9);
+    assert_eq!(ini.root().get_table("b").unwrap().len(), 2);
+    assert_eq!(ini.root().get_table("b").unwrap().get_i64("a").unwrap(), 42);
+    assert_eq!(ini.root().get_table("b").unwrap().get_i64("b").unwrap(), 43);
 }
 
 #[test]

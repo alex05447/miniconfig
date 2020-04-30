@@ -132,7 +132,7 @@ impl<'s> IniParser<'s> {
         let mut quote: Option<char> = None;
 
         // Whether we need to skip all key/value pairs in the current section
-        // (i.e., when we encountered a duplicte section instance and we use the `First` duplicate section policy).
+        // (i.e., when we encountered a duplicate section instance and we use the `First` duplicate section policy).
         let mut skip_section = false;
 
         // Scratch buffer for unicode escape sequences, if supported.
@@ -151,6 +151,8 @@ impl<'s> IniParser<'s> {
 
                         // Section start delimiter - parse the section name.
                     } else if current == '[' {
+                        skip_section = false;
+
                         self.state = IniParserState::BeforeSection;
 
                     // Line comment (if supported) - skip the rest of the line.
