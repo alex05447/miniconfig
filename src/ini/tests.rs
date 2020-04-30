@@ -617,27 +617,27 @@ fn EmptyKey() {
 fn DuplicateKey() {
     // In the root.
     assert_eq!(
-        DynConfig::from_ini("a=7\na=9").err().unwrap(),
-        IniError {
-            line: 2,
-            column: 1,
-            error: IniErrorKind::DuplicateKey
-        }
-    );
-    // In the section.
-    assert_eq!(
-        DynConfig::from_ini("[a]\na=7\na=9").err().unwrap(),
+        DynConfig::from_ini("a=7\nb=8\na=9\nc=10").err().unwrap(),
         IniError {
             line: 3,
             column: 1,
             error: IniErrorKind::DuplicateKey
         }
     );
-    // In the merged section.
+    // In the section.
     assert_eq!(
-        DynConfig::from_ini("[a]\na=7\n[a]\na=9").err().unwrap(),
+        DynConfig::from_ini("[a]\na=7\nb=8\na=9\nc=10").err().unwrap(),
         IniError {
             line: 4,
+            column: 1,
+            error: IniErrorKind::DuplicateKey
+        }
+    );
+    // In the merged section.
+    assert_eq!(
+        DynConfig::from_ini("[a]\na=7\nb=8\n[a]\na=9\nc=10").err().unwrap(),
+        IniError {
+            line: 5,
             column: 1,
             error: IniErrorKind::DuplicateKey
         }
@@ -645,38 +645,83 @@ fn DuplicateKey() {
 
     // But this succeeds.
 
-    // In the root.
+    // In the root, `First`.
     let ini = DynConfig::from_ini_opts(
-        "a=7\na=9",
+        "a=7\nb=8\na=9\nc=10",
         IniOptions {
-            duplicate_keys: true,
+            duplicate_keys: IniDuplicateKeys::First,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_i64("a").unwrap(), 7);
+    assert_eq!(ini.root().get_i64("b").unwrap(), 8);
+    assert_eq!(ini.root().get_i64("c").unwrap(), 10);
+
+    // In the root, `Last`.
+    let ini = DynConfig::from_ini_opts(
+        "a=7\nb=8\na=9\nc=10",
+        IniOptions {
+            duplicate_keys: IniDuplicateKeys::Last,
             ..Default::default()
         },
     )
     .unwrap();
     assert_eq!(ini.root().get_i64("a").unwrap(), 9);
+    assert_eq!(ini.root().get_i64("b").unwrap(), 8);
+    assert_eq!(ini.root().get_i64("c").unwrap(), 10);
 
-    // In the section.
+    // In the section, `First`.
     let ini = DynConfig::from_ini_opts(
-        "[a]\na=7\na=9",
+        "[a]\na=7\nb=8\na=9\nc=10",
         IniOptions {
-            duplicate_keys: true,
+            duplicate_keys: IniDuplicateKeys::First,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 7);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("b").unwrap(), 8);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("c").unwrap(), 10);
+
+    // In the section, `Last`.
+    let ini = DynConfig::from_ini_opts(
+        "[a]\na=7\nb=8\na=9\nc=10",
+        IniOptions {
+            duplicate_keys: IniDuplicateKeys::Last,
             ..Default::default()
         },
     )
     .unwrap();
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 9);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("b").unwrap(), 8);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("c").unwrap(), 10);
 
-    // In the merged section.
+    // In the merged section, `First`.
     let ini = DynConfig::from_ini_opts(
-        "[a]\na=7\n[a]\na=9",
+        "[a]\na=7\nb=8\n[a]\na=9\nc=10",
         IniOptions {
-            duplicate_keys: true,
+            duplicate_keys: IniDuplicateKeys::First,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 7);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("b").unwrap(), 8);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("c").unwrap(), 10);
+
+    // In the merged section, `Last`.
+    let ini = DynConfig::from_ini_opts(
+        "[a]\na=7\nb=8\n[a]\na=9\nc=10",
+        IniOptions {
+            duplicate_keys: IniDuplicateKeys::Last,
             ..Default::default()
         },
     )
     .unwrap();
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 9);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("b").unwrap(), 8);
+    assert_eq!(ini.root().get_table("a").unwrap().get_i64("c").unwrap(), 10);
 }
 
 #[test]

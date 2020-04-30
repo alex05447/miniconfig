@@ -2,7 +2,7 @@ use std::str::Chars;
 
 use crate::{
     DynConfig, DynTable, DynTableMut, IniCommentSeparator, IniError, IniErrorKind,
-    IniKeyValueSeparator, IniOptions, IniStringQuote, Value, IniDuplicateSections,
+    IniKeyValueSeparator, IniOptions, IniStringQuote, Value, IniDuplicateSections, IniDuplicateKeys
 };
 
 /// INI parser FSM states.
@@ -135,6 +135,10 @@ impl<'s> IniParser<'s> {
         // (i.e., when we encountered a duplicate section instance and we use the `First` duplicate section policy).
         let mut skip_section = false;
 
+        // Whether we need to skip the current value
+        // (i.e., when we encountered a duplicate key and we use the `First` duplicate key policy).
+        let mut skip_value = false;
+
         // Scratch buffer for unicode escape sequences, if supported.
         let mut unicode_buffer = if self.options.escape {
             String::with_capacity(4)
@@ -146,6 +150,8 @@ impl<'s> IniParser<'s> {
         while let Some(current) = self.next() {
             match self.state {
                 IniParserState::StartLine => {
+                    skip_value = false;
+
                     // Skip whitespace at the start of the line (including new lines).
                     if current.is_whitespace() {
 
@@ -406,7 +412,7 @@ impl<'s> IniParser<'s> {
                         key.push_str(&buffer);
                         buffer.clear();
 
-                        self.is_key_duplicate(&mut root, &section, &key, skip_section)?;
+                        skip_value = self.check_is_key_duplicate(&mut root, &section, &key, skip_section)?;
 
                         self.state = IniParserState::BeforeValue;
 
@@ -421,7 +427,7 @@ impl<'s> IniParser<'s> {
                         key.push_str(&buffer);
                         buffer.clear();
 
-                        self.is_key_duplicate(&mut root, &section, &key, skip_section)?;
+                        skip_value = self.check_is_key_duplicate(&mut root, &section, &key, skip_section)?;
 
                         self.state = IniParserState::KeyValueSeparator;
 
@@ -465,7 +471,7 @@ impl<'s> IniParser<'s> {
                         key.push_str(&buffer);
                         buffer.clear();
 
-                        self.is_key_duplicate(&mut root, &section, &key, skip_section)?;
+                        skip_value = self.check_is_key_duplicate(&mut root, &section, &key, skip_section)?;
 
                         self.state = IniParserState::KeyValueSeparator;
 
@@ -520,7 +526,7 @@ impl<'s> IniParser<'s> {
                     if current.is_whitespace() {
                         // Unless it's a new line - the value is empty.
                         if self.is_new_line(current) {
-                            self.add_value(&mut root, &section, &key, "", false, skip_section)?;
+                            self.add_value(&mut root, &section, &key, "", false, skip_section | skip_value)?;
                             key.clear();
 
                             self.state = IniParserState::StartLine;
@@ -528,7 +534,7 @@ impl<'s> IniParser<'s> {
 
                     // Inline comment (if supported) - the value is empty, skip the rest of the line.
                     } else if self.options.inline_comments && self.is_comment_char(current) {
-                        self.add_value(&mut root, &section, &key, "", false, skip_section)?;
+                        self.add_value(&mut root, &section, &key, "", false, skip_section | skip_value)?;
                         key.clear();
 
                         self.state = IniParserState::SkipLine;
@@ -571,7 +577,7 @@ impl<'s> IniParser<'s> {
 
                     // New line - finish the value, start the new line.
                     if self.is_new_line(current) {
-                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section)?;
+                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section | skip_value)?;
                         buffer.clear();
                         key.clear();
 
@@ -580,7 +586,7 @@ impl<'s> IniParser<'s> {
                     // Whitespace (except a new line - handled above) - finish the value, skip the rest of the line.
                     } else if current.is_whitespace() {
                         debug_assert!(!self.is_new_line(current));
-                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section)?;
+                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section | skip_value)?;
                         buffer.clear();
                         key.clear();
 
@@ -588,7 +594,7 @@ impl<'s> IniParser<'s> {
 
                     // Inline comment (if supported) - finish the value, skip the rest of the line.
                     } else if self.options.inline_comments && self.is_comment_char(current) {
-                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section)?;
+                        self.add_value(&mut root, &section, &key, &buffer, false, skip_section | skip_value)?;
                         buffer.clear();
                         key.clear();
 
@@ -625,7 +631,7 @@ impl<'s> IniParser<'s> {
 
                     // Closing quotes - finish the value (may be empty), skip the rest of the line.
                     } else if current == cur_quote {
-                        self.add_value(&mut root, &section, &key, &buffer, true, skip_section)?;
+                        self.add_value(&mut root, &section, &key, &buffer, true, skip_section | skip_value)?;
                         buffer.clear();
                         key.clear();
 
@@ -675,7 +681,7 @@ impl<'s> IniParser<'s> {
 
             // Add the last value if we were parsing it right before EOF.
             IniParserState::Value | IniParserState::BeforeValue => {
-                self.add_value(&mut root, &section, &key, &buffer, quote.is_some(), skip_section)?;
+                self.add_value(&mut root, &section, &key, &buffer, quote.is_some(), skip_section | skip_value)?;
             }
 
             _ => {}
@@ -901,13 +907,13 @@ impl<'s> IniParser<'s> {
         let value = self.parse_value_string(value, quoted)?;
 
         if section.is_empty() {
-            debug_assert!(self.options.duplicate_keys || root.get(key).is_err());
+            debug_assert!(self.options.duplicate_keys.allow_non_unique() || root.get(key).is_err());
             Self::add_value_to_table(key, value, root);
         } else {
             // Must succeed.
             let mut table = root.get_mut(section).unwrap().table().unwrap();
 
-            debug_assert!(self.options.duplicate_keys || table.get(key).is_err());
+            debug_assert!(self.options.duplicate_keys.allow_non_unique() || table.get(key).is_err());
             Self::add_value_to_table(key, value, &mut table);
         }
 
@@ -968,19 +974,21 @@ impl<'s> IniParser<'s> {
         }
     }
 
-    fn is_key_duplicate(
+    /// Returns `Ok(true)` if we need to skip the current value;
+    /// else returns `Ok(false)`.
+    fn check_is_key_duplicate(
         &self,
         root: &mut DynTableMut<'_>,
         section: &str,
         key: &str,
         skip: bool,
-    ) -> Result<(), IniError> {
+    ) -> Result<bool, IniError> {
         use IniErrorKind::*;
 
         debug_assert!(!key.is_empty());
 
         if skip {
-            return Ok(());
+            return Ok(false);
         }
 
         let is_unique = if section.is_empty() {
@@ -994,10 +1002,18 @@ impl<'s> IniParser<'s> {
                 .is_err()
         };
 
-        if is_unique || self.options.duplicate_keys {
-            Ok(())
-        } else {
-            Err(self.error_offset(DuplicateKey))
+        match self.options.duplicate_keys {
+            IniDuplicateKeys::Forbid => {
+                if is_unique {
+                    Ok(false)
+                } else {
+                    Err(self.error_offset(DuplicateKey))
+                }
+            },
+            // If `is_unique == true`, it's the first key and we must process it -> return `false` (don't skip).
+            IniDuplicateKeys::First => Ok(!is_unique),
+            // Never skip keys when we're interested in the last one.
+            IniDuplicateKeys::Last => Ok(false),
         }
     }
 

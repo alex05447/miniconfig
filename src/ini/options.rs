@@ -31,7 +31,7 @@ bitflags! {
     }
 }
 
-/// Controls how duplicate sections in the INI config, if any, are handled.
+/// Controls how duplicate sections, if any, are handled in the INI config.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IniDuplicateSections {
     /// Do not allow duplicate sections.
@@ -44,6 +44,28 @@ pub enum IniDuplicateSections {
     Last,
     /// Merge all encountered instances of the section into one.
     Merge,
+}
+
+/// Controls how duplicate keys, if any, are handled in the root / sections of the INI config.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IniDuplicateKeys {
+    /// Do not allow duplicate keys.
+    Forbid,
+    /// Use the first encountered instance of the key in the root / section,
+    /// skip all following ones.
+    First,
+    /// Use the last encountered instance of the key in the root / section,
+    /// overwriting all prior, if any.
+    Last,
+}
+
+impl IniDuplicateKeys {
+    pub(crate) fn allow_non_unique(self) -> bool {
+        match self {
+            Self::Forbid => false,
+            Self::First | Self::Last => true,
+        }
+    }
 }
 
 /// Configuration options for the INI parser.
@@ -75,25 +97,25 @@ pub struct IniOptions {
     /// Whether escape sequences (a character sequence following a backslash ('\'))
     /// in keys, section names and string values are supported.
     /// If `true`, the following escape sequences are supported:
-    ///     `' '` (space)
-    ////    `'"'`
-    ////    `'\''`
-    ///     `'\0'`
-    ///     `'\a'`
-    ///     `'\b'`
-    ///     `'\t'`
-    ///     `'\r'`
-    ///     `'\n'`
-    ///     `'\v'`
-    ///     `'\f'`
-    ///     `'\\'`
-    ///     `'\['`
-    ///     `'\]'`
-    ///     `'\;'`
-    ///     `'\#'`
-    ///     `'\='`
-    ///     `'\:'`
-    ///     `'\x????'` (where `?` are 4 hexadecimal digits)
+    ///     `' '` (space),
+    ///     `'"'`,
+    ///     `'\''`,
+    ///     `'\0'`,
+    ///     `'\a'`,
+    ///     `'\b'`,
+    ///     `'\t'`,
+    ///     `'\r'`,
+    ///     `'\n'`,
+    ///     `'\v'`,
+    ///     `'\f'`,
+    ///     `'\\'`,
+    ///     `'\['`,
+    ///     `'\]'`,
+    ///     `'\;'`,
+    ///     `'\#'`,
+    ///     `'\='`,
+    ///     `'\:'`,
+    ///     `'\x????'` (where `?` are 4 hexadecimal digits).
     /// If `false`, backslash ('\') is treated as a normal section name / key / value character.
     /// Default: `true`.
     pub escape: bool,
@@ -105,10 +127,9 @@ pub struct IniOptions {
     /// Duplicate section handling policy.
     /// Default: `Merge`.
     pub duplicate_sections: IniDuplicateSections,
-    /// Whether to allow duplicate keys in the root table and sections.
-    /// If `true`, later keys overwrite the prior.
-    /// Default: `false`.
-    pub duplicate_keys: bool,
+    /// Duplicate key handling policy.
+    /// Default: `Forbid`.
+    pub duplicate_keys: IniDuplicateKeys,
 }
 
 impl Default for IniOptions {
@@ -122,7 +143,7 @@ impl Default for IniOptions {
             escape: true,
             line_continuation: false,
             duplicate_sections: IniDuplicateSections::Merge,
-            duplicate_keys: false,
+            duplicate_keys: IniDuplicateKeys::Forbid,
         }
     }
 }
