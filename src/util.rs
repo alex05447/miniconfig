@@ -1,5 +1,7 @@
+#[cfg(any(all(feature = "dyn", feature = "ini"), feature = "lua"))]
 use std::fmt::Write;
 
+#[cfg(any(all(feature = "dyn", feature = "ini"), feature = "lua"))]
 pub(crate) enum WriteCharError {
     /// General write error (out of memory?).
     WriteError,
@@ -15,6 +17,7 @@ pub(crate) enum WriteCharError {
 /// and, if `quoted` is `false`, single quotes ('\'') and spaces (' ');
 /// if additionally `ini` is `true` and `quoted` is `false`, also escapes INI special characters
 /// ('[', ']', ';', '#', '=', ':').
+#[cfg(any(all(feature = "dyn", feature = "ini"), feature = "lua"))]
 pub(crate) fn write_char<W: Write>(
     w: &mut W,
     c: char,

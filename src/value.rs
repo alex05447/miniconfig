@@ -24,6 +24,7 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    #[cfg(any(all(feature = "dyn", feature = "ini"), feature = "lua"))]
     pub(crate) fn is_compatible(self, other: ValueType) -> bool {
         use ValueType::*;
 
@@ -121,6 +122,7 @@ impl<S: AsRef<str>, A, T> Value<S, A, T> {
     }
 }
 
+#[cfg(any(all(feature = "dyn", feature = "ini"), feature = "lua"))]
 pub(crate) fn value_type_to_u32(val: Option<ValueType>) -> u32 {
     use ValueType::*;
 
@@ -138,6 +140,7 @@ pub(crate) fn value_type_to_u32(val: Option<ValueType>) -> u32 {
     }
 }
 
+#[cfg(any(all(feature = "dyn", feature = "ini"), feature = "lua"))]
 pub(crate) fn value_type_from_u32(val: u32) -> Option<ValueType> {
     use ValueType::*;
 
