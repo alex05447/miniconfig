@@ -20,20 +20,20 @@ A minimalistic config file crate written in Rust.
     - `\f`
     - `\r`
 
+    ### **Lua**
+
     In Lua configs (requires `"lua"` feature), keys work according to Lua rules: keys which are not valid Lua identifiers (i.e. do not contain only from ASCII alphanumerical characters and underscores and start with an ASCII alphabetical character) must be enclosed in brackets and quotes (`"` \ `'`) (e.g. `["áéíóú"]`). Within quoted strings, enclosed in (matching) single (`'`) or double (`"`) quotes, non-matching double (`"`) or single (`'`) quotes and spaces (`' '`) don't have to be escaped. Unicode 2-digit hexadecimal escape sequences work according to Lua rules.
 
     ### **INI**
 
-    In INI configs (requires `"ini"` feature), additionally, special INI characters must be escaped. These are the special INI characters:
+    In INI configs (requires `"ini"` feature), additionally, special INI characters and space (`' '`) must be escaped in section names and keys. These are the special INI characters:
 
-    - `[` (section start delimiter)
-    - `]` (section end delimiter)
+    - `[` (section start delimiter, array start delimiter)
+    - `]` (section end delimiter, array end delimiter)
     - `;` (default comment delimiter)
     - `#` (optional comment delimiter)
     - `=` (default key-value separator)
     - `:` (optional key-value separator)
-
-    Space (`' '`) must be escaped in section names (except leading whitespace, which is discarded), keys and string values.
 
     Section names, keys and string values may be enclosed in (matching) single (`'`) or (`"`) double quotes. In this case space (`' '`), non-matching double (`"`) or single (`'`) quotes and special INI characters do not have to be (but may be) escaped.
 
@@ -84,7 +84,85 @@ A minimalistic config file crate written in Rust.
 
     **Runtime**: internally represented by a root hashmap with string keys. Provides a mutable config interface. Can add/modify/remove values.
 
-    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string INI config (requires `"ini"` feature, does not support arrays / nested tables).
+    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string INI config (requires `"ini"` feature, does not support nested tables).
+
+    **Example**:
+
+    ```ini
+    ; Semicolon starts a line comment by default.
+    # Optionally you may use the number sign for a line comment.
+
+    ; This and following key/value pairs go to the root of the config.
+    ; Unquoted `value` is parsed as a string if support for unquoted strings is enabled
+    ; (it is by default).
+    key = value ; Inline comments are optionally supported.
+
+    ; Spaces and other special/INI characters may be escaped with `\`.
+    ; This key is `key 2`, value is a boolean `true`.
+    ; The only valid values for booleans are the strings `true` and `false`
+    ; (but not `yes` \ `no`, `on` \ `off`, `0` \ `1`).
+    key\ 2 = true
+
+    ; Quoted keys do not have to escape space and INI characters
+    ; (but do have to escape special characters).
+    ; Double quotes (`"`) are used by default, single quotes (`'`) are optional.
+    ; This key is `key 3`, value is a signed 64-buit integer `7`.
+    "key 3" = 7
+
+    ; Sections declare tables with string keys
+    ; and boolena/integer/floating/array values.
+    ; All following key/value pairs go to this section.
+    ; Sections may be empty.
+    ; Section names are enclosed in brackets (`[` \ `]`).
+    ; Leading and trailing whitespace is ignored.
+    ; This section name is `some_section`, not ` some_section `
+    ; (note the skipped spaces).
+    [ some_section ]
+
+    ; 4 hexadecimal digit Unicode escape sequences are supported.
+    ; This key is `foo`.
+    ; Quoted values (in single quotes this time) are always parsed as strings.
+    ; Non-matching quotes (double quotes here) don't have to be escaped.
+    ; This value is a string `"42"` (not an integer).
+    \x0066\x006f\x006f = '"42"'
+
+    ; Colon (`:`) is supported as an optional key-value separator.
+    ; This key is `bar`, value is a 64-bit floating point value `3.14`.
+    bar : 3.14
+
+    ; Section names may be enclosed in quotes; same rules as keys.
+    ["other section"]
+
+    ; Arrays are optionally supported.
+    ; Array values are enclosed in brackets (`[` \ `]`)
+    ; and are delimited by commas `,`.
+    ; Trailing commas are allowed.
+    ; Arrays may only contain boolean/integer/float/string values;
+    ; and only values of the same type (except ints and floats, which may be mixed).
+    ; This array contains two ints and a float, which may be interpreted as both types.
+    ; If you query them as ints, you'll get `[3, 4, 7]`.
+    ; If you query them as floats, you'll get `[3.0, 4.0, 7.62]`.
+    'array value' = [3, 4, 7.62,]
+
+    ; Duplicate sections are merged by default,
+    ; but this behaviour may be configured.
+    ["some_section"]
+
+    ; Line continuations (backslash `\` followed by a new line)
+    ; are optionally supported in section names, keys and values.
+    ; This value is a string `a multiline string`.
+    ; Section `some_section` now contains 3 keys - `foo`, `bar` and `baz`.
+    baz = a\
+    multiline\
+    string
+
+    ; Duplicate keys within a section cause an error by default,
+    ; but this behaviour may be configured
+    ; to override the value with the new one,
+    ; or ignore the new value.
+    baz = "an overridden value"
+
+    ```
 
     **Use cases**: if `"ini"` feature is enabled - use .ini config source text files for human-readable / writable data of limited complexity (only one level of nested tables, no arrays) which must be user-visible.
 

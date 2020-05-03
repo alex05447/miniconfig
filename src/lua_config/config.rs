@@ -165,7 +165,7 @@ impl<'lua> LuaConfig<'lua> {
     ) -> Result<String, ToIniStringError> {
         let mut result = String::new();
 
-        self.root().fmt_ini(&mut result, 0, options)?;
+        self.root().fmt_ini(&mut result, 0, false, options)?;
 
         result.shrink_to_fit();
 

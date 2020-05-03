@@ -224,7 +224,8 @@ fn writer() {
 #[cfg(feature = "ini")]
 #[test]
 fn to_ini_string() {
-    let ini = r#"bool = true
+    let ini = r#"array = ["foo", "bar", "baz"]
+bool = true
 float = 3.14
 int = 7
 string = "foo"
@@ -241,7 +242,13 @@ float = 7.62
 int = 9
 string = "bar""#;
 
-    let mut writer = BinConfigWriter::new(6).unwrap();
+    let mut writer = BinConfigWriter::new(7).unwrap();
+
+    writer.array("array", 3).unwrap();
+    writer.string(None, "foo").unwrap();
+    writer.string(None, "bar").unwrap();
+    writer.string(None, "baz").unwrap();
+    writer.end().unwrap();
 
     writer.bool("bool", true).unwrap();
     writer.f64("float", 3.14).unwrap();
@@ -266,7 +273,12 @@ string = "bar""#;
 
     let config = BinConfig::new(data).unwrap();
 
-    let string = config.to_ini_string().unwrap();
+    let string = config
+        .to_ini_string_opts(ToIniStringOptions {
+            arrays: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(string, ini);
 }

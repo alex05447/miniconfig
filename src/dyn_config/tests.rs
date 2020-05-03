@@ -351,3 +351,78 @@ fn bin_config() {
     assert_eq!(table_value.get_string("baz").unwrap(), "hello");
     assert_eq!(table_value.get_bool("foo").unwrap(), false);
 }
+
+#[cfg(feature = "ini")]
+#[test]
+fn to_ini_string() {
+    let ini = r#"array = ["foo", "bar", "baz"]
+bool = true
+float = 3.14
+int = 7
+string = "foo"
+
+[other_section]
+other_bool = true
+other_float = 3.14
+other_int = 7
+other_string = "foo"
+
+[section]
+bool = false
+float = 7.62
+int = 9
+string = "bar""#;
+
+    let mut config = DynConfig::new();
+
+    let mut array = DynArray::new();
+
+    array.push(Value::String("foo".into())).unwrap();
+    array.push(Value::String("bar".into())).unwrap();
+    array.push(Value::String("baz".into())).unwrap();
+
+    config.root_mut().set("array", Value::Array(array)).unwrap();
+
+    config.root_mut().set("bool", Value::Bool(true)).unwrap();
+    config.root_mut().set("float", Value::F64(3.14)).unwrap();
+    config.root_mut().set("int", Value::I64(7)).unwrap();
+    config
+        .root_mut()
+        .set("string", Value::String("foo".into()))
+        .unwrap();
+
+    let mut other_section = DynTable::new();
+
+    other_section.set("other_bool", Value::Bool(true)).unwrap();
+    other_section.set("other_float", Value::F64(3.14)).unwrap();
+    other_section.set("other_int", Value::I64(7)).unwrap();
+    other_section
+        .set("other_string", Value::String("foo".into()))
+        .unwrap();
+
+    config
+        .root_mut()
+        .set("other_section", Value::Table(other_section))
+        .unwrap();
+
+    let mut section = DynTable::new();
+
+    section.set("bool", Value::Bool(false)).unwrap();
+    section.set("float", Value::F64(7.62)).unwrap();
+    section.set("int", Value::I64(9)).unwrap();
+    section.set("string", Value::String("bar".into())).unwrap();
+
+    config
+        .root_mut()
+        .set("section", Value::Table(section))
+        .unwrap();
+
+    let string = config
+        .to_ini_string_opts(ToIniStringOptions {
+            arrays: true,
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(string, ini);
+}

@@ -573,6 +573,7 @@ fn to_bin_config() {
 fn to_ini_string() {
     let script = r#"
 {
+    array = { "foo", "bar", "baz" },
     bool = true,
     float = 3.14,
     int = 7,
@@ -595,7 +596,8 @@ fn to_ini_string() {
 }
 "#;
 
-    let ini = r#"bool = true
+    let ini = r#"array = ["foo", "bar", "baz"]
+bool = true
 float = 3.14
 int = 7
 string = "foo"
@@ -617,7 +619,15 @@ string = "bar""#;
     lua.context(|lua| {
         let config = LuaConfig::from_script(lua, script).unwrap();
 
-        assert_eq!(ini, config.to_ini_string().unwrap());
+        assert_eq!(
+            ini,
+            config
+                .to_ini_string_opts(ToIniStringOptions {
+                    arrays: true,
+                    ..Default::default()
+                })
+                .unwrap()
+        );
     });
 }
 

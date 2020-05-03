@@ -7,6 +7,7 @@ pub(crate) trait DisplayIni {
         &self,
         writer: &mut W,
         level: u32,
+        array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError>;
 }
@@ -20,6 +21,7 @@ where
         &self,
         writer: &mut W,
         level: u32,
+        array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
         use ToIniStringError::*;
@@ -36,11 +38,20 @@ where
                 write!(writer, "\"").map_err(|_| WriteError)
             }
             Value::Table(value) => {
-                debug_assert!(level < 2);
-                value.fmt_ini(writer, level, options)
+                if array {
+                    Err(InvalidArrayType)
+                } else {
+                    debug_assert!(level < 2);
+                    value.fmt_ini(writer, level, false, options)
+                }
             }
-
-            Value::Array(_) => Err(ArraysNotSupported),
+            Value::Array(_) => {
+                if array {
+                    Err(InvalidArrayType)
+                } else {
+                    unreachable!(); // Handled by parent tables.
+                }
+            }
         }
     }
 }
@@ -59,7 +70,7 @@ pub(crate) fn write_ini_string_impl<W: Write>(
     for c in string.chars() {
         write_char(w, c, true, quoted, escape).map_err(|err| match err {
             WriteCharError::WriteError => ToIniStringError::WriteError,
-            WriteCharError::EscapedCharacter(c) => ToIniStringError::EscapedCharacter(c),
+            WriteCharError::EscapedCharacter(c) => ToIniStringError::EscapedCharacterNotAllowed(c),
         })?;
     }
 

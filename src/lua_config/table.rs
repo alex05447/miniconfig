@@ -296,6 +296,7 @@ impl<'lua> LuaTable<'lua> {
         &self,
         w: &mut W,
         level: u32,
+        array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
         use ToIniStringError::*;
@@ -334,7 +335,33 @@ impl<'lua> LuaTable<'lua> {
             let value = self.get(key).unwrap();
 
             match value {
-                Value::Array(_) => return Err(ArraysNotSupported),
+                Value::Array(value) => {
+                    if options.arrays {
+                        let len = value.len() as usize;
+
+                        write_ini_key(w, key, options.escape)?;
+
+                        write!(w, " = [").map_err(|_| WriteError)?;
+
+                        for (array_index, array_value) in value.iter().enumerate() {
+                            let last = array_index == len - 1;
+
+                            array_value.fmt_ini(w, level + 1, true, options)?;
+
+                            if !last {
+                                write!(w, ", ").map_err(|_| WriteError)?;
+                            }
+                        }
+
+                        write!(w, "]").map_err(|_| WriteError)?;
+
+                        if !last {
+                            writeln!(w).map_err(|_| WriteError)?;
+                        }
+                    } else {
+                        return Err(ArraysNotAllowed);
+                    }
+                }
                 Value::Table(value) => {
                     if level >= 1 {
                         return Err(NestedTablesNotSupported);
@@ -348,7 +375,7 @@ impl<'lua> LuaTable<'lua> {
 
                     if value.len() > 0 {
                         writeln!(w).map_err(|_| WriteError)?;
-                        value.fmt_ini(w, level + 1, options)?;
+                        value.fmt_ini(w, level + 1, array, options)?;
                     }
 
                     if !last {
@@ -360,7 +387,7 @@ impl<'lua> LuaTable<'lua> {
 
                     write!(w, " = ").map_err(|_| WriteError)?;
 
-                    value.fmt_ini(w, level + 1, options)?;
+                    value.fmt_ini(w, level + 1, array, options)?;
 
                     if !last {
                         writeln!(w).map_err(|_| WriteError)?;
@@ -424,8 +451,9 @@ impl<'lua> DisplayIni for LuaTable<'lua> {
         &self,
         w: &mut W,
         level: u32,
+        array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, options)
+        self.fmt_ini_impl(w, level, array, options)
     }
 }

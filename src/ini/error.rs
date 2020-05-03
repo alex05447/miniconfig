@@ -3,47 +3,42 @@ use std::fmt::{Display, Formatter};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IniErrorKind {
     /// Invalid character at the start of the line -
-    /// expected a key, section or comment.
+    /// expected a section name, key or line comment.
     InvalidCharacterAtLineStart,
-    /// Invalid character in section name - expected a valid string character or an escape sequence.
+    /// Invalid character encountered when parsing a section name.
     InvalidCharacterInSectionName,
-    /// Invalid character after section name - expected whitespace or a section end delimiter.
+    /// Invalid character encountered after section name - expected whitespace or a section end delimiter.
     InvalidCharacterAfterSectionName,
-    /// Unexpected new line in section name.
+    /// Unexpected new line encountered when parsing a section name.
     UnexpectedNewLineInSectionName,
-    /// Unexpected end of file in section name.
+    /// Unexpected end of file encountered when parsing a section name.
     UnexpectedEndOfFileInSectionName,
-    /// Empty section names are not allowed.
+    /// Empty section names are invalid.
     EmptySectionName,
-    /// Duplicate section name encountered.
+    /// Duplicate section name encountered and is not allowed by options.
     DuplicateSection,
-    /// Invalid character at the end of the line - expected a new line or an inline comment, if supported.
+    /// Invalid character encountered at the end of the line.
     InvalidCharacterAtLineEnd,
-    /// Invalid character in key name - expected a valid string character or an escape sequence.
+    /// Invalid character encountered when parsing the key name.
     InvalidCharacterInKey,
-    /// Unexpected new line encountered in key name before a key-value separator.
+    /// Unexpected new line encountered before a key-value separator.
     UnexpectedNewLineInKey,
-    /// Empty keys are not allowed.
+    /// Empty keys are invalid.
     EmptyKey,
-    /// Duplicate key name encountered in the current section.
+    /// Duplicate key name encountered and is not allowed by options.
     DuplicateKey,
     /// Unexpected end of file encountered before a key-value separator.
     UnexpectedEndOfFileBeforeKeyValueSeparator,
-    /// Unexpected character encountered - expected a key-value separator.
+    /// Unexpected character encountered when parsing a key-value separator.
     UnexpectedCharacterInsteadOfKeyValueSeparator,
-    /// Invalid character in value - expected a valid string character or an escape sequence.
+    /// Invalid character encountered when parsing a value.
     InvalidCharacterInValue,
     /// Unexpected end of file encountered when parsing an escape sequence.
     UnexpectedEndOfFileInEscapeSequence,
-    /// Unexpected new line encountered when parsing an escape sequence.
-    ///
-    /// NOTE: enable `line_continuation` in [`IniOptions`] to allow escaped new lines.
-    /// [`IniOptions`]: struct.IniOptions.html
+    /// Unexpected new line encountered when parsing an escape sequence;
+    /// line continuations are not allowed by options.
     UnexpectedNewLineInEscapeSequence,
     /// Invalid character encountered when parsing an escape sequence.
-    ///
-    /// NOTE: see notes for `escape` in [`IniOptions`] for a list of supported escape characters.
-    /// [`IniOptions`]: struct.IniOptions.html
     InvalidEscapeCharacter,
     /// Unexpected end of file encountered when parsing a Unicode escape sequence.
     UnexpectedEndOfFileInUnicodeEscapeSequence,
@@ -52,14 +47,21 @@ pub enum IniErrorKind {
     /// Invalid Unicode escape sequence.
     InvalidUnicodeEscapeSequence,
     /// Unexpected new line encountered when parsing a quoted string value.
-    UnexpectedNewLineInQuotedString,
+    UnexpectedNewLineInQuotedValue,
     /// Unexpected end of file encountered when parsing a quoted string value.
     UnexpectedEndOfFileInQuotedString,
-    /// Encountered an unsupported unquoted string value.
-    ///
-    /// NOTE: enable `unquoted_strings` in [`IniOptions`] to allow unquoted string values.
-    /// [`IniOptions`]: struct.IniOptions.html
+    /// Encountered an unquoted string value, not allowed by options.
     UnquotedString,
+    /// Unexpected new line encountered when parsing an array.
+    UnexpectedNewLineInArray,
+    /// Mixed value types encountered when parsing an array.
+    MixedArray,
+    /// Invalid character in array.
+    InvalidCharacterInArray,
+    /// Unexpected end of file encountered when parsing an array.
+    UnexpectedEndOfFileInArray,
+    /// Unexpected end of file encountered when parsing a quoted array value.
+    UnexpectedEndOfFileInQuotedArrayValue,
 }
 
 /// An error returned by the INI parser.
@@ -79,55 +81,55 @@ impl Display for IniErrorKind {
 
         match self {
             InvalidCharacterAtLineStart => write!(
-                f, "Invalid character at the start of the line - expected a key, section or comment."
+                f, "Invalid character at the start of the line - expected a section name, key or line comment."
             ),
             InvalidCharacterInSectionName => write!(
                 f,
-                "Invalid character in section name - expected a valid string character or an escape sequence."
+                "Invalid character encountered when parsing a section name."
             ),
             InvalidCharacterAfterSectionName => write!(
                 f,
-                "Invalid character after section name - expected whitespace or a section end delimiter."
+                "Invalid character encountered after section name - expected whitespace or a section end delimiter."
             ),
             UnexpectedNewLineInSectionName => write!(
                 f,
-                "Unexpected new line in section name."
+                "Unexpected new line encountered when parsing a section name."
             ),
             UnexpectedEndOfFileInSectionName => write!(
                 f,
-                "Unexpected end of file in section name."
+                "Unexpected end of file encountered when parsing a section name."
             ),
             EmptySectionName => write!(
                 f,
-                "Empty section names are not allowed."
+                "Empty section names are invalid."
             ),
             DuplicateSection => write!(
                 f,
-                "Duplicate section name encountered."
+                "Duplicate section name encountered and is not allowed by options."
             ),
             InvalidCharacterAtLineEnd => write!(
                 f,
-                "Invalid character at the end of the line - expected a new line or an inline comment, if supported."
+                "Invalid character at the end of the line."
             ),
             InvalidCharacterInKey => write!(
                 f,
-                "Invalid character in key name - expected a valid string character or an escape sequence."
+                "Invalid character encountered when parsing the key name."
             ),
             UnexpectedNewLineInKey => write!(
                 f,
-                "Unexpected new line encountered in key name before a key-value separator."
+                "Unexpected new line encountered before a key-value separator."
             ),
             EmptyKey => write!(
                 f,
-                "Empty keys are not allowed."
+                "Empty keys are invalid."
             ),
             DuplicateKey => write!(
                 f,
-                "Duplicate key name encountered in the current section."
+                "Duplicate key name encountered and is not allowed by options."
             ),
             UnexpectedEndOfFileBeforeKeyValueSeparator => write!(
                 f,
-                "Unexpected end of file encountered before a key-value separator."
+                "Unexpected character encountered when parsing a key-value separator."
             ),
             UnexpectedCharacterInsteadOfKeyValueSeparator => write!(
                 f,
@@ -135,7 +137,7 @@ impl Display for IniErrorKind {
             ),
             InvalidCharacterInValue => write!(
                 f,
-                "Invalid character in value - expected a valid string character or an escape sequence."
+                "Invalid character encountered when parsing a value."
             ),
             UnexpectedEndOfFileInEscapeSequence => write!(
                 f,
@@ -143,7 +145,7 @@ impl Display for IniErrorKind {
             ),
             UnexpectedNewLineInEscapeSequence => write!(
                 f,
-                "Unexpected new line encountered when parsing an escape sequence."
+                "Unexpected new line encountered when parsing an escape sequence; line continuations are not allowed by options."
             ),
             InvalidEscapeCharacter => write!(
                 f,
@@ -161,7 +163,7 @@ impl Display for IniErrorKind {
                 f,
                 "Invalid Unicode escape sequence."
             ),
-            UnexpectedNewLineInQuotedString => write!(
+            UnexpectedNewLineInQuotedValue => write!(
                 f,
                 "Unexpected new line encountered when parsing a quoted string value."
             ),
@@ -171,7 +173,27 @@ impl Display for IniErrorKind {
             ),
             UnquotedString => write!(
                 f,
-                "Encountered an unsupported unquoted string value."
+                "Encountered an unquoted string value, not allowed by options."
+            ),
+            UnexpectedNewLineInArray => write!(
+                f,
+                "Unexpected new line encountered when parsing an array."
+            ),
+            MixedArray => write!(
+                f,
+                "Mixed value types encountered when parsing an array."
+            ),
+            InvalidCharacterInArray => write!(
+                f,
+                "Invalid character in array.",
+            ),
+            UnexpectedEndOfFileInArray => write!(
+                f,
+                "Unexpected end of file encountered when parsing an array.",
+            ),
+            UnexpectedEndOfFileInQuotedArrayValue => write!(
+                f,
+                "Unexpected end of file encountered when parsing a quoted array value.",
             ),
         }
     }
@@ -190,15 +212,17 @@ impl Display for IniError {
 /// An error returned by `to_ini_string`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToIniStringError {
-    /// Array values are not supported in INI configs.
-    ArraysNotSupported,
+    /// Array values are not allowed by options.
+    ArraysNotAllowed,
+    /// Only boolean, number and string arrays are supported.
+    InvalidArrayType,
     /// Tables nested within tables are not supported in INI configs.
     NestedTablesNotSupported,
     /// General write error (out of memory?).
     WriteError,
-    /// Encountered a disallowed escaped character.
+    /// Encountered an escaped character not allowed by options.
     /// Contains the escaped character.
-    EscapedCharacter(char),
+    EscapedCharacterNotAllowed(char),
 }
 
 impl Display for ToIniStringError {
@@ -206,15 +230,18 @@ impl Display for ToIniStringError {
         use ToIniStringError::*;
 
         match self {
-            ArraysNotSupported => write!(f, "Array values are not supported in INI configs."),
+            ArraysNotAllowed => write!(f, "Array values are not allowed by options."),
+            InvalidArrayType => write!(f, "Only boolean, number and string arrays are supported."),
             NestedTablesNotSupported => write!(
                 f,
                 "Tables nested within tables are not supported in INI configs."
             ),
             WriteError => write!(f, "General write error (out of memory?)."),
-            EscapedCharacter(c) => {
-                write!(f, "Encountered a disallowed escaped character (\'{}\')", c)
-            }
+            EscapedCharacterNotAllowed(c) => write!(
+                f,
+                "Encountered an escaped character not allowed by options (\'{}\')",
+                c
+            ),
         }
     }
 }

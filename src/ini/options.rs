@@ -119,7 +119,7 @@ pub struct IniOptions {
     /// If `false`, backslash ('\') is treated as a normal section name / key / value character.
     /// Default: `true`.
     pub escape: bool,
-    /// Whether line ontinuation esacpe sequences (a backslash followed by a newline)
+    /// Whether line ontinuation esacpe sequences (a backslash '\' followed by a newline '\n' / '\r')
     /// are supported in keys, section names and string values.
     /// If `escape` is `false`, this value is ignored.
     /// Default: `false`.
@@ -130,6 +130,12 @@ pub struct IniOptions {
     /// Duplicate key handling policy.
     /// Default: `Forbid`.
     pub duplicate_keys: IniDuplicateKeys,
+    /// Whether arrays are supported.
+    /// If `true`, values enclosed in brackets '[' \ ']' are parsed as
+    /// comma (',') delimited arrays of bools/ints/floats/strings.
+    /// Types may not be mixed in the array, except ints/floats.
+    /// Default: `false`.
+    pub arrays: bool,
 }
 
 impl Default for IniOptions {
@@ -144,6 +150,7 @@ impl Default for IniOptions {
             line_continuation: false,
             duplicate_sections: IniDuplicateSections::Merge,
             duplicate_keys: IniDuplicateKeys::Forbid,
+            arrays: false,
         }
     }
 }
@@ -152,11 +159,18 @@ impl Default for IniOptions {
 #[derive(Clone, Copy, Debug)]
 pub struct ToIniStringOptions {
     /// See [`IniOptions`](struct.IniOptions.html)::`escape`.
+    /// Default: `true`.
     pub escape: bool,
+    /// See [`IniOptions`](struct.IniOptions.html)::`arrays`.
+    /// Default: `false`.
+    pub arrays: bool,
 }
 
 impl Default for ToIniStringOptions {
     fn default() -> Self {
-        Self { escape: true }
+        Self {
+            escape: true,
+            arrays: false,
+        }
     }
 }

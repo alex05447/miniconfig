@@ -360,8 +360,9 @@ fn DuplicateSection() {
         IniOptions {
             duplicate_sections: IniDuplicateSections::First,
             ..Default::default()
-        }
-    ).unwrap();
+        },
+    )
+    .unwrap();
     assert_eq!(ini.root().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 7);
@@ -374,8 +375,9 @@ fn DuplicateSection() {
         IniOptions {
             duplicate_sections: IniDuplicateSections::Last,
             ..Default::default()
-        }
-    ).unwrap();
+        },
+    )
+    .unwrap();
     assert_eq!(ini.root().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 9);
@@ -404,8 +406,9 @@ fn DuplicateSection() {
         IniOptions {
             duplicate_sections: IniDuplicateSections::Merge,
             ..Default::default()
-        }
-    ).unwrap();
+        },
+    )
+    .unwrap();
     assert_eq!(ini.root().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().len(), 2);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 7);
@@ -626,7 +629,9 @@ fn DuplicateKey() {
     );
     // In the section.
     assert_eq!(
-        DynConfig::from_ini("[a]\na=7\nb=8\na=9\nc=10").err().unwrap(),
+        DynConfig::from_ini("[a]\na=7\nb=8\na=9\nc=10")
+            .err()
+            .unwrap(),
         IniError {
             line: 4,
             column: 1,
@@ -635,7 +640,9 @@ fn DuplicateKey() {
     );
     // In the merged section.
     assert_eq!(
-        DynConfig::from_ini("[a]\na=7\nb=8\n[a]\na=9\nc=10").err().unwrap(),
+        DynConfig::from_ini("[a]\na=7\nb=8\n[a]\na=9\nc=10")
+            .err()
+            .unwrap(),
         IniError {
             line: 5,
             column: 1,
@@ -1213,14 +1220,14 @@ fn InvalidUnicodeEscapeSequence() {
 }
 
 #[test]
-fn UnexpectedNewLineInQuotedString() {
+fn UnexpectedNewLineInQuotedValue() {
     // Unescaped newline.
     assert_eq!(
         DynConfig::from_ini("a=\"\n").err().unwrap(),
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedNewLineInQuotedString
+            error: IniErrorKind::UnexpectedNewLineInQuotedValue
         }
     );
 
@@ -1309,6 +1316,393 @@ fn UnquotedString() {
     assert_eq!(ini.root().get_string("a").unwrap(), "a");
 }
 
+#[test]
+fn UnexpectedNewLineInArray() {
+    // Arrays not supported.
+    assert_eq!(
+        DynConfig::from_ini("a=[\n").err().unwrap(),
+        IniError {
+            line: 1,
+            column: 3,
+            error: IniErrorKind::InvalidCharacterInValue
+        }
+    );
+
+    // Actual error.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[\n",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 3,
+            error: IniErrorKind::UnexpectedNewLineInArray
+        }
+    );
+
+    // But this succeeds.
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_array("a").unwrap().len(), 0);
+}
+
+#[test]
+fn MixedArray() {
+    // Ints and bools.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[7, true]",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 10,
+            error: IniErrorKind::MixedArray
+        }
+    );
+    // Ints and strings.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[7, foo]",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 9,
+            error: IniErrorKind::MixedArray
+        }
+    );
+    // Ints and quoted strings.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[7, \"foo\"]",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 7,
+            error: IniErrorKind::MixedArray
+        }
+    );
+
+    // But this succeeds.
+
+    // Ints and floats.
+    let ini = DynConfig::from_ini_opts(
+        "a=[7, 3.14]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_array("a").unwrap().len(), 2);
+    assert_eq!(ini.root().get_array("a").unwrap().get_i64(0).unwrap(), 7);
+    assert!(cmp_f64(
+        ini.root().get_array("a").unwrap().get_f64(0).unwrap(),
+        7.0
+    ));
+    assert_eq!(ini.root().get_array("a").unwrap().get_i64(1).unwrap(), 3);
+    assert!(cmp_f64(
+        ini.root().get_array("a").unwrap().get_f64(1).unwrap(),
+        3.14
+    ));
+
+    // Strings and quoted strings.
+    let ini = DynConfig::from_ini_opts(
+        "a=[foo, \"bar\"]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_array("a").unwrap().len(), 2);
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "foo"
+    );
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(1).unwrap(),
+        "bar"
+    );
+}
+
+#[test]
+fn InvalidCharacterInArray() {
+    // Unescaped special character.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[=]",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::InvalidCharacterInArray
+        }
+    );
+    // Unescaped special character.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[[]",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::InvalidCharacterInArray
+        }
+    );
+    // Unescaped space.
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[a b]",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 6,
+            error: IniErrorKind::InvalidCharacterInArray
+        }
+    );
+
+    // But this succeeds.
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\\=]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Escaped special character in array value.
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "="
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\\[]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Escaped special character in array value.
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "["
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\"\\=\"]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Escaped special character in quoted array value.
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "="
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\"=\"]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Unescaped special character in quoted array value.
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "="
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\"'\"]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Unmatched quote in quoted array value.
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "'"
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "a=['\"']",
+        IniOptions {
+            arrays: true,
+            string_quotes: IniStringQuote::Single,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Unmatched quote in quoted array value.
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "\""
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\\x0066\\x006f\\x006f]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Unicode in array value ("foo").
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "foo"
+    );
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\" \"]",
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap(); // Unescaped whitespace in quoted array value.
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        " "
+    );
+}
+
+#[test]
+fn UnexpectedEndOfFileInArray() {
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 3,
+            error: IniErrorKind::UnexpectedEndOfFileInArray
+        }
+    );
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[7,",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 5,
+            error: IniErrorKind::UnexpectedEndOfFileInArray
+        }
+    );
+
+    // But this works (line continuations enabled).
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[7\\\n]",
+        IniOptions {
+            arrays: true,
+            line_continuation: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_array("a").unwrap().get_i64(0).unwrap(), 7);
+}
+
+#[test]
+fn UnexpectedEndOfFileInQuotedArrayValue() {
+    assert_eq!(
+        DynConfig::from_ini_opts(
+            "a=[\"",
+            IniOptions {
+                arrays: true,
+                ..Default::default()
+            }
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::UnexpectedEndOfFileInQuotedArrayValue
+        }
+    );
+
+    // But this works (line continuations enabled).
+
+    let ini = DynConfig::from_ini_opts(
+        "a=[\"fo\\\no\"]",
+        IniOptions {
+            arrays: true,
+            line_continuation: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "foo"
+    );
+}
+
 fn cmp_f64(l: f64, r: f64) -> bool {
     (l - r).abs() < 0.000_001
 }
@@ -1320,6 +1714,7 @@ float = 3.14
 int = 7
 ; "foo"
 string = "\x0066\x006f\x006f"
+array = [foo, bar, "baz",]
 
 ["other 'section'"]
 other_bool = true
@@ -1333,13 +1728,26 @@ int = 9
 float = 7.62
 string = "bar""#;
 
-    let config = DynConfig::from_ini(ini).unwrap();
-    assert_eq!(config.root().len(), 4 + 2);
+    let config = DynConfig::from_ini_opts(
+        ini,
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(config.root().len(), 5 + 2);
 
     assert_eq!(config.root().get_bool("bool").unwrap(), true);
     assert_eq!(config.root().get_i64("int").unwrap(), 7);
     assert!(cmp_f64(config.root().get_f64("float").unwrap(), 3.14));
     assert_eq!(config.root().get_string("string").unwrap(), "foo");
+
+    let array = config.root().get_array("array").unwrap();
+
+    assert_eq!(array.get_string(0).unwrap(), "foo");
+    assert_eq!(array.get_string(1).unwrap(), "bar");
+    assert_eq!(array.get_string(2).unwrap(), "baz");
 
     let section = config.root().get_table("section").unwrap();
     assert_eq!(section.len(), 4);
@@ -1359,7 +1767,7 @@ string = "bar""#;
 }
 
 #[test]
-fn ArraysNotSupported() {
+fn ArraysNotAllowed() {
     let mut config = DynConfig::new();
     config
         .root_mut()
@@ -1367,9 +1775,61 @@ fn ArraysNotSupported() {
         .unwrap();
 
     assert_eq!(
-        config.to_ini_string(),
-        Err(ToIniStringError::ArraysNotSupported)
+        config.to_ini_string().err().unwrap(),
+        ToIniStringError::ArraysNotAllowed
     );
+
+    // But this succeeds.
+    assert_eq!(
+        config
+            .to_ini_string_opts(ToIniStringOptions {
+                arrays: true,
+                ..Default::default()
+            })
+            .unwrap(),
+        "array = []"
+    );
+}
+
+#[test]
+fn InvalidArrayType() {
+    // Array of tables.
+    {
+        let mut config = DynConfig::new();
+        let mut array = DynArray::new();
+        array.push(Value::Table(DynTable::new())).unwrap();
+        config.root_mut().set("array", Value::Array(array)).unwrap();
+
+        assert_eq!(
+            config
+                .to_ini_string_opts(ToIniStringOptions {
+                    arrays: true,
+                    ..Default::default()
+                })
+                .err()
+                .unwrap(),
+            ToIniStringError::InvalidArrayType
+        );
+    }
+
+    // Array of arrays.
+    {
+        let mut config = DynConfig::new();
+        let mut array = DynArray::new();
+        array.push(Value::Array(DynArray::new())).unwrap();
+        config.root_mut().set("array", Value::Array(array)).unwrap();
+
+        assert_eq!(
+            config
+                .to_ini_string_opts(ToIniStringOptions {
+                    arrays: true,
+                    ..Default::default()
+                })
+                .err()
+                .unwrap(),
+            ToIniStringError::InvalidArrayType
+        );
+    }
 }
 
 #[test]
@@ -1392,7 +1852,8 @@ fn NestedTablesNotSupported() {
 
 #[test]
 fn from_string_and_back() {
-    let ini = r#"bool = true
+    let ini = r#"array = ["foo", "bar", "baz"]
+bool = true
 float = 3.14
 int = 7
 string = "foo"
@@ -1409,9 +1870,21 @@ float = 7.62
 int = 9
 string = "bar""#;
 
-    let config = DynConfig::from_ini(ini).unwrap();
+    let config = DynConfig::from_ini_opts(
+        ini,
+        IniOptions {
+            arrays: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
-    let string = config.to_ini_string().unwrap();
+    let string = config
+        .to_ini_string_opts(ToIniStringOptions {
+            arrays: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(ini, string);
 }
@@ -1443,10 +1916,13 @@ fn escape() {
     let ini = DynConfig::from_ini("a\\t = 7").unwrap();
 
     assert_eq!(
-        ini.to_ini_string_opts(ToIniStringOptions { escape: false })
-            .err()
-            .unwrap(),
-        ToIniStringError::EscapedCharacter('\t')
+        ini.to_ini_string_opts(ToIniStringOptions {
+            escape: false,
+            ..Default::default()
+        })
+        .err()
+        .unwrap(),
+        ToIniStringError::EscapedCharacterNotAllowed('\t')
     );
 
     // With escape sequences unsupported.
@@ -1491,8 +1967,11 @@ fn escape() {
 
     assert_ne!(ini.to_ini_string().unwrap(), string);
     assert_eq!(
-        ini.to_ini_string_opts(ToIniStringOptions { escape: false })
-            .unwrap(),
+        ini.to_ini_string_opts(ToIniStringOptions {
+            escape: false,
+            ..Default::default()
+        })
+        .unwrap(),
         string
     );
 }

@@ -15,7 +15,8 @@ use crate::{
 /// Represents a mutable hashmap of [`Value`]'s with string keys.
 ///
 /// [`Value`]: enum.Value.html
-pub struct DynTable(HashMap<String, Value<String, DynArray, Self>>);
+#[derive(Clone)]
+pub struct DynTable(HashMap<String, DynConfigValue>);
 
 impl DynTable {
     /// Creates a new empty [`table`].
@@ -30,6 +31,20 @@ impl DynTable {
     /// [`table`]: struct.DynTable.html
     pub fn len(&self) -> u32 {
         self.len_impl()
+    }
+
+    /// Returns `true` if the [`table`] is empty.
+    ///
+    /// [`table`]: struct.DynTable.html
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Clears the [`table`].
+    ///
+    /// [`table`]: struct.DynTable.html
+    pub fn clear(&mut self) {
+        self.0.clear()
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] with the string `key`.
@@ -341,6 +356,7 @@ impl DynTable {
         &self,
         w: &mut W,
         level: u32,
+        _array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
         use ToIniStringError::*;
@@ -377,7 +393,33 @@ impl DynTable {
             let value = self.get(key).unwrap();
 
             match value {
-                Value::Array(_) => return Err(ArraysNotSupported),
+                Value::Array(value) => {
+                    if options.arrays {
+                        let len = value.len() as usize;
+
+                        write_ini_key(w, key, options.escape)?;
+
+                        write!(w, " = [").map_err(|_| WriteError)?;
+
+                        for (array_index, array_value) in value.iter().enumerate() {
+                            let last = array_index == len - 1;
+
+                            array_value.fmt_ini(w, level + 1, true, options)?;
+
+                            if !last {
+                                write!(w, ", ").map_err(|_| WriteError)?;
+                            }
+                        }
+
+                        write!(w, "]").map_err(|_| WriteError)?;
+
+                        if !last {
+                            writeln!(w).map_err(|_| WriteError)?;
+                        }
+                    } else {
+                        return Err(ArraysNotAllowed);
+                    }
+                }
                 Value::Table(value) => {
                     if level >= 1 {
                         return Err(NestedTablesNotSupported);
@@ -391,7 +433,7 @@ impl DynTable {
 
                     if value.len() > 0 {
                         writeln!(w).map_err(|_| WriteError)?;
-                        value.fmt_ini(w, level + 1, options)?;
+                        value.fmt_ini(w, level + 1, false, options)?;
                     }
 
                     if !last {
@@ -403,7 +445,7 @@ impl DynTable {
 
                     write!(w, " = ").map_err(|_| WriteError)?;
 
-                    value.fmt_ini(w, level + 1, options)?;
+                    value.fmt_ini(w, level + 1, false, options)?;
 
                     if !last {
                         writeln!(w).map_err(|_| WriteError)?;
@@ -553,9 +595,10 @@ impl DisplayIni for DynTable {
         &self,
         w: &mut W,
         level: u32,
+        array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, options)
+        self.fmt_ini_impl(w, level, array, options)
     }
 }
 
@@ -565,9 +608,10 @@ impl<'t> DisplayIni for DynTableRef<'t> {
         &self,
         w: &mut W,
         level: u32,
+        array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, options)
+        self.fmt_ini_impl(w, level, array, options)
     }
 }
 
@@ -577,8 +621,9 @@ impl<'t> DisplayIni for DynTableMut<'t> {
         &self,
         w: &mut W,
         level: u32,
+        array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, options)
+        self.fmt_ini_impl(w, level, array, options)
     }
 }

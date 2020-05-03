@@ -10,7 +10,8 @@ use crate::{
 /// Represents a mutable array of [`Value`]'s with integer 0-based indices.
 ///
 /// [`Value`]: struct.Value.html
-pub struct DynArray(Vec<Value<String, DynArray, DynTable>>);
+#[derive(Clone)]
+pub struct DynArray(Vec<DynConfigValue>);
 
 impl DynArray {
     /// Creates a new empty [`array`].
@@ -25,6 +26,20 @@ impl DynArray {
     /// [`array`]: struct.DynArray.html
     pub fn len(&self) -> u32 {
         self.len_impl()
+    }
+
+    /// Returns `true` if the [`array`] is empty.
+    ///
+    /// [`array`]: struct.DynArray.html
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Clears the [`array`].
+    ///
+    /// [`array`]: struct.DynArray.html
+    pub fn clear(&mut self) {
+        self.0.clear()
     }
 
     /// Tries to get a reference to a [`value`] in the [`array`] at `index`.
@@ -267,13 +282,11 @@ impl DynArray {
     ) -> Result<(), DynArraySetError> {
         use DynArraySetError::*;
 
-        let value_type = value.get_type();
-
         // If array is non-empty and has a value type, ensure the provided value type is compatible.
         if self.len() > 0 {
             let array_value_type = unsafe { self.0.get_unchecked(0).get_type() };
 
-            if !array_value_type.is_compatible(value_type) {
+            if !array_value_type.is_compatible(value.get_type()) {
                 return Err(InvalidValueType(array_value_type));
             }
         }
