@@ -1,10 +1,14 @@
 use std::collections::{hash_map::Iter as HashMapIter, HashMap};
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
 
+#[cfg(feature = "ini")]
+use std::fmt::Write;
+
 use crate::{
-    write_lua_key, DisplayLua, DynArray, DynArrayMut, DynArrayRef, DynConfigValue,
-    DynConfigValueMut, DynConfigValueRef, DynTableGetError, DynTableSetError, Value,
+    util::{write_lua_key, DisplayLua},
+    DynArray, DynArrayMut, DynArrayRef, DynConfigValue, DynConfigValueMut, DynConfigValueRef,
+    DynTableGetError, DynTableSetError, Value,
 };
 
 #[cfg(feature = "ini")]

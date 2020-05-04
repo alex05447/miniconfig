@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
 
-use crate::{BinArrayGetError, BinConfigValue, BinTable, DisplayLua, Value};
+use crate::{util::DisplayLua, BinArrayGetError, BinConfigValue, BinTable, Value};
 
 use super::array_or_table::BinArrayOrTable;
 use super::value::BinConfigUnpackedValue;

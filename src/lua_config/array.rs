@@ -1,7 +1,8 @@
 use std::fmt::{Display, Formatter};
 
 use crate::{
-    DisplayLua, LuaArrayGetError, LuaArraySetError, LuaConfigValue, LuaString, LuaTable, Value,
+    util::DisplayLua, LuaArrayGetError, LuaArraySetError, LuaConfigValue, LuaString, LuaTable,
+    Value,
 };
 
 use super::util::{

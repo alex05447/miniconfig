@@ -1,6 +1,9 @@
 use std::io::Write;
 
-use crate::{value_type_from_u32, value_type_to_u32, Value, ValueType};
+use crate::{
+    value::{value_type_from_u32, value_type_to_u32},
+    Value, ValueType,
+};
 
 use super::array::BinArray;
 use super::table::BinTable;

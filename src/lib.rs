@@ -21,15 +21,6 @@ mod ini;
 mod util;
 mod value;
 
-#[cfg(any(all(feature = "dyn", feature = "ini"), feature = "lua"))]
-pub(crate) use util::{write_char, WriteCharError};
-
-#[cfg(feature = "lua")]
-pub(crate) use lua_config::DisplayLua;
-
-#[cfg(feature = "lua")]
-pub(crate) use value::{value_type_from_u32, value_type_to_u32};
-
 pub use value::{Value, ValueType};
 
 #[cfg(feature = "bin")]

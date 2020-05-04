@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter, Write};
 
 use super::util::{new_table, validate_lua_config_table};
-use crate::{DisplayLua, LuaArray, LuaConfigError, LuaConfigKeyError, LuaTable, Value};
+use crate::{util::DisplayLua, LuaArray, LuaConfigError, LuaConfigKeyError, LuaTable, Value};
 
 #[cfg(feature = "bin")]
 use crate::{BinConfigWriter, BinConfigWriterError};

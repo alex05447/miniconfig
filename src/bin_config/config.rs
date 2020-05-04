@@ -1,11 +1,12 @@
 use std::fmt::{Display, Formatter};
 use std::io::Write;
 use std::mem::size_of;
+
+#[cfg(feature = "dyn")]
 use std::ops::DerefMut;
 
 use crate::{
-    BinArray, BinConfigError, BinConfigValue, BinConfigWriterError, BinTable, DisplayLua, Value,
-    ValueType,
+    util::DisplayLua, BinConfigError, BinConfigValue, BinConfigWriterError, BinTable, ValueType,
 };
 
 use super::array_or_table::BinArrayOrTable;
@@ -16,7 +17,7 @@ use super::value::BinConfigPackedValue;
 use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
 
 #[cfg(feature = "dyn")]
-use crate::{DynArray, DynConfig, DynTable};
+use crate::{DynArray, DynConfig, DynTable, BinArray};
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
@@ -390,7 +391,7 @@ impl BinConfig {
 
     #[cfg(feature = "dyn")]
     fn value_to_dyn_table(key: &str, value: BinConfigValue<'_>, dyn_table: &mut DynTable) {
-        use Value::*;
+        use crate::Value::{self, *};
 
         match value {
             Bool(value) => {
@@ -420,7 +421,7 @@ impl BinConfig {
 
     #[cfg(feature = "dyn")]
     fn value_to_dyn_array(value: BinConfigValue<'_>, dyn_array: &mut DynArray) {
-        use Value::*;
+        use crate::Value::{self, *};
 
         match value {
             Bool(value) => {

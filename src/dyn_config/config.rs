@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter, Write};
 
 use crate::{
-    DisplayLua, DynArray, DynArrayMut, DynArrayRef, DynTable, DynTableMut, DynTableRef, Value,
+    util::DisplayLua, DynArray, DynArrayMut, DynArrayRef, DynTable, DynTableMut, DynTableRef, Value,
 };
 
 #[cfg(feature = "bin")]

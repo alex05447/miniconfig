@@ -1,7 +1,13 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 use std::iter::Iterator;
 
-use crate::{write_lua_key, BinArray, BinConfigValue, BinTableGetError, DisplayLua, Value};
+#[cfg(feature = "ini")]
+use std::fmt::Write;
+
+use crate::{
+    util::{write_lua_key, DisplayLua},
+    BinArray, BinConfigValue, BinTableGetError, Value,
+};
 
 #[cfg(feature = "ini")]
 use crate::{

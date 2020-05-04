@@ -1,8 +1,11 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
+
+#[cfg(feature = "ini")]
+use std::fmt::Write;
 
 use crate::{
-    write_lua_key, DisplayLua, LuaArray, LuaConfigValue, LuaString, LuaTableGetError,
-    LuaTableSetError, Value, ValueType,
+    util::{write_lua_key, DisplayLua},
+    LuaArray, LuaConfigValue, LuaString, LuaTableGetError, LuaTableSetError, Value,
 };
 
 #[cfg(feature = "ini")]
@@ -300,6 +303,7 @@ impl<'lua> LuaTable<'lua> {
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
         use ToIniStringError::*;
+        use crate::ValueType;
 
         debug_assert!(level < 2);
 

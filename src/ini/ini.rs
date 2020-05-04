@@ -216,7 +216,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid key start - parse the key.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         debug_assert!(buffer.is_empty());
                         buffer.push(current);
 
@@ -262,7 +262,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid section name char (same rules as key chars) - start parsing the section name.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         buffer.push(current);
 
                         self.state = IniParserState::Section;
@@ -295,7 +295,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid section name char (same rules as key chars) - keep parsing the section name.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         buffer.push(current);
 
                     // Section end delimiter - finish the section name, skip the rest of the line.
@@ -372,7 +372,9 @@ impl<'s> IniParser<'s> {
                         buffer.push(current);
 
                     // Space or valid value char - keep parsing the value.
-                    } else if current == ' ' || self.is_key_or_value_char(current, quote) {
+                    } else if current == ' '
+                        || Self::is_key_or_value_char(current, self.options.escape, quote)
+                    {
                         buffer.push(current);
 
                     // Else an error.
@@ -471,7 +473,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid key char - keep parsing the key.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -520,7 +522,9 @@ impl<'s> IniParser<'s> {
                         buffer.push(current);
 
                     // Space or valid key char - keep parsing the key.
-                    } else if current == ' ' || self.is_key_or_value_char(current, quote) {
+                    } else if current == ' '
+                        || Self::is_key_or_value_char(current, self.options.escape, quote)
+                    {
                         buffer.push(current);
 
                     // Else an error.
@@ -607,7 +611,7 @@ impl<'s> IniParser<'s> {
                         self.state = IniParserState::BeforeArrayValue;
 
                     // Valid value char - start parsing the unquoted value.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         buffer.push(current);
 
                         self.state = IniParserState::Value;
@@ -670,7 +674,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - keep parsing the value.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -720,7 +724,9 @@ impl<'s> IniParser<'s> {
                         buffer.push(current);
 
                     // Space or valid value char - keep parsing the value.
-                    } else if current == ' ' || self.is_key_or_value_char(current, quote) {
+                    } else if current == ' '
+                        || Self::is_key_or_value_char(current, self.options.escape, quote)
+                    {
                         buffer.push(current);
 
                     // Else an error.
@@ -741,7 +747,7 @@ impl<'s> IniParser<'s> {
 
                     // Array end delimiter - finish the array, skip the rest of the line.
                     } else if self.is_array_end(current) {
-                        self.add_array_to_config(
+                        Self::add_array_to_config(
                             &mut root,
                             &section,
                             &key,
@@ -786,7 +792,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - start parsing the unquoted array value.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         buffer.push(current);
 
                         self.state = IniParserState::ArrayValue;
@@ -841,7 +847,7 @@ impl<'s> IniParser<'s> {
                         )?;
                         buffer.clear();
 
-                        self.add_array_to_config(
+                        Self::add_array_to_config(
                             &mut root,
                             &section,
                             &key,
@@ -865,7 +871,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - keep parsing the array value.
-                    } else if self.is_key_or_value_char(current, quote) {
+                    } else if Self::is_key_or_value_char(current, self.options.escape, quote) {
                         buffer.push(current);
 
                     // Else an error.
@@ -913,7 +919,9 @@ impl<'s> IniParser<'s> {
                         buffer.push(current);
 
                     // Space or valid value char - keep parsing the array value.
-                    } else if current == ' ' || self.is_key_or_value_char(current, quote) {
+                    } else if current == ' '
+                        || Self::is_key_or_value_char(current, self.options.escape, quote)
+                    {
                         buffer.push(current);
 
                     // Else an error.
@@ -937,7 +945,7 @@ impl<'s> IniParser<'s> {
 
                     // Array end delimiter - finish the array, skip the rest of the line.
                     } else if self.is_array_end(current) {
-                        self.add_array_to_config(
+                        Self::add_array_to_config(
                             &mut root,
                             &section,
                             &key,
@@ -1292,7 +1300,6 @@ impl<'s> IniParser<'s> {
 
     /// Adds the `array` to the config `section` at `key`.
     fn add_array_to_config(
-        &self,
         root: &mut DynTableMut<'_>,
         section: &str,
         key: &str,
@@ -1306,15 +1313,10 @@ impl<'s> IniParser<'s> {
         }
 
         if section.is_empty() {
-            debug_assert!(self.options.duplicate_keys.allow_non_unique() || root.get(key).is_err());
             root.set(key, Value::Array(array.clone())).unwrap();
         } else {
             // Must succeed.
             let mut table = root.get_mut(section).unwrap().table().unwrap();
-
-            debug_assert!(
-                self.options.duplicate_keys.allow_non_unique() || table.get(key).is_err()
-            );
             table.set(key, Value::Array(array.clone())).unwrap();
         }
     }
@@ -1416,14 +1418,14 @@ impl<'s> IniParser<'s> {
         }
     }
 
-    fn is_key_or_value_char(&self, val: char, quote: Option<char>) -> bool {
+    fn is_key_or_value_char(val: char, escape: bool, quote: Option<char>) -> bool {
         if let Some(quote) = quote {
             debug_assert!(quote == '"' || quote == '\'');
         }
 
         match val {
             // Escape char must be escaped if escape sequences are supported.
-            '\\' if self.options.escape => false,
+            '\\' if escape => false,
 
             // Non-matching quotes don't need to be escaped in quoted strings.
             '"' => quote == Some('\''),
@@ -1479,30 +1481,28 @@ mod tests {
 
     #[test]
     fn is_key_or_value_char() {
-        let parser = IniParser::new("".chars(), Default::default());
-
         for c in (b'0'..b'9').map(|c| char::from(c)) {
-            assert!(parser.is_key_or_value_char(c, None));
+            assert!(IniParser::is_key_or_value_char(c, false, None));
         }
 
         for c in (b'a'..b'z').map(|c| char::from(c)) {
-            assert!(parser.is_key_or_value_char(c, None));
+            assert!(IniParser::is_key_or_value_char(c, false, None));
         }
 
         for c in (b'A'..b'Z').map(|c| char::from(c)) {
-            assert!(parser.is_key_or_value_char(c, None));
+            assert!(IniParser::is_key_or_value_char(c, false, None));
         }
 
-        assert!(!parser.is_key_or_value_char('"', None));
-        assert!(parser.is_key_or_value_char('"', Some('\'')));
+        assert!(!IniParser::is_key_or_value_char('"', false, None));
+        assert!(IniParser::is_key_or_value_char('"', false, Some('\'')));
 
-        assert!(!parser.is_key_or_value_char('\'', None));
-        assert!(parser.is_key_or_value_char('\'', Some('"')));
+        assert!(!IniParser::is_key_or_value_char('\'', false, None));
+        assert!(IniParser::is_key_or_value_char('\'', false, Some('"')));
 
         let assert_ini_char = |c| {
-            assert!(!parser.is_key_or_value_char(c, None));
-            assert!(parser.is_key_or_value_char(c, Some('"')));
-            assert!(parser.is_key_or_value_char(c, Some('\'')));
+            assert!(!IniParser::is_key_or_value_char(c, false, None));
+            assert!(IniParser::is_key_or_value_char(c, false, Some('"')));
+            assert!(IniParser::is_key_or_value_char(c, false, Some('\'')));
         };
 
         assert_ini_char(' ');

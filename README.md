@@ -110,7 +110,7 @@ A minimalistic config file crate written in Rust.
     "key 3" = 7
 
     ; Sections declare tables with string keys
-    ; and boolena/integer/floating/array values.
+    ; and boolean/integer/floating/array values.
     ; All following key/value pairs go to this section.
     ; Sections may be empty.
     ; Section names are enclosed in brackets (`[` \ `]`).

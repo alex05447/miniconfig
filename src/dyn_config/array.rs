@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use std::slice::Iter as VecIter;
 
 use crate::{
-    DisplayLua, DynArrayGetError, DynArraySetError, DynConfigValue, DynConfigValueMut,
+    util::DisplayLua, DynArrayGetError, DynArraySetError, DynConfigValue, DynConfigValueMut,
     DynConfigValueRef, DynTable, DynTableMut, DynTableRef, Value,
 };
 

@@ -1,6 +1,9 @@
 use std::fmt::Write;
 
-use crate::{write_char, ToIniStringError, ToIniStringOptions, Value, WriteCharError};
+use crate::{
+    util::{write_char, WriteCharError},
+    ToIniStringError, ToIniStringOptions, Value,
+};
 
 pub(crate) trait DisplayIni {
     fn fmt_ini<W: Write>(
