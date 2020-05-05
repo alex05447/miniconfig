@@ -9,8 +9,7 @@ use crate::{BinConfigWriter, BinConfigWriterError};
 
 #[cfg(feature = "ini")]
 use crate::{
-    ini::dyn_config_from_ini, DisplayIni, IniError, IniOptions, ToIniStringError,
-    ToIniStringOptions,
+    DisplayIni, IniConfig, IniError, IniParser, IniValue, ToIniStringError, ToIniStringOptions,
 };
 
 /// A [`value`] returned when accessing a dynamic [`array`] or [`table`].
@@ -86,22 +85,17 @@ impl DynConfig {
         writer.finish()
     }
 
-    /// Creates a new [`config`] from the INI `string` using default [`options`].
+    /// Creates a new [`config`] from the [`.ini parser`].
     ///
     /// [`config`]: struct.DynConfig.html
-    /// [`options`]: struct.IniOptions.html
+    /// [`.ini parser`]: struct.IniParser.html
     #[cfg(feature = "ini")]
-    pub fn from_ini(string: &str) -> Result<Self, IniError> {
-        dyn_config_from_ini(string, IniOptions::default())
-    }
+    pub fn from_ini(parser: IniParser) -> Result<Self, IniError> {
+        let mut config = DynConfig::new();
 
-    /// Creates a new [`config`] from the INI `string` using custom [`options`].
-    ///
-    /// [`config`]: struct.DynConfig.html
-    /// [`options`]: struct.IniOptions.html
-    #[cfg(feature = "ini")]
-    pub fn from_ini_opts(string: &str, options: IniOptions) -> Result<Self, IniError> {
-        dyn_config_from_ini(string, options)
+        parser.parse(&mut config)?;
+
+        Ok(config)
     }
 
     /// Tries to serialize this [`config`] to a Lua script string.
@@ -238,5 +232,77 @@ impl<'a> Display for DynConfigValueRef<'a> {
 impl<'a> Display for DynConfigValueMut<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.fmt_lua(f, 0)
+    }
+}
+
+#[cfg(feature = "ini")]
+impl IniConfig for DynConfig {
+    fn contains_section(&self, section: &str) -> bool {
+        self.root().get_table(section).is_ok()
+    }
+
+    fn add_section(&mut self, section: &str, _overwrite: bool) {
+        self.root_mut()
+            .set(section, Value::Table(DynTable::new()))
+            .unwrap();
+    }
+
+    fn contains_key(&self, section: Option<&str>, key: &str) -> bool {
+        if let Some(section) = section {
+            self.root().get_table(section).unwrap().get(key).is_ok()
+        } else {
+            self.root().get(key).is_ok()
+        }
+    }
+
+    fn add_value(
+        &mut self,
+        section: Option<&str>,
+        key: &str,
+        value: IniValue<&str>,
+        _overwrite: bool,
+    ) {
+        let mut table = if let Some(section) = section {
+            self.root_mut().get_table_mut(section).unwrap()
+        } else {
+            self.root_mut()
+        };
+
+        match value {
+            IniValue::Bool(value) => table.set(key, Value::Bool(value)),
+            IniValue::I64(value) => table.set(key, Value::I64(value)),
+            IniValue::F64(value) => table.set(key, Value::F64(value)),
+            IniValue::String(value) => table.set(key, Value::String(value.into())),
+        }
+        .unwrap();
+    }
+
+    fn add_array(
+        &mut self,
+        section: Option<&str>,
+        key: &str,
+        mut array: Vec<IniValue<String>>,
+        _overwrite: bool,
+    ) {
+        let mut table = if let Some(section) = section {
+            self.root_mut().get_table_mut(section).unwrap()
+        } else {
+            self.root_mut()
+        };
+
+        let mut dyn_array = DynArray::new();
+
+        for value in array.drain(0..array.len()) {
+            dyn_array
+                .push(match value {
+                    IniValue::Bool(value) => Value::Bool(value),
+                    IniValue::I64(value) => Value::I64(value),
+                    IniValue::F64(value) => Value::F64(value),
+                    IniValue::String(value) => Value::String(value),
+                })
+                .unwrap();
+        }
+
+        table.set(key, Value::Array(dyn_array)).unwrap();
     }
 }

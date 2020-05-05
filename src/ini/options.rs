@@ -61,30 +61,30 @@ pub enum IniDuplicateKeys {
 
 /// Configuration options for the INI parser.
 #[derive(Clone, Copy, Debug)]
-pub struct IniOptions {
+pub(crate) struct IniOptions {
     /// Valid comment separator character(s).
     /// If `None`, comments are not supported.
     /// Default: `Semicolon`.
-    pub comments: IniCommentSeparator,
-    /// Whether inline (i.e. not beginning at the start of the line) comments are supported.
+    pub(crate) comments: IniCommentSeparator,
+    /// Whether inline comments (i.e. those which don't begin at the start of the line) are supported.
     /// If `comments` is `None`, this value is ignored.
     /// Default: `false`.
-    pub inline_comments: bool,
+    pub(crate) inline_comments: bool,
     /// Valid key-value separator character(s).
     /// If no flag is set, `Equals` is assumed.
     /// Default: `Equals`.
-    pub key_value_separator: IniKeyValueSeparator,
+    pub(crate) key_value_separator: IniKeyValueSeparator,
     /// Valid string value quote character(s).
     /// If `None`, quoted strings are not supported.
     /// In this case all values will be parsed as booleans / integers / floats / strings, in order.
     /// E.g., the value `true` is always interpreted as a boolean.
     /// Default: `Double`.
-    pub string_quotes: IniStringQuote,
+    pub(crate) string_quotes: IniStringQuote,
     /// Whether unquoted string values are supported.
     /// If `false`, an unquoted value must parse as a boolean / integer / float, or an error will be raised.
     /// If `string_quotes` is `None`, this value is ignored.
     /// Default: `true`.
-    pub unquoted_strings: bool,
+    pub(crate) unquoted_strings: bool,
     /// Whether escape sequences (a character sequence following a backslash ('\'))
     /// in keys, section names and string values are supported.
     /// If `true`, the following escape sequences are supported:
@@ -109,24 +109,24 @@ pub struct IniOptions {
     ///     `'\x????'` (where `?` are 4 hexadecimal digits).
     /// If `false`, backslash ('\') is treated as a normal section name / key / value character.
     /// Default: `true`.
-    pub escape: bool,
+    pub(crate) escape: bool,
     /// Whether line ontinuation esacpe sequences (a backslash '\' followed by a newline '\n' / '\r')
     /// are supported in keys, section names and string values.
     /// If `escape` is `false`, this value is ignored.
     /// Default: `false`.
-    pub line_continuation: bool,
+    pub(crate) line_continuation: bool,
     /// Duplicate section handling policy.
     /// Default: `Merge`.
-    pub duplicate_sections: IniDuplicateSections,
+    pub(crate) duplicate_sections: IniDuplicateSections,
     /// Duplicate key handling policy.
     /// Default: `Forbid`.
-    pub duplicate_keys: IniDuplicateKeys,
+    pub(crate) duplicate_keys: IniDuplicateKeys,
     /// Whether arrays are supported.
     /// If `true`, values enclosed in brackets '[' \ ']' are parsed as
-    /// comma (',') delimited arrays of bools/ints/floats/strings.
-    /// Types may not be mixed in the array, except ints/floats.
+    /// comma (',') delimited arrays of booleans / integers / floats / strings.
+    /// Types may not be mixed in the array, except integers / floats.
     /// Default: `false`.
-    pub arrays: bool,
+    pub(crate) arrays: bool,
 }
 
 impl Default for IniOptions {
@@ -149,10 +149,10 @@ impl Default for IniOptions {
 /// Configuration options for serializing a config to an `.ini` string.
 #[derive(Clone, Copy, Debug)]
 pub struct ToIniStringOptions {
-    /// See [`IniOptions`](struct.IniOptions.html)::`escape`.
+    /// See [`escape`](struct.IniParser.html#method.escape).
     /// Default: `true`.
     pub escape: bool,
-    /// See [`IniOptions`](struct.IniOptions.html)::`arrays`.
+    /// See [`arrays`](struct.IniParser.html#method.arrays).
     /// Default: `false`.
     pub arrays: bool,
 }

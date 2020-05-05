@@ -5,9 +5,6 @@ use crate::{
     IniKeyValueSeparator, IniOptions, IniStringQuote, ValueType,
 };
 
-#[cfg(feature = "dyn")]
-use crate::{DynArray, DynConfig, DynTable, Value};
-
 /// INI parser FSM states.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum IniParserState {
@@ -101,7 +98,8 @@ enum IniParserState {
     AfterArrayValue,
 }
 
-struct IniParser<'s> {
+/// Parses the .ini config string.
+pub struct IniParser<'s> {
     /// Source string reader.
     reader: Chars<'s>,
 
@@ -118,29 +116,129 @@ struct IniParser<'s> {
 }
 
 impl<'s> IniParser<'s> {
-    fn new(reader: Chars<'s>, mut options: IniOptions) -> Self {
-        // Must have some key-value separator if none provided by the user - use `Equals`.
-        if options.key_value_separator.is_empty() {
-            options.key_value_separator = IniKeyValueSeparator::Equals;
-        }
-
-        // If not using quoted strings, unquoted strings must be supported.
-        if options.string_quotes.is_empty() {
-            options.unquoted_strings = true;
-        }
-
+    /// Creates a new [`parser`](struct.IniParser.html) from an .ini config `string`
+    /// using default parsing options.
+    pub fn new(string: &'s str) -> Self {
         Self {
-            reader,
+            reader: string.chars(),
             state: IniParserState::StartLine,
             line: 1,
             column: 0,
             new_line: false,
-            options,
+            options: Default::default(),
         }
     }
 
-    fn parse<C: IniConfig>(mut self, config: &mut C) -> Result<(), IniError> {
+    /// Sets the valid comment separator character(s).
+    /// If `None`, comments are not supported.
+    /// Default: `Semicolon`.
+    pub fn comments(mut self, comments: IniCommentSeparator) -> Self {
+        self.options.comments = comments;
+        self
+    }
+
+    /// Sets whether inline comments (i.e. those which don't begin at the start of the line) are supported.
+    /// If `comments` is `None`, this value is ignored.
+    /// Default: `false`.
+    pub fn inline_comments(mut self, inline_comments: bool) -> Self {
+        self.options.inline_comments = inline_comments;
+        self
+    }
+
+    /// Sets the valid key-value separator character(s).
+    /// If no flag is set, `Equals` is assumed.
+    /// Default: `Equals`.
+    pub fn key_value_separator(mut self, key_value_separator: IniKeyValueSeparator) -> Self {
+        self.options.key_value_separator = key_value_separator;
+        self
+    }
+
+    /// Sets the valid string value quote character(s).
+    /// If `None`, quoted strings are not supported.
+    /// In this case all values will be parsed as booleans / integers / floats / strings, in order.
+    /// E.g., the value `true` is always interpreted as a boolean.
+    /// Default: `Double`.
+    pub fn string_quotes(mut self, string_quotes: IniStringQuote) -> Self {
+        self.options.string_quotes = string_quotes;
+        self
+    }
+
+    /// Sets whether unquoted string values are supported.
+    /// If `false`, an unquoted value must parse as a boolean / integer / float, or an error will be raised.
+    /// If [`string_quotes`](#method.string_quotes) is `None`, this value is ignored.
+    /// Default: `true`.
+    pub fn unquoted_strings(mut self, unquoted_strings: bool) -> Self {
+        self.options.unquoted_strings = unquoted_strings;
+        self
+    }
+
+    /// Sets whether escape sequences (a character sequence following a backslash ('\'))
+    /// in keys, section names and string values are supported.
+    /// If `true`, the following escape sequences are supported:
+    ///     `' '` (space),
+    ///     `'"'`,
+    ///     `'\''`,
+    ///     `'\0'`,
+    ///     `'\a'`,
+    ///     `'\b'`,
+    ///     `'\t'`,
+    ///     `'\r'`,
+    ///     `'\n'`,
+    ///     `'\v'`,
+    ///     `'\f'`,
+    ///     `'\\'`,
+    ///     `'\['`,
+    ///     `'\]'`,
+    ///     `'\;'`,
+    ///     `'\#'`,
+    ///     `'\='`,
+    ///     `'\:'`,
+    ///     `'\x????'` (where `?` are 4 hexadecimal digits).
+    /// If `false`, backslash ('\') is treated as a normal section name / key / value character.
+    /// Default: `true`.
+    pub fn escape(mut self, escape: bool) -> Self {
+        self.options.escape = escape;
+        self
+    }
+
+    /// Sets whether line ontinuation esacpe sequences (a backslash '\' followed by a newline '\n' / '\r')
+    /// are supported in keys, section names and string values.
+    /// If [`escape`](#method.escape) is `false`, this value is ignored.
+    /// Default: `false`.
+    pub fn line_continuation(mut self, line_continuation: bool) -> Self {
+        self.options.line_continuation = line_continuation;
+        self
+    }
+
+    /// Sets the duplicate section handling policy.
+    /// Default: `Merge`.
+    pub fn duplicate_sections(mut self, duplicate_sections: IniDuplicateSections) -> Self {
+        self.options.duplicate_sections = duplicate_sections;
+        self
+    }
+
+    /// Sets the duplicate key handling policy.
+    /// Default: `Forbid`.
+    pub fn duplicate_keys(mut self, duplicate_keys: IniDuplicateKeys) -> Self {
+        self.options.duplicate_keys = duplicate_keys;
+        self
+    }
+
+    /// Sets whether arrays are supported.
+    /// If `true`, values enclosed in brackets '[' \ ']' are parsed as
+    /// comma (',') delimited arrays of booleans / integers / floats / strings.
+    /// Types may not be mixed in the array, except integers / floats.
+    /// Default: `false`.
+    pub fn arrays(mut self, arrays: bool) -> Self {
+        self.options.arrays = arrays;
+        self
+    }
+
+    /// Consumes the parser and tries to parse the .ini config string, filling the passed `config`.
+    pub fn parse<C: IniConfig>(mut self, config: &mut C) -> Result<(), IniError> {
         use IniErrorKind::*;
+
+        self.validate_options();
 
         // Scratch buffer for sections / keys / values.
         let mut buffer = String::new();
@@ -1025,6 +1123,18 @@ impl<'s> IniParser<'s> {
         Ok(())
     }
 
+    fn validate_options(&mut self) {
+        // Must have some key-value separator if none provided by the user - use `Equals`.
+        if self.options.key_value_separator.is_empty() {
+            self.options.key_value_separator = IniKeyValueSeparator::Equals;
+        }
+
+        // If not using quoted strings, unquoted strings must be supported.
+        if self.options.string_quotes.is_empty() {
+            self.options.unquoted_strings = true;
+        }
+    }
+
     /// Reads the next character from the source string reader.
     /// Increments the line/column counters.
     fn next(&mut self) -> Option<char> {
@@ -1085,6 +1195,7 @@ impl<'s> IniParser<'s> {
                     .contains(IniCommentSeparator::NumberSign))
     }
 
+    /// Are inline comments enabled and is the character a supported comment delimiter?
     fn is_inline_comment_char(&self, val: char) -> bool {
         self.options.inline_comments && self.is_comment_char(val)
     }
@@ -1475,106 +1586,6 @@ enum ParseEscapeSequenceResult {
     LineContinuation,
 }
 
-/// Tries to parse the `string` as an .ini config
-/// using provided `options`
-/// and calling appropriate methods on the `config` object.
-pub fn parse_ini<C: IniConfig>(
-    string: &str,
-    options: IniOptions,
-    config: &mut C,
-) -> Result<(), IniError> {
-    let reader = string.chars();
-    let parser = IniParser::new(reader, options);
-
-    parser.parse(config)?;
-
-    Ok(())
-}
-
-#[cfg(feature = "dyn")]
-pub(crate) fn dyn_config_from_ini(
-    string: &str,
-    options: IniOptions,
-) -> Result<DynConfig, IniError> {
-    impl IniConfig for DynConfig {
-        fn contains_section(&self, section: &str) -> bool {
-            self.root().get_table(section).is_ok()
-        }
-
-        fn add_section(&mut self, section: &str, _overwrite: bool) {
-            self
-                .root_mut()
-                .set(section, Value::Table(DynTable::new()))
-                .unwrap();
-        }
-
-        fn contains_key(&self, section: Option<&str>, key: &str) -> bool {
-            if let Some(section) = section {
-                self.root().get_table(section).unwrap().get(key).is_ok()
-            } else {
-                self.root().get(key).is_ok()
-            }
-        }
-
-        fn add_value(
-            &mut self,
-            section: Option<&str>,
-            key: &str,
-            value: IniValue<&str>,
-            _overwrite: bool,
-        ) {
-            let mut table = if let Some(section) = section {
-                self.root_mut().get_table_mut(section).unwrap()
-            } else {
-                self.root_mut()
-            };
-
-            match value {
-                IniValue::Bool(value) => table.set(key, Value::Bool(value)),
-                IniValue::I64(value) => table.set(key, Value::I64(value)),
-                IniValue::F64(value) => table.set(key, Value::F64(value)),
-                IniValue::String(value) => table.set(key, Value::String(value.into())),
-            }
-            .unwrap();
-        }
-
-        fn add_array(
-            &mut self,
-            section: Option<&str>,
-            key: &str,
-            mut array: Vec<IniValue<String>>,
-            _overwrite: bool,
-        ) {
-            let mut table = if let Some(section) = section {
-                self.root_mut().get_table_mut(section).unwrap()
-            } else {
-                self.root_mut()
-            };
-
-            let mut dyn_array = DynArray::new();
-
-            for value in array.drain(0..array.len()) {
-                dyn_array
-                    .push(match value {
-                        IniValue::Bool(value) => Value::Bool(value),
-                        IniValue::I64(value) => Value::I64(value),
-                        IniValue::F64(value) => Value::F64(value),
-                        IniValue::String(value) => Value::String(value),
-                    })
-                    .unwrap();
-            }
-
-            table.set(key, Value::Array(dyn_array)).unwrap();
-        }
-    }
-
-    let mut config = DynConfig::new();
-
-    parse_ini(string, options, &mut config)?;
-
-    Ok(config)
-}
-
 /// Represents an individual leaf-level .ini config value,
 /// contained in the root of the config, config section or an array.
 pub enum IniValue<S> {
@@ -1595,8 +1606,7 @@ impl<S> IniValue<S> {
     }
 }
 
-/// A trait which represents the config being filled by the .ini parser.
-/// Pass an implementation to [`parse_ini`](fn.parse_ini.html).
+/// A trait which represents the config being filled by the [`.ini parser`](struct.IniParser.html).
 pub trait IniConfig {
     /// Returns `true` if the config already contains the `section`
     /// (i.e. [`add_section`](#method.add_section) was called with this `section` name,

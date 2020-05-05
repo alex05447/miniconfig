@@ -177,14 +177,7 @@ foo = false
 
     {
         // Load from INI.
-        let ini_config = DynConfig::from_ini_opts(
-            ini_script,
-            IniOptions {
-                arrays: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let ini_config = DynConfig::from_ini(IniParser::new(ini_script).arrays(true)).unwrap();
 
         // Serialize to INI.
         assert_eq!(
