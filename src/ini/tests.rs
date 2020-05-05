@@ -10,7 +10,7 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::InvalidCharacterAtLineStart
+            error: IniErrorKind::InvalidCharacterAtLineStart('\'')
         }
     );
     // Unescaped special character.
@@ -19,7 +19,7 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::InvalidCharacterAtLineStart
+            error: IniErrorKind::InvalidCharacterAtLineStart(':')
         }
     );
     // Unescaped special character.
@@ -28,7 +28,7 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterAtLineStart
+            error: IniErrorKind::InvalidCharacterAtLineStart('#')
         }
     );
 
@@ -91,7 +91,7 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterInSectionName
+            error: IniErrorKind::InvalidCharacterInSectionName('=')
         }
     );
     // Unescaped special character.
@@ -108,7 +108,7 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterInSectionName
+            error: IniErrorKind::InvalidCharacterInSectionName(':')
         }
     );
     // Unescaped special character.
@@ -117,7 +117,7 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInSectionName
+            error: IniErrorKind::InvalidCharacterInSectionName('#')
         }
     );
     // Unescaped special character.
@@ -134,7 +134,7 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInSectionName
+            error: IniErrorKind::InvalidCharacterInSectionName(';')
         }
     );
 
@@ -205,7 +205,7 @@ fn InvalidCharacterAfterSectionName() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterAfterSectionName
+            error: IniErrorKind::InvalidCharacterAfterSectionName('b')
         }
     );
 
@@ -215,7 +215,7 @@ fn InvalidCharacterAfterSectionName() {
         IniError {
             line: 1,
             column: 6,
-            error: IniErrorKind::InvalidCharacterAfterSectionName
+            error: IniErrorKind::InvalidCharacterAfterSectionName('b')
         }
     );
 
@@ -348,7 +348,7 @@ fn DuplicateSection() {
         IniError {
             line: 3,
             column: 3,
-            error: IniErrorKind::DuplicateSection
+            error: IniErrorKind::DuplicateSection("a".into())
         }
     );
 
@@ -396,7 +396,7 @@ fn DuplicateSection() {
         IniError {
             line: 4,
             column: 1,
-            error: IniErrorKind::DuplicateKey
+            error: IniErrorKind::DuplicateKey("a".into())
         }
     );
 
@@ -426,7 +426,7 @@ fn InvalidCharacterAtLineEnd() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAtLineEnd
+            error: IniErrorKind::InvalidCharacterAtLineEnd('b')
         }
     );
     // After value.
@@ -435,7 +435,7 @@ fn InvalidCharacterAtLineEnd() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAtLineEnd
+            error: IniErrorKind::InvalidCharacterAtLineEnd('b')
         }
     );
     // Inline comments not supported.
@@ -444,7 +444,7 @@ fn InvalidCharacterAtLineEnd() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAtLineEnd
+            error: IniErrorKind::InvalidCharacterAtLineEnd(';')
         }
     );
 
@@ -480,7 +480,7 @@ fn InvalidCharacterInKey() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterInKey
+            error: IniErrorKind::InvalidCharacterInKey('[')
         }
     );
     // Unescaped special character.
@@ -489,7 +489,7 @@ fn InvalidCharacterInKey() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInKey
+            error: IniErrorKind::InvalidCharacterInKey('\'')
         }
     );
 
@@ -624,7 +624,7 @@ fn DuplicateKey() {
         IniError {
             line: 3,
             column: 1,
-            error: IniErrorKind::DuplicateKey
+            error: IniErrorKind::DuplicateKey("a".into())
         }
     );
     // In the section.
@@ -635,7 +635,7 @@ fn DuplicateKey() {
         IniError {
             line: 4,
             column: 1,
-            error: IniErrorKind::DuplicateKey
+            error: IniErrorKind::DuplicateKey("a".into())
         }
     );
     // In the merged section.
@@ -646,7 +646,7 @@ fn DuplicateKey() {
         IniError {
             line: 5,
             column: 1,
-            error: IniErrorKind::DuplicateKey
+            error: IniErrorKind::DuplicateKey("a".into())
         }
     );
 
@@ -772,13 +772,13 @@ fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
 }
 
 #[test]
-fn UnexpectedCharacterInsteadOfKeyValueSeparator() {
+fn InvalidKeyValueSeparator() {
     assert_eq!(
         DynConfig::from_ini("a !").err().unwrap(),
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedCharacterInsteadOfKeyValueSeparator
+            error: IniErrorKind::InvalidKeyValueSeparator('!')
         }
     );
     assert_eq!(
@@ -786,7 +786,7 @@ fn UnexpectedCharacterInsteadOfKeyValueSeparator() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedCharacterInsteadOfKeyValueSeparator
+            error: IniErrorKind::InvalidKeyValueSeparator(':')
         }
     );
     // Unescaped whitespace in key.
@@ -795,7 +795,7 @@ fn UnexpectedCharacterInsteadOfKeyValueSeparator() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedCharacterInsteadOfKeyValueSeparator
+            error: IniErrorKind::InvalidKeyValueSeparator('b')
         }
     );
     // Unexpected character after quoted key.
@@ -804,7 +804,7 @@ fn UnexpectedCharacterInsteadOfKeyValueSeparator() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::UnexpectedCharacterInsteadOfKeyValueSeparator
+            error: IniErrorKind::InvalidKeyValueSeparator('b')
         }
     );
 
@@ -832,7 +832,7 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue
+            error: IniErrorKind::InvalidCharacterInValue('=')
         }
     );
     // Unescaped special character.
@@ -841,7 +841,7 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue
+            error: IniErrorKind::InvalidCharacterInValue(':')
         }
     );
     // Unescaped special character.
@@ -858,7 +858,7 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue
+            error: IniErrorKind::InvalidCharacterInValue('=')
         }
     );
     // Unescaped special character.
@@ -875,7 +875,7 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue
+            error: IniErrorKind::InvalidCharacterInValue(':')
         }
     );
     // Inline comments not supported.
@@ -884,7 +884,7 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterInValue
+            error: IniErrorKind::InvalidCharacterInValue(';')
         }
     );
 
@@ -1101,7 +1101,7 @@ fn InvalidEscapeCharacter() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidEscapeCharacter
+            error: IniErrorKind::InvalidEscapeCharacter('z')
         }
     );
 
@@ -1324,7 +1324,7 @@ fn UnexpectedNewLineInArray() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue
+            error: IniErrorKind::InvalidCharacterInValue('[')
         }
     );
 
@@ -1472,7 +1472,7 @@ fn InvalidCharacterInArray() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterInArray
+            error: IniErrorKind::InvalidCharacterInArray('=')
         }
     );
     // Unescaped special character.
@@ -1489,7 +1489,7 @@ fn InvalidCharacterInArray() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterInArray
+            error: IniErrorKind::InvalidCharacterInArray('[')
         }
     );
     // Unescaped space.
@@ -1506,7 +1506,7 @@ fn InvalidCharacterInArray() {
         IniError {
             line: 1,
             column: 6,
-            error: IniErrorKind::InvalidCharacterInArray
+            error: IniErrorKind::InvalidCharacterInArray('b')
         }
     );
 
@@ -1940,7 +1940,7 @@ fn escape() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAfterSectionName
+            error: IniErrorKind::InvalidCharacterAfterSectionName('b')
         }
     );
 
