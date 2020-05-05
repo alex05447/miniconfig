@@ -200,7 +200,7 @@ impl DynArray {
     /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
     /// [`error`]: struct.DynArraySetError.html
-    pub fn set<'s>(&mut self, index: u32, value: DynConfigValue) -> Result<(), DynArraySetError> {
+    pub fn set(&mut self, index: u32, value: DynConfigValue) -> Result<(), DynArraySetError> {
         self.set_impl(index, value)
     }
 
@@ -211,7 +211,7 @@ impl DynArray {
     /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
     /// [`error`]: struct.DynArraySetError.html
-    pub fn push<'s>(&mut self, value: DynConfigValue) -> Result<(), DynArraySetError> {
+    pub fn push(&mut self, value: DynConfigValue) -> Result<(), DynArraySetError> {
         self.push_impl(value)
     }
 
@@ -295,7 +295,7 @@ impl DynArray {
         Ok(())
     }
 
-    fn set_impl<'s>(&mut self, index: u32, value: DynConfigValue) -> Result<(), DynArraySetError> {
+    fn set_impl(&mut self, index: u32, value: DynConfigValue) -> Result<(), DynArraySetError> {
         use DynArraySetError::*;
 
         // Validate the index.
@@ -322,7 +322,7 @@ impl DynArray {
         Ok(())
     }
 
-    fn push_impl<'s>(&mut self, value: DynConfigValue) -> Result<(), DynArraySetError> {
+    fn push_impl(&mut self, value: DynConfigValue) -> Result<(), DynArraySetError> {
         // Validate the value type.
         self.validate_value_type(&value)?;
 

@@ -15,7 +15,7 @@ mod dyn_config;
 #[cfg(feature = "lua")]
 mod lua_config;
 
-#[cfg(all(feature = "dyn", feature = "ini"))]
+#[cfg(feature = "ini")]
 mod ini;
 
 mod util;
@@ -32,5 +32,5 @@ pub use dyn_config::*;
 #[cfg(feature = "lua")]
 pub use lua_config::*;
 
-#[cfg(all(feature = "dyn", feature = "ini"))]
+#[cfg(feature = "ini")]
 pub use ini::*;

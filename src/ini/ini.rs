@@ -1,10 +1,12 @@
 use std::str::Chars;
 
 use crate::{
-    DynArray, DynConfig, DynTable, DynTableMut, IniCommentSeparator, IniDuplicateKeys,
-    IniDuplicateSections, IniError, IniErrorKind, IniKeyValueSeparator, IniOptions, IniStringQuote,
-    Value, ValueType,
+    IniCommentSeparator, IniDuplicateKeys, IniDuplicateSections, IniError, IniErrorKind,
+    IniKeyValueSeparator, IniOptions, IniStringQuote, ValueType,
 };
+
+#[cfg(feature = "dyn")]
+use crate::{DynArray, DynConfig, DynTable, Value};
 
 /// INI parser FSM states.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -137,12 +139,8 @@ impl<'s> IniParser<'s> {
         }
     }
 
-    /// Consumes the parser, returns the parsed config or an error.
-    fn parse(mut self) -> Result<DynConfig, IniError> {
+    fn parse<C: IniConfig>(mut self, config: &mut C) -> Result<(), IniError> {
         use IniErrorKind::*;
-
-        let mut config = DynConfig::new();
-        let mut root = config.root_mut();
 
         // Scratch buffer for sections / keys / values.
         let mut buffer = String::new();
@@ -152,6 +150,9 @@ impl<'s> IniParser<'s> {
 
         // Current key, if any.
         let mut key = String::new();
+
+        // Whether the key is unique in its table (root or section).
+        let mut is_key_unique = true;
 
         // Current opening string quote, if any.
         let mut quote: Option<char> = None;
@@ -171,12 +172,13 @@ impl<'s> IniParser<'s> {
             String::new()
         };
 
-        let mut array = DynArray::new();
+        let mut array: Option<Vec<IniValue<String>>> = None;
 
         // Read the chars until EOF, process according to current state.
         while let Some(c) = self.next() {
             match self.state {
                 IniParserState::StartLine => {
+                    is_key_unique = true;
                     skip_value = false;
 
                     // Skip whitespace at the start of the line (including new lines).
@@ -305,24 +307,22 @@ impl<'s> IniParser<'s> {
                             return Err(self.error(EmptySectionName));
                         }
 
-                        section.clear();
-                        section.push_str(&buffer);
+                        std::mem::swap(&mut section, &mut buffer);
                         buffer.clear();
 
                         // Try to add the section to the config.
-                        skip_section = self.add_section(&mut root, &section)?;
+                        skip_section = self.add_section(config, &section)?;
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
 
                     // Whitespace after section name (new lines handle above) - skip it, finish the section name, parse the section end delimiter.
                     // NOTE - section name is not empty if we got here.
                     } else if c.is_whitespace() {
-                        section.clear();
-                        section.push_str(&buffer);
+                        std::mem::swap(&mut section, &mut buffer);
                         buffer.clear();
 
                         // Try to add the section to the config.
-                        skip_section = self.add_section(&mut root, &section)?;
+                        skip_section = self.add_section(config, &section)?;
 
                         self.state = IniParserState::AfterSection;
 
@@ -347,12 +347,11 @@ impl<'s> IniParser<'s> {
 
                         quote.take();
 
-                        section.clear();
-                        section.push_str(&buffer);
+                        std::mem::swap(&mut section, &mut buffer);
                         buffer.clear();
 
                         // Try to add the section to the config.
-                        skip_section = self.add_section(&mut root, &section)?;
+                        skip_section = self.add_section(config, &section)?;
 
                         self.state = IniParserState::AfterSection;
 
@@ -437,11 +436,16 @@ impl<'s> IniParser<'s> {
 
                     // Key-value separator - finish the key, parse the value.
                     if self.is_key_value_separator_char(c) {
-                        key.push_str(&buffer);
-                        buffer.clear();
+                        std::mem::swap(&mut key, &mut buffer);
 
-                        skip_value =
-                            self.check_is_key_duplicate(&mut root, &section, &key, skip_section)?;
+                        self.check_is_key_duplicate(
+                            config,
+                            &section,
+                            &key,
+                            skip_section,
+                            &mut skip_value,
+                            &mut is_key_unique,
+                        )?;
 
                         self.state = IniParserState::BeforeValue;
 
@@ -452,11 +456,16 @@ impl<'s> IniParser<'s> {
                             return Err(self.error_offset(UnexpectedNewLineInKey));
                         }
 
-                        key.push_str(&buffer);
-                        buffer.clear();
+                        std::mem::swap(&mut key, &mut buffer);
 
-                        skip_value =
-                            self.check_is_key_duplicate(&mut root, &section, &key, skip_section)?;
+                        self.check_is_key_duplicate(
+                            config,
+                            &section,
+                            &key,
+                            skip_section,
+                            &mut skip_value,
+                            &mut is_key_unique,
+                        )?;
 
                         self.state = IniParserState::KeyValueSeparator;
 
@@ -481,6 +490,8 @@ impl<'s> IniParser<'s> {
                     }
                 }
                 IniParserState::QuotedKey => {
+                    debug_assert!(key.is_empty());
+
                     let cur_quote = quote.unwrap();
 
                     // New line before the closing quotes - error.
@@ -496,12 +507,16 @@ impl<'s> IniParser<'s> {
 
                         quote.take();
 
-                        debug_assert!(key.is_empty());
-                        key.push_str(&buffer);
-                        buffer.clear();
+                        std::mem::swap(&mut key, &mut buffer);
 
-                        skip_value =
-                            self.check_is_key_duplicate(&mut root, &section, &key, skip_section)?;
+                        self.check_is_key_duplicate(
+                            config,
+                            &section,
+                            &key,
+                            skip_section,
+                            &mut skip_value,
+                            &mut is_key_unique,
+                        )?;
 
                         self.state = IniParserState::KeyValueSeparator;
 
@@ -552,18 +567,20 @@ impl<'s> IniParser<'s> {
                 IniParserState::BeforeValue => {
                     debug_assert!(buffer.is_empty());
                     debug_assert!(!key.is_empty());
+                    debug_assert!(array.is_none());
 
                     // Skip the whitespace before the value.
                     if c.is_whitespace() {
                         // Unless it's a new line - the value is empty.
                         if self.is_new_line(c) {
                             self.add_value_to_config(
-                                &mut root,
+                                config,
                                 &section,
                                 &key,
                                 "",
                                 false,
                                 skip_section | skip_value,
+                                is_key_unique,
                             )?;
                             key.clear();
 
@@ -573,12 +590,13 @@ impl<'s> IniParser<'s> {
                     // Inline comment (if supported) - the value is empty, skip the rest of the line.
                     } else if self.is_inline_comment_char(c) {
                         self.add_value_to_config(
-                            &mut root,
+                            config,
                             &section,
                             &key,
                             "",
                             false,
                             skip_section | skip_value,
+                            is_key_unique,
                         )?;
                         key.clear();
 
@@ -606,6 +624,7 @@ impl<'s> IniParser<'s> {
 
                     // Array start delimiter (if supported) - start parsing the array.
                     } else if self.is_array_start(c) {
+                        array.replace(Vec::new());
                         self.state = IniParserState::BeforeArrayValue;
 
                     // Valid value char - start parsing the unquoted value.
@@ -626,12 +645,13 @@ impl<'s> IniParser<'s> {
                     // Whitespace - finish the value.
                     if c.is_whitespace() {
                         self.add_value_to_config(
-                            &mut root,
+                            config,
                             &section,
                             &key,
                             &buffer,
                             false,
                             skip_section | skip_value,
+                            is_key_unique,
                         )?;
                         buffer.clear();
                         key.clear();
@@ -648,12 +668,13 @@ impl<'s> IniParser<'s> {
                     // Inline comment (if supported) - finish the value, skip the rest of the line.
                     } else if self.is_inline_comment_char(c) {
                         self.add_value_to_config(
-                            &mut root,
+                            config,
                             &section,
                             &key,
                             &buffer,
                             false,
                             skip_section | skip_value,
+                            is_key_unique,
                         )?;
                         buffer.clear();
                         key.clear();
@@ -692,12 +713,13 @@ impl<'s> IniParser<'s> {
                     // Closing quotes - finish the value (may be empty), skip the rest of the line.
                     } else if c == cur_quote {
                         self.add_value_to_config(
-                            &mut root,
+                            config,
                             &section,
                             &key,
                             &buffer,
                             true,
                             skip_section | skip_value,
+                            is_key_unique,
                         )?;
                         buffer.clear();
                         key.clear();
@@ -745,24 +767,24 @@ impl<'s> IniParser<'s> {
                     // Array end delimiter - finish the array, skip the rest of the line.
                     } else if self.is_array_end(c) {
                         Self::add_array_to_config(
-                            &mut root,
+                            config,
                             &section,
                             &key,
-                            &array,
+                            array.take().unwrap(),
                             skip_section | skip_value,
+                            is_key_unique,
                         );
-                        array.clear();
                         key.clear();
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
 
                     // String quote - parse the string array value in quotes, expecting the matching quotes.
                     } else if self.is_string_quote_char(c) {
+                        let array = array.as_ref().unwrap();
+
                         // Make sure array is empty or contains strings (is not mixed).
                         if !array.is_empty() {
-                            if !array
-                                .get(0)
-                                .unwrap()
+                            if !unsafe { array.get_unchecked(0) }
                                 .get_type()
                                 .is_compatible(ValueType::String)
                             {
@@ -803,6 +825,8 @@ impl<'s> IniParser<'s> {
                     debug_assert!(!buffer.is_empty());
                     debug_assert!(!key.is_empty());
 
+                    let array_mut = array.as_mut().unwrap();
+
                     // Whitespace - finish the current array value,
                     // parse the array value separator / array end delimiter.
                     if c.is_whitespace() {
@@ -812,7 +836,7 @@ impl<'s> IniParser<'s> {
                         }
 
                         self.add_value_to_array(
-                            &mut array,
+                            array_mut,
                             &buffer,
                             false,
                             skip_value | skip_section,
@@ -825,7 +849,7 @@ impl<'s> IniParser<'s> {
                     // parse the next array value / array end delimiter.
                     } else if self.is_array_value_separator(c) {
                         self.add_value_to_array(
-                            &mut array,
+                            array_mut,
                             &buffer,
                             false,
                             skip_value | skip_section,
@@ -837,7 +861,7 @@ impl<'s> IniParser<'s> {
                     // Array end delimiter - add the value to the array, finish the array, skip the rest of the line.
                     } else if self.is_array_end(c) {
                         self.add_value_to_array(
-                            &mut array,
+                            array_mut,
                             &buffer,
                             false,
                             skip_value | skip_section,
@@ -845,13 +869,13 @@ impl<'s> IniParser<'s> {
                         buffer.clear();
 
                         Self::add_array_to_config(
-                            &mut root,
+                            config,
                             &section,
                             &key,
-                            &array,
+                            array.take().unwrap(),
                             skip_section | skip_value,
+                            is_key_unique,
                         );
-                        array.clear();
                         key.clear();
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
@@ -880,6 +904,7 @@ impl<'s> IniParser<'s> {
                     debug_assert!(!key.is_empty());
 
                     let cur_quote = quote.unwrap();
+                    let array_mut = array.as_mut().unwrap();
 
                     // New line before the closing quotes - error.
                     if self.is_new_line(c) {
@@ -889,7 +914,7 @@ impl<'s> IniParser<'s> {
                     // parse the array value separator / array end delimiter.
                     } else if c == cur_quote {
                         self.add_value_to_array(
-                            &mut array,
+                            array_mut,
                             &buffer,
                             true,
                             skip_value | skip_section,
@@ -942,13 +967,13 @@ impl<'s> IniParser<'s> {
                     // Array end delimiter - finish the array, skip the rest of the line.
                     } else if self.is_array_end(c) {
                         Self::add_array_to_config(
-                            &mut root,
+                            config,
                             &section,
                             &key,
-                            &array,
+                            array.take().unwrap(),
                             skip_section | skip_value,
+                            is_key_unique,
                         );
-                        array.clear();
                         key.clear();
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
@@ -977,12 +1002,13 @@ impl<'s> IniParser<'s> {
             // Add the last value if we were parsing it right before EOF.
             IniParserState::Value | IniParserState::BeforeValue => {
                 self.add_value_to_config(
-                    &mut root,
+                    config,
                     &section,
                     &key,
                     &buffer,
                     quote.is_some(),
                     skip_section | skip_value,
+                    is_key_unique,
                 )?;
             }
             IniParserState::BeforeArrayValue
@@ -996,7 +1022,7 @@ impl<'s> IniParser<'s> {
             | IniParserState::SkipLineWhitespaceOrComments => {}
         }
 
-        Ok(config)
+        Ok(())
     }
 
     /// Reads the next character from the source string reader.
@@ -1190,10 +1216,10 @@ impl<'s> IniParser<'s> {
 
     /// Returns `Ok(true)` if we need to skip the current section;
     /// else returns `Ok(false)`.
-    fn add_section(&self, root: &mut DynTableMut<'_>, section: &str) -> Result<bool, IniError> {
+    fn add_section<C: IniConfig>(&self, config: &mut C, section: &str) -> Result<bool, IniError> {
         // Section does not exist in the config - add it.
-        if root.get(section).is_err() {
-            root.set(section, Value::Table(DynTable::new())).unwrap();
+        if !config.contains_section(section) {
+            config.add_section(section, false);
             Ok(false)
 
         // Section already exists.
@@ -1207,7 +1233,7 @@ impl<'s> IniParser<'s> {
                 IniDuplicateSections::First => Ok(true),
                 // Overwrite the previous instance section with the new one.
                 IniDuplicateSections::Last => {
-                    root.set(section, Value::Table(DynTable::new())).unwrap();
+                    config.add_section(section, true);
                     Ok(false)
                 }
                 // Just add the new key/value pairs to the existing section.
@@ -1220,14 +1246,15 @@ impl<'s> IniParser<'s> {
     /// If `quoted` is `true`, `value` is always treated as a string,
     /// else it is first interpreted as a bool / integer / float.
     /// Empty `value`'s are treated as strings.
-    fn add_value_to_config(
+    fn add_value_to_config<C: IniConfig>(
         &self,
-        root: &mut DynTableMut<'_>,
+        config: &mut C,
         section: &str,
         key: &str,
         value: &str,
         quoted: bool,
         skip: bool,
+        is_key_unique: bool,
     ) -> Result<(), IniError> {
         debug_assert!(!key.is_empty());
 
@@ -1237,18 +1264,16 @@ impl<'s> IniParser<'s> {
 
         let value = self.parse_value_string(value, quoted)?;
 
-        if section.is_empty() {
-            debug_assert!(self.options.duplicate_keys.allow_non_unique() || root.get(key).is_err());
-            Self::add_value_to_table_impl(key, value, root);
-        } else {
-            // Must succeed.
-            let mut table = root.get_mut(section).unwrap().table().unwrap();
-
-            debug_assert!(
-                self.options.duplicate_keys.allow_non_unique() || table.get(key).is_err()
-            );
-            Self::add_value_to_table_impl(key, value, &mut table);
-        }
+        config.add_value(
+            if section.is_empty() {
+                None
+            } else {
+                Some(section)
+            },
+            key,
+            value,
+            !is_key_unique,
+        );
 
         Ok(())
     }
@@ -1259,7 +1284,7 @@ impl<'s> IniParser<'s> {
     /// Empty `value`'s are treated as strings.
     fn add_value_to_array(
         &self,
-        array: &mut DynArray,
+        array: &mut Vec<IniValue<String>>,
         value: &'s str,
         quoted: bool,
         skip: bool,
@@ -1282,25 +1307,24 @@ impl<'s> IniParser<'s> {
             }
         }
 
-        array
-            .push(match value {
-                IniValue::Bool(value) => Value::Bool(value),
-                IniValue::I64(value) => Value::I64(value),
-                IniValue::F64(value) => Value::F64(value),
-                IniValue::String(value) => Value::String(value.into()),
-            })
-            .unwrap();
+        array.push(match value {
+            IniValue::Bool(value) => IniValue::Bool(value),
+            IniValue::I64(value) => IniValue::I64(value),
+            IniValue::F64(value) => IniValue::F64(value),
+            IniValue::String(value) => IniValue::String(value.into()),
+        });
 
         Ok(())
     }
 
     /// Adds the `array` to the config `section` at `key`.
-    fn add_array_to_config(
-        root: &mut DynTableMut<'_>,
+    fn add_array_to_config<C: IniConfig>(
+        config: &mut C,
         section: &str,
         key: &str,
-        array: &DynArray,
+        array: Vec<IniValue<String>>,
         skip: bool,
+        is_key_unique: bool,
     ) {
         debug_assert!(!key.is_empty());
 
@@ -1308,13 +1332,16 @@ impl<'s> IniParser<'s> {
             return;
         }
 
-        if section.is_empty() {
-            root.set(key, Value::Array(array.clone())).unwrap();
-        } else {
-            // Must succeed.
-            let mut table = root.get_mut(section).unwrap().table().unwrap();
-            table.set(key, Value::Array(array.clone())).unwrap();
-        }
+        config.add_array(
+            if section.is_empty() {
+                None
+            } else {
+                Some(section)
+            },
+            key,
+            array,
+            is_key_unique,
+        );
     }
 
     /// Parses a string `value`.
@@ -1325,7 +1352,7 @@ impl<'s> IniParser<'s> {
         &self,
         value: &'v str,
         quoted: bool,
-    ) -> Result<IniValue<'v>, IniError> {
+    ) -> Result<IniValue<&'v str>, IniError> {
         use IniErrorKind::*;
         use IniValue::*;
 
@@ -1360,57 +1387,62 @@ impl<'s> IniParser<'s> {
         Ok(value)
     }
 
-    fn add_value_to_table_impl(key: &str, val: IniValue<'_>, table: &mut DynTableMut<'_>) {
-        use IniValue::*;
-
-        match val {
-            Bool(val) => table.set(key, Value::Bool(val)).unwrap(),
-            I64(val) => table.set(key, Value::I64(val)).unwrap(),
-            F64(val) => table.set(key, Value::F64(val)).unwrap(),
-            String(val) => table.set(key, Value::String(val.into())).unwrap(),
-        }
-    }
-
-    /// Returns `Ok(true)` if we need to skip the current value;
-    /// else returns `Ok(false)`.
-    fn check_is_key_duplicate(
+    /// Sets `skip_value` to `true` if we need to skip the current value;
+    /// sets `is_key_unique` to `true` if the key is not contained in the root / section of the config.
+    fn check_is_key_duplicate<C: IniConfig>(
         &self,
-        root: &mut DynTableMut<'_>,
+        config: &C,
         section: &str,
         key: &str,
-        skip: bool,
-    ) -> Result<bool, IniError> {
+        skip_section: bool,
+        skip_value: &mut bool,
+        is_key_unique: &mut bool,
+    ) -> Result<(), IniError> {
         use IniErrorKind::*;
 
         debug_assert!(!key.is_empty());
 
-        if skip {
-            return Ok(false);
+        if skip_section {
+            *skip_value = true;
+            *is_key_unique = false;
+
+            return Ok(());
         }
 
-        let is_unique = if section.is_empty() {
-            root.get(key).is_err()
-        } else {
-            root.get(section)
-                .unwrap()
-                .table()
-                .unwrap()
-                .get(key)
-                .is_err()
-        };
+        let is_unique = !config.contains_key(
+            if section.is_empty() {
+                None
+            } else {
+                Some(section)
+            },
+            key,
+        );
 
         match self.options.duplicate_keys {
             IniDuplicateKeys::Forbid => {
                 if is_unique {
-                    Ok(false)
+                    *skip_value = false;
+                    *is_key_unique = true;
+
+                    Ok(())
                 } else {
                     Err(self.error_offset(DuplicateKey(key.into())))
                 }
             }
             // If `is_unique == true`, it's the first key and we must process it -> return `false` (don't skip).
-            IniDuplicateKeys::First => Ok(!is_unique),
+            IniDuplicateKeys::First => {
+                *skip_value = !is_unique;
+                *is_key_unique = is_unique;
+
+                Ok(())
+            }
             // Never skip keys when we're interested in the last one.
-            IniDuplicateKeys::Last => Ok(false),
+            IniDuplicateKeys::Last => {
+                *skip_value = false;
+                *is_key_unique = is_unique;
+
+                Ok(())
+            }
         }
     }
 
@@ -1436,31 +1468,123 @@ impl<'s> IniParser<'s> {
     }
 }
 
+enum ParseEscapeSequenceResult {
+    /// Parsed an escape sequence as a valid char.
+    EscapedChar(char),
+    /// Parsed an escape sequence as a line continuation.
+    LineContinuation,
+}
+
+/// Tries to parse the `string` as an .ini config
+/// using provided `options`
+/// and calling appropriate methods on the `config` object.
+pub fn parse_ini<C: IniConfig>(
+    string: &str,
+    options: IniOptions,
+    config: &mut C,
+) -> Result<(), IniError> {
+    let reader = string.chars();
+    let parser = IniParser::new(reader, options);
+
+    parser.parse(config)?;
+
+    Ok(())
+}
+
+#[cfg(feature = "dyn")]
 pub(crate) fn dyn_config_from_ini(
     string: &str,
     options: IniOptions,
 ) -> Result<DynConfig, IniError> {
-    let reader = string.chars();
-    let parser = IniParser::new(reader, options);
+    impl IniConfig for DynConfig {
+        fn contains_section(&self, section: &str) -> bool {
+            self.root().get_table(section).is_ok()
+        }
 
-    Ok(parser.parse()?)
+        fn add_section(&mut self, section: &str, _overwrite: bool) {
+            self
+                .root_mut()
+                .set(section, Value::Table(DynTable::new()))
+                .unwrap();
+        }
+
+        fn contains_key(&self, section: Option<&str>, key: &str) -> bool {
+            if let Some(section) = section {
+                self.root().get_table(section).unwrap().get(key).is_ok()
+            } else {
+                self.root().get(key).is_ok()
+            }
+        }
+
+        fn add_value(
+            &mut self,
+            section: Option<&str>,
+            key: &str,
+            value: IniValue<&str>,
+            _overwrite: bool,
+        ) {
+            let mut table = if let Some(section) = section {
+                self.root_mut().get_table_mut(section).unwrap()
+            } else {
+                self.root_mut()
+            };
+
+            match value {
+                IniValue::Bool(value) => table.set(key, Value::Bool(value)),
+                IniValue::I64(value) => table.set(key, Value::I64(value)),
+                IniValue::F64(value) => table.set(key, Value::F64(value)),
+                IniValue::String(value) => table.set(key, Value::String(value.into())),
+            }
+            .unwrap();
+        }
+
+        fn add_array(
+            &mut self,
+            section: Option<&str>,
+            key: &str,
+            mut array: Vec<IniValue<String>>,
+            _overwrite: bool,
+        ) {
+            let mut table = if let Some(section) = section {
+                self.root_mut().get_table_mut(section).unwrap()
+            } else {
+                self.root_mut()
+            };
+
+            let mut dyn_array = DynArray::new();
+
+            for value in array.drain(0..array.len()) {
+                dyn_array
+                    .push(match value {
+                        IniValue::Bool(value) => Value::Bool(value),
+                        IniValue::I64(value) => Value::I64(value),
+                        IniValue::F64(value) => Value::F64(value),
+                        IniValue::String(value) => Value::String(value),
+                    })
+                    .unwrap();
+            }
+
+            table.set(key, Value::Array(dyn_array)).unwrap();
+        }
+    }
+
+    let mut config = DynConfig::new();
+
+    parse_ini(string, options, &mut config)?;
+
+    Ok(config)
 }
 
-enum ParseEscapeSequenceResult {
-    // Parsed an escape sequence as a valid char.
-    EscapedChar(char),
-    // Parsed an escape sequence as a line continuation.
-    LineContinuation,
-}
-
-enum IniValue<'s> {
+/// Represents an individual leaf-level .ini config value,
+/// contained in the root of the config, config section or an array.
+pub enum IniValue<S> {
     Bool(bool),
     I64(i64),
     F64(f64),
-    String(&'s str),
+    String(S),
 }
 
-impl<'s> IniValue<'s> {
+impl<S> IniValue<S> {
     fn get_type(&self) -> ValueType {
         match self {
             IniValue::Bool(_) => ValueType::Bool,
@@ -1469,6 +1593,71 @@ impl<'s> IniValue<'s> {
             IniValue::String(_) => ValueType::String,
         }
     }
+}
+
+/// A trait which represents the config being filled by the .ini parser.
+/// Pass an implementation to [`parse_ini`](fn.parse_ini.html).
+pub trait IniConfig {
+    /// Returns `true` if the config already contains the `section`
+    /// (i.e. [`add_section`](#method.add_section) was called with this `section` name,
+    /// regardless of `overwrite` value).
+    /// Else returns `false`.
+    ///
+    /// NOTE - `section` name is not empty.
+    ///
+    /// NOTE - this is necessary because the .ini parser does not keep track internally of all previously parsed sections.
+    fn contains_section(&self, section: &str) -> bool;
+
+    /// Adds the `section` to the config.
+    ///
+    /// If `overwrite` is `true`, the section is duplicate (i.e. [`contains_section`](#method.contains_section) previously returned `true`)
+    /// and the parser is [`configured`](enum.IniDuplicateSections.html) to [`overwrite`](enum.IniDuplicateSections.html#variant.Last)
+    /// the `section`.
+    /// If `overwrite` is `false`, the section is added for the first time.
+    ///
+    /// NOTE - `section` name is not empty.
+    fn add_section(&mut self, section: &str, overwrite: bool);
+
+    /// Returns `true` if the `section` (if `Some`) or the config root (if `section` is `None`) already contains the `key`
+    /// (i.e. [`add_value`](#method.add_value) was called with this `section` name and `key`).
+    /// Else returns `false`.
+    /// NOTE - `section` name, if `Some`, and `key` are not empty.
+    ///
+    /// NOTE - this is necessary because the .ini parser does not keep track internally of all previously parsed keys.
+    fn contains_key(&self, section: Option<&str>, key: &str) -> bool;
+
+    /// Adds the `key` / `value` pair to the `section` (if `Some`) or the config root (if `section` is `None`).
+    ///
+    /// If `overwrite` is `true`, the key is duplicate (i.e. [`contains_key`](#method.contains_key) previously returned `true`)
+    /// and the parser is [`configured`](enum.IniDuplicateKeys.html) to [`overwrite`](enum.IniDuplicateKeys.html#variant.Last)
+    /// the `key`.
+    /// If `overwrite` is `false`, the `key` / `value` pair is added for the first time.
+    ///
+    /// NOTE - `section` name, if `Some`, and `key` are not empty.
+    fn add_value(
+        &mut self,
+        section: Option<&str>,
+        key: &str,
+        value: IniValue<&str>,
+        overwrite: bool,
+    );
+
+    /// Adds the `key` / value pair to the `section` (if `Some`) or the config root (if `section` is `None`),
+    /// where the value is a homogenous `array` of parsed [`.ini values`](enum.IniValue.html).
+    ///
+    /// If `overwrite` is `true`, the key is duplicate (i.e. [`contains_key`](#method.contains_key) previously returned `true`)
+    /// and the parser is [`configured`](enum.IniDuplicateKeys.html) to [`overwrite`](enum.IniDuplicateKeys.html#variant.Last)
+    /// the `key`.
+    /// If `overwrite` is `false`, the `key` / value pair is added for the first time.
+    ///
+    /// NOTE - `section` name, if `Some`, and `key` are not empty.
+    fn add_array(
+        &mut self,
+        section: Option<&str>,
+        key: &str,
+        array: Vec<IniValue<String>>,
+        overwrite: bool,
+    );
 }
 
 #[cfg(test)]

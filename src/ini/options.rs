@@ -59,15 +59,6 @@ pub enum IniDuplicateKeys {
     Last,
 }
 
-impl IniDuplicateKeys {
-    pub(crate) fn allow_non_unique(self) -> bool {
-        match self {
-            Self::Forbid => false,
-            Self::First | Self::Last => true,
-        }
-    }
-}
-
 /// Configuration options for the INI parser.
 #[derive(Clone, Copy, Debug)]
 pub struct IniOptions {

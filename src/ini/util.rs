@@ -84,6 +84,7 @@ pub(crate) fn write_ini_string_impl<W: Write>(
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
 /// string quotes ('\'', '"'),
 /// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 fn string_needs_quotes(section: &str) -> bool {
     for c in section.chars() {
         match c {
@@ -108,6 +109,7 @@ fn string_needs_quotes(section: &str) -> bool {
 /// string quotes ('\'', '"'),
 /// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
 /// it is additionally enclosed in double quotes ('"').
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 pub(crate) fn write_ini_section<W: Write>(
     w: &mut W,
     section: &str,
@@ -140,6 +142,7 @@ pub(crate) fn write_ini_section<W: Write>(
 /// string quotes ('\'', '"'),
 /// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
 /// it is additionally enclosed in double quotes ('"').
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 pub(crate) fn write_ini_key<W: Write>(
     w: &mut W,
     key: &str,

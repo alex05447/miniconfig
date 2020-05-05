@@ -254,7 +254,7 @@ impl DynTable {
         }
     }
 
-    fn set_impl<'s>(
+    fn set_impl(
         &mut self,
         key: &str,
         value: Option<DynConfigValue>,
@@ -271,7 +271,7 @@ impl DynTable {
                 Value::Bool(value) => Value::Bool(value),
                 Value::I64(value) => Value::I64(value),
                 Value::F64(value) => Value::F64(value),
-                Value::String(value) => Value::String(value.into()),
+                Value::String(value) => Value::String(value),
                 Value::Array(value) => Value::Array(value),
                 Value::Table(value) => Value::Table(value),
             };
