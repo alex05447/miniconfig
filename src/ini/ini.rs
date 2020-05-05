@@ -372,8 +372,7 @@ impl<'s> IniParser<'s> {
                         buffer.push(c);
 
                     // Space or valid value char - keep parsing the value.
-                    } else if c == ' '
-                        || Self::is_key_or_value_char(c, self.options.escape, quote)
+                    } else if c == ' ' || Self::is_key_or_value_char(c, self.options.escape, quote)
                     {
                         buffer.push(c);
 
@@ -522,8 +521,7 @@ impl<'s> IniParser<'s> {
                         buffer.push(c);
 
                     // Space or valid key char - keep parsing the key.
-                    } else if c == ' '
-                        || Self::is_key_or_value_char(c, self.options.escape, quote)
+                    } else if c == ' ' || Self::is_key_or_value_char(c, self.options.escape, quote)
                     {
                         buffer.push(c);
 
@@ -724,8 +722,7 @@ impl<'s> IniParser<'s> {
                         buffer.push(c);
 
                     // Space or valid value char - keep parsing the value.
-                    } else if c == ' '
-                        || Self::is_key_or_value_char(c, self.options.escape, quote)
+                    } else if c == ' ' || Self::is_key_or_value_char(c, self.options.escape, quote)
                     {
                         buffer.push(c);
 
@@ -919,8 +916,7 @@ impl<'s> IniParser<'s> {
                         buffer.push(c);
 
                     // Space or valid value char - keep parsing the array value.
-                    } else if c == ' '
-                        || Self::is_key_or_value_char(c, self.options.escape, quote)
+                    } else if c == ' ' || Self::is_key_or_value_char(c, self.options.escape, quote)
                     {
                         buffer.push(c);
 

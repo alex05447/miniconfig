@@ -302,8 +302,8 @@ impl<'lua> LuaTable<'lua> {
         array: bool,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        use ToIniStringError::*;
         use crate::ValueType;
+        use ToIniStringError::*;
 
         debug_assert!(level < 2);
 

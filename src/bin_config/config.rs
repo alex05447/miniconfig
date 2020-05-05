@@ -17,7 +17,7 @@ use super::value::BinConfigPackedValue;
 use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
 
 #[cfg(feature = "dyn")]
-use crate::{DynArray, DynConfig, DynTable, BinArray};
+use crate::{BinArray, DynArray, DynConfig, DynTable};
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
