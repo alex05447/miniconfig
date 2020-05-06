@@ -21,7 +21,7 @@ pub(crate) enum WriteCharError {
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f')
 /// double quotes ('"'),
 /// and, if `quoted` is `false`, single quotes ('\'') and spaces (' ');
-/// if additionally `ini` is `true` and `quoted` is `false`, also escapes INI special characters
+/// if additionally `ini` is `true` and `quoted` is `false`, also escapes `.ini` special characters
 /// ('[', ']', ';', '#', '=', ':').
 #[cfg(any(feature = "bin", feature = "dyn", feature = "ini", feature = "lua"))]
 pub(crate) fn write_char<W: Write>(
@@ -90,7 +90,7 @@ pub(crate) fn write_char<W: Write>(
             }
         }
 
-        // Don't escape the INI special characters in quoted strings.
+        // Don't escape the `.ini` special characters in quoted strings.
         // Else it's an error if `escape` is `false`.
         c @ '[' | c @ ']' | c @ ';' | c @ '#' | c @ '=' | c @ ':' if ini && !quoted => {
             if escape {

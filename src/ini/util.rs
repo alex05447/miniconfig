@@ -62,7 +62,7 @@ where
 /// Writes the `string` to the writer `w`, escaping special characters
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f')
 /// and, if `quoted` is `false`, string quotes ('\'', '"'),
-/// INI special characters ('[', ']', ';', '#', '=', ':') and spaces (' ').
+/// `.ini` special characters ('[', ']', ';', '#', '=', ':') and spaces (' ').
 /// If `quoted` is `true`, single quotes ('\'') are not escaped.
 pub(crate) fn write_ini_string_impl<W: Write>(
     w: &mut W,
@@ -83,7 +83,7 @@ pub(crate) fn write_ini_string_impl<W: Write>(
 /// Returns `true` if the string contains special characters
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
 /// string quotes ('\'', '"'),
-/// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
+/// `.ini` special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 fn string_needs_quotes(section: &str) -> bool {
     for c in section.chars() {
@@ -92,7 +92,7 @@ fn string_needs_quotes(section: &str) -> bool {
             '\\' | '\0' | '\x07' /* '\a' */ | '\x08' /* '\b' */ | '\t' | '\n' | '\r' | '\x0b' /* '\v' */ | '\x0c' /* '\f' */ => { return true; },
             // Space.
             ' ' => { return true; },
-            // INI special characters.
+            // `.ini` special characters.
             '[' | ']' | ';' | '#' | '=' | ':' => { return true; },
             // Quotes.
             '\'' | '"' => { return true; },
@@ -107,7 +107,7 @@ fn string_needs_quotes(section: &str) -> bool {
 /// If the `section` contains special characters
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
 /// string quotes ('\'', '"'),
-/// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
+/// `.ini` special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
 /// it is additionally enclosed in double quotes ('"').
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 pub(crate) fn write_ini_section<W: Write>(
@@ -140,7 +140,7 @@ pub(crate) fn write_ini_section<W: Write>(
 /// If the `key` contains special characters
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\v', '\f', '\r'),
 /// string quotes ('\'', '"'),
-/// INI special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
+/// `.ini` special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
 /// it is additionally enclosed in double quotes ('"').
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 pub(crate) fn write_ini_key<W: Write>(

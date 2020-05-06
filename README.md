@@ -26,7 +26,7 @@ A minimalistic config file crate written in Rust.
 
     ### **INI**
 
-    In INI configs (requires `"ini"` feature), additionally, special INI characters and space (`' '`) must be escaped in section names and keys. These are the special INI characters:
+    In `.ini` configs (requires `"ini"` feature), additionally, special `.ini` characters and space (`' '`) must be escaped in section names and keys. These are the special `.ini` characters:
 
     - `[` (section start delimiter, array start delimiter)
     - `]` (section end delimiter, array end delimiter)
@@ -35,7 +35,7 @@ A minimalistic config file crate written in Rust.
     - `=` (default key-value separator)
     - `:` (optional key-value separator)
 
-    Section names, keys and string values may be enclosed in (matching) single (`'`) or (`"`) double quotes. In this case space (`' '`), non-matching double (`"`) or single (`'`) quotes and special INI characters do not have to be (but may be) escaped.
+    Section names, keys and string values may be enclosed in (matching) single (`'`) or (`"`) double quotes. In this case space (`' '`), non-matching double (`"`) or single (`'`) quotes and special `.ini` characters do not have to be (but may be) escaped.
 
 - **Values**
 
@@ -55,7 +55,7 @@ A minimalistic config file crate written in Rust.
 
     **Runtime**: internally represented by a root Lua table reference. Provides a mutable config interface. Can add/modify/remove values.
 
-    **Serialization**: to string Lua script, to binary config (requires `"bin"` feature), to string INI config (requires `"ini"` feature, does not support arrays / nested tables).
+    **Serialization**: to string Lua script, to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support arrays / nested tables).
 
     **Example**:
 
@@ -80,11 +80,11 @@ A minimalistic config file crate written in Rust.
 
     Main format for runtime representation of dynamic configs, or an intermediate representation for Lua configs (after deserialization) / binary configs (before serialization).
 
-    **Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections - nested tables. Unquoted values, if allowed, are parsed as booleans / integers / floats / strings, in order. Quoted values, if enabled, are always treated as strings.
+    **Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections - nested tables. Unquoted values, if allowed, are parsed as booleans / integers / floats / strings, in order. Quoted values, if enabled, are always treated as strings. Homogenous arrays of booleans / integers / floats / strings are supported.
 
     **Runtime**: internally represented by a root hashmap with string keys. Provides a mutable config interface. Can add/modify/remove values.
 
-    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string INI config (requires `"ini"` feature, does not support nested tables).
+    **Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support nested tables).
 
     **Example**:
 
@@ -97,13 +97,13 @@ A minimalistic config file crate written in Rust.
     ; (it is by default).
     key = value ; Inline comments are optionally supported.
 
-    ; Spaces and other special/INI characters may be escaped with `\`.
+    ; Spaces and other special / `.ini` characters may be escaped with `\`.
     ; This key is `key 2`, value is a boolean `true`.
     ; The only valid values for booleans are the strings `true` and `false`
     ; (but not `yes` \ `no`, `on` \ `off`, `0` \ `1`).
     key\ 2 = true
 
-    ; Quoted keys do not have to escape space and INI characters
+    ; Quoted keys do not have to escape space and `.ini` characters
     ; (but do have to escape special characters).
     ; Double quotes (`"`) are used by default, single quotes (`'`) are optional.
     ; This key is `key 3`, value is a signed 64-buit integer `7`.
@@ -174,7 +174,7 @@ A minimalistic config file crate written in Rust.
 
     **Runtime**: wrapper over the raw byte blob. Provides a read-only config interface. Cannot add/modify/remove values.
 
-    **Serialization**: to string Lua script (requires `"lua"` feature), to string INI config (requires `"ini"` feature, does not support arrays / nested tables).
+    **Serialization**: to string Lua script (requires `"lua"` feature), to string `.ini` config (requires `"ini"` feature, does not support arrays / nested tables).
 
     **Use cases**: use for read-only data of arbitrary complexity which must not be user-visible, or for caching of data which does not need to change frequently at runtime for loading / access performance.
 
@@ -188,16 +188,16 @@ Requires some path dependencies in the parent directory - see `Dependencies` sec
 
 ## Features
 
-- `"lua"` (enabled by default) - adds support for Lua configs.
-- `"dyn"` (enabled by default) - adds support for dynamic configs.
-- `"bin"` (enabled by default) - adds support for binary configs, serialization of Lua/dynamic configs to binary configs.
-- `"ini"` (requires `"dyn"` feature, enabled by default) - adds support for parsing INI config strings to dynamic configs, serialization of Lua/dynamic/binary configs to INI config strings.
+- `"lua"` - adds support for Lua configs.
+- `"dyn"` - adds support for dynamic configs.
+- `"bin"` - adds support for binary configs, serialization of Lua/dynamic configs to binary configs.
+- `"ini"` - adds support for parsing `.ini` config strings, serialization of Lua (requires `"lua"` feature) / dynamic (requires `"dyn"` feature) / binary (requires `"bin"` feature) configs to `.ini` config strings.
 
 ## Dependencies
 
 - If "lua" feature is enabled (it is by default), [`rlua`](https://crates.io/crates/rlua) and [`rlua_ext`](https://github.com/alex05447/rlua_ext) as a path dependency (TODO - github dependency?).
 
-- If "ini" feature is enabled, [`bitflags`](https://crates.io/crates/bitflags) for INI parser options.
+- If "ini" feature is enabled, [`bitflags`](https://crates.io/crates/bitflags) for `.ini` parser options.
 
 ## Problems / missing features
 

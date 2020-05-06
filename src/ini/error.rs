@@ -74,7 +74,7 @@ pub enum IniErrorKind {
     UnexpectedEndOfFileInQuotedArrayValue,
 }
 
-/// An error returned by the INI parser.
+/// An error returned by the [`.ini parser`](struct.IniParser.html).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct IniError {
     /// Line in the source string where the error occured.
@@ -213,7 +213,7 @@ impl Display for IniError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
-            "INI parse error. Line: {}, column: {}. {}",
+            "`.ini` parse error. Line: {}, column: {}. {}",
             self.line, self.column, self.error
         )
     }
@@ -226,7 +226,7 @@ pub enum ToIniStringError {
     ArraysNotAllowed,
     /// Only boolean, number and string arrays are supported.
     InvalidArrayType,
-    /// Tables nested within tables are not supported in INI configs.
+    /// Tables nested within tables are not supported in `.ini` configs.
     NestedTablesNotSupported,
     /// General write error (out of memory?).
     WriteError,
@@ -244,7 +244,7 @@ impl Display for ToIniStringError {
             InvalidArrayType => write!(f, "Only boolean, number and string arrays are supported."),
             NestedTablesNotSupported => write!(
                 f,
-                "Tables nested within tables are not supported in INI configs."
+                "Tables nested within tables are not supported in `.ini` configs."
             ),
             WriteError => write!(f, "General write error (out of memory?)."),
             EscapedCharacterNotAllowed(c) => write!(

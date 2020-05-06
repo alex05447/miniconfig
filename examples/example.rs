@@ -91,7 +91,7 @@ foo = false
             "Source and serialized Lua scripts mismatch."
         );
 
-        // Can't serialize to INI string by default - arrays are not supported.
+        // Can't serialize to `.ini` string by default - arrays are not supported.
         assert_eq!(
             lua_config.to_ini_string(),
             Err(ToIniStringError::ArraysNotAllowed)
@@ -106,7 +106,7 @@ foo = false
                 })
                 .unwrap(),
             ini_script,
-            "Serialized INI config mismatch."
+            "Serialized `.ini` config mismatch."
         );
 
         // Serialize to binary config.
@@ -156,7 +156,7 @@ foo = false
             "Source and serialized Lua scripts mismatch."
         );
 
-        // Can't serialize to INI string by default - arrays are not supported.
+        // Can't serialize to `.ini` string by default - arrays are not supported.
         assert_eq!(
             bin_config.to_ini_string(),
             Err(ToIniStringError::ArraysNotAllowed)
@@ -171,15 +171,15 @@ foo = false
                 })
                 .unwrap(),
             ini_script,
-            "Serialized INI config mismatch."
+            "Serialized `.ini` config mismatch."
         );
     }
 
     {
-        // Load from INI.
+        // Load from `.ini`.
         let ini_config = DynConfig::from_ini(IniParser::new(ini_script).arrays(true)).unwrap();
 
-        // Serialize to INI.
+        // Serialize to `.ini`.
         assert_eq!(
             ini_config
                 .to_ini_string_opts(ToIniStringOptions {
@@ -188,7 +188,7 @@ foo = false
                 })
                 .unwrap(),
             ini_script,
-            "Source and serialized INI configs mismatch."
+            "Source and serialized `.ini` configs mismatch."
         );
     }
 }

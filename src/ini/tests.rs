@@ -62,7 +62,7 @@ fn InvalidCharacterAtLineStart() {
     assert_eq!(ini.root().len(), 0);
 
     let ini =
-        DynConfig::from_ini(IniParser::new("#").comments(IniCommentSeparator::NumberSign)).unwrap(); // Comment
+        DynConfig::from_ini(IniParser::new("#").comments(IniCommentDelimiter::NumberSign)).unwrap(); // Comment
     assert_eq!(ini.root().len(), 0);
 }
 
@@ -99,7 +99,7 @@ fn InvalidCharacterInSectionName() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a;").comments(IniCommentSeparator::NumberSign),)
+        DynConfig::from_ini(IniParser::new("[a;").comments(IniCommentDelimiter::NumberSign),)
             .err()
             .unwrap(),
         IniError {
@@ -401,7 +401,7 @@ fn InvalidCharacterAtLineEnd() {
 
     let ini = DynConfig::from_ini(
         IniParser::new("[a] #")
-            .comments(IniCommentSeparator::NumberSign)
+            .comments(IniCommentDelimiter::NumberSign)
             .inline_comments(true),
     )
     .unwrap(); // Supported inline comment.
@@ -806,7 +806,7 @@ fn InvalidCharacterInValue() {
 
     let ini = DynConfig::from_ini(
         IniParser::new("a=a#")
-            .comments(IniCommentSeparator::NumberSign)
+            .comments(IniCommentDelimiter::NumberSign)
             .inline_comments(true),
     )
     .unwrap(); // Supported inline comments.

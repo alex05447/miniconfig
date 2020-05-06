@@ -1,11 +1,11 @@
 use std::str::Chars;
 
 use crate::{
-    IniCommentSeparator, IniDuplicateKeys, IniDuplicateSections, IniError, IniErrorKind,
+    IniCommentDelimiter, IniDuplicateKeys, IniDuplicateSections, IniError, IniErrorKind,
     IniKeyValueSeparator, IniOptions, IniStringQuote, ValueType,
 };
 
-/// INI parser FSM states.
+/// `.ini` parser FSM states.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum IniParserState {
     /// Accept whitespace (including new lines),
@@ -129,16 +129,18 @@ impl<'s> IniParser<'s> {
         }
     }
 
-    /// Sets the valid comment separator character(s).
-    /// If `None`, comments are not supported.
-    /// Default: `Semicolon`.
-    pub fn comments(mut self, comments: IniCommentSeparator) -> Self {
+    /// Sets the valid comment delimiter character(s).
+    /// If [`None`](struct.IniCommentDelimiter.html#associatedconstant.None), comments are not supported.
+    ///
+    /// Default: [`Semicolon`](struct.IniCommentDelimiter.html#associatedconstant.Semicolon).
+    pub fn comments(mut self, comments: IniCommentDelimiter) -> Self {
         self.options.comments = comments;
         self
     }
 
     /// Sets whether inline comments (i.e. those which don't begin at the start of the line) are supported.
-    /// If `comments` is `None`, this value is ignored.
+    /// If [`comments`](#method.comments) is [`None`](struct.IniCommentDelimiter.html#associatedconstant.None), this value is ignored.
+    ///
     /// Default: `false`.
     pub fn inline_comments(mut self, inline_comments: bool) -> Self {
         self.options.inline_comments = inline_comments;
@@ -146,18 +148,20 @@ impl<'s> IniParser<'s> {
     }
 
     /// Sets the valid key-value separator character(s).
-    /// If no flag is set, `Equals` is assumed.
-    /// Default: `Equals`.
+    /// If no flag is set, [`Equals`](struct.IniKeyValueSeparator.html#associatedconstant.Equals) is assumed.
+    ///
+    /// Default: [`Equals`](struct.IniKeyValueSeparator.html#associatedconstant.Equals).
     pub fn key_value_separator(mut self, key_value_separator: IniKeyValueSeparator) -> Self {
         self.options.key_value_separator = key_value_separator;
         self
     }
 
     /// Sets the valid string value quote character(s).
-    /// If `None`, quoted strings are not supported.
+    /// If [`None`](struct.IniStringQuote.html#associatedconstant.None), quoted strings are not supported.
     /// In this case all values will be parsed as booleans / integers / floats / strings, in order.
     /// E.g., the value `true` is always interpreted as a boolean.
-    /// Default: `Double`.
+    ///
+    /// Default: [`Double`](struct.IniStringQuote.html#associatedconstant.Double).
     pub fn string_quotes(mut self, string_quotes: IniStringQuote) -> Self {
         self.options.string_quotes = string_quotes;
         self
@@ -165,7 +169,8 @@ impl<'s> IniParser<'s> {
 
     /// Sets whether unquoted string values are supported.
     /// If `false`, an unquoted value must parse as a boolean / integer / float, or an error will be raised.
-    /// If [`string_quotes`](#method.string_quotes) is `None`, this value is ignored.
+    /// If [`string_quotes`](#method.string_quotes) is [`None`](struct.IniStringQuote.html#associatedconstant.None), this value is ignored.
+    ///
     /// Default: `true`.
     pub fn unquoted_strings(mut self, unquoted_strings: bool) -> Self {
         self.options.unquoted_strings = unquoted_strings;
@@ -195,6 +200,7 @@ impl<'s> IniParser<'s> {
     ///     `'\:'`,
     ///     `'\x????'` (where `?` are 4 hexadecimal digits).
     /// If `false`, backslash ('\') is treated as a normal section name / key / value character.
+    ///
     /// Default: `true`.
     pub fn escape(mut self, escape: bool) -> Self {
         self.options.escape = escape;
@@ -204,6 +210,7 @@ impl<'s> IniParser<'s> {
     /// Sets whether line ontinuation esacpe sequences (a backslash '\' followed by a newline '\n' / '\r')
     /// are supported in keys, section names and string values.
     /// If [`escape`](#method.escape) is `false`, this value is ignored.
+    ///
     /// Default: `false`.
     pub fn line_continuation(mut self, line_continuation: bool) -> Self {
         self.options.line_continuation = line_continuation;
@@ -211,23 +218,26 @@ impl<'s> IniParser<'s> {
     }
 
     /// Sets the duplicate section handling policy.
-    /// Default: `Merge`.
+    ///
+    /// Default: [`Merge`](enum.IniDuplicateSections.html#variant.Merge).
     pub fn duplicate_sections(mut self, duplicate_sections: IniDuplicateSections) -> Self {
         self.options.duplicate_sections = duplicate_sections;
         self
     }
 
     /// Sets the duplicate key handling policy.
-    /// Default: `Forbid`.
+    ///
+    /// Default: [`Forbid`](enum.IniDuplicateKeys.html#variant.Forbid).
     pub fn duplicate_keys(mut self, duplicate_keys: IniDuplicateKeys) -> Self {
         self.options.duplicate_keys = duplicate_keys;
         self
     }
 
     /// Sets whether arrays are supported.
-    /// If `true`, values enclosed in brackets '[' \ ']' are parsed as
-    /// comma (',') delimited arrays of booleans / integers / floats / strings.
+    /// If `true`, values enclosed in brackets `'['` \ `']'` are parsed as
+    /// comma (`','`) delimited arrays of booleans / integers / floats / strings.
     /// Types may not be mixed in the array, except integers / floats.
+    ///
     /// Default: `false`.
     pub fn arrays(mut self, arrays: bool) -> Self {
         self.options.arrays = arrays;
@@ -1187,12 +1197,12 @@ impl<'s> IniParser<'s> {
             && self
                 .options
                 .comments
-                .contains(IniCommentSeparator::Semicolon))
+                .contains(IniCommentDelimiter::Semicolon))
             || ((val == '#')
                 && self
                     .options
                     .comments
-                    .contains(IniCommentSeparator::NumberSign))
+                    .contains(IniCommentDelimiter::NumberSign))
     }
 
     /// Are inline comments enabled and is the character a supported comment delimiter?
@@ -1290,7 +1300,7 @@ impl<'s> IniParser<'s> {
             // Escaped space.
             Some(' ') => Ok(EscapedChar(' ')),
 
-            // Escaped INI special characters, disallowed otherwise.
+            // Escaped `.ini` special characters, disallowed otherwise.
             Some('[') => Ok(EscapedChar('[')),
             Some(']') => Ok(EscapedChar(']')),
             Some(';') => Ok(EscapedChar(';')),
@@ -1570,7 +1580,7 @@ impl<'s> IniParser<'s> {
             '"' => quote == Some('\''),
             '\'' => quote == Some('"'),
 
-            // Space and special INI characters in key/value/section strings
+            // Space and special `.ini` characters in key/value/section strings
             // (except string quotes, handled above) don't need to be escaped in quoted strings.
             ' ' | '[' | ']' | '=' | ':' | ';' | '#' => quote.is_some(),
 
@@ -1606,7 +1616,8 @@ impl<S> IniValue<S> {
     }
 }
 
-/// A trait which represents the config being filled by the [`.ini parser`](struct.IniParser.html).
+/// A trait which represents the config being filled by the [`.ini parser`](struct.IniParser.html)
+/// during the call to [`parse`](struct.IniParser.html#method.parse).
 pub trait IniConfig {
     /// Returns `true` if the config already contains the `section`
     /// (i.e. [`add_section`](#method.add_section) was called with this `section` name,
@@ -1631,6 +1642,7 @@ pub trait IniConfig {
     /// Returns `true` if the `section` (if `Some`) or the config root (if `section` is `None`) already contains the `key`
     /// (i.e. [`add_value`](#method.add_value) was called with this `section` name and `key`).
     /// Else returns `false`.
+    ///
     /// NOTE - `section` name, if `Some`, and `key` are not empty.
     ///
     /// NOTE - this is necessary because the .ini parser does not keep track internally of all previously parsed keys.
@@ -1644,6 +1656,8 @@ pub trait IniConfig {
     /// If `overwrite` is `false`, the `key` / `value` pair is added for the first time.
     ///
     /// NOTE - `section` name, if `Some`, and `key` are not empty.
+    ///
+    /// NOTE - [`add_section`](#method.add_section) was called with this same `section` before at least once.
     fn add_value(
         &mut self,
         section: Option<&str>,
@@ -1661,6 +1675,8 @@ pub trait IniConfig {
     /// If `overwrite` is `false`, the `key` / value pair is added for the first time.
     ///
     /// NOTE - `section` name, if `Some`, and `key` are not empty.
+    ///
+    /// NOTE - [`add_section`](#method.add_section) was called with this same `section` before at least once.
     fn add_array(
         &mut self,
         section: Option<&str>,
