@@ -238,15 +238,20 @@ fn basic_table() {
         );
 
         // Add a value.
+        assert!(!root.contains("bool"));
         root.set("bool", Value::Bool(true)).unwrap();
         assert_eq!(root.len(), 1);
+        assert!(root.contains("bool"));
         assert_eq!(root.get_bool("bool").unwrap(), true);
 
         // Add a couple more.
+        assert!(!root.contains("i64"));
         root.set("i64", Value::I64(7)).unwrap();
         assert_eq!(root.len(), 2);
+        assert!(root.contains("i64"));
         assert_eq!(root.get_i64("i64").unwrap(), 7);
 
+        assert!(!root.contains("string"));
         root.set("string", Value::String("foo")).unwrap();
         assert_eq!(root.len(), 3);
         assert_eq!(root.get_string("string").unwrap().as_ref(), "foo");
@@ -272,9 +277,13 @@ fn basic_table() {
 
         // Add a nested table.
         let mut nested_table = LuaTable::new(lua);
+        assert!(!nested_table.contains("nested_bool"));
+        assert!(!nested_table.contains("nested_int"));
         nested_table.set("nested_bool", Value::Bool(false)).unwrap();
         nested_table.set("nested_int", Value::I64(-9)).unwrap();
         assert_eq!(nested_table.len(), 2);
+        assert!(nested_table.contains("nested_bool"));
+        assert!(nested_table.contains("nested_int"));
 
         root.set("table", Value::Table(nested_table)).unwrap();
         assert_eq!(root.len(), 3);

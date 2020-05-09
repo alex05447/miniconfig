@@ -51,6 +51,20 @@ impl DynTable {
         self.0.clear()
     }
 
+    /// Returns `true` if the [`table`] contains a [`value`] with the string `key`.
+    ///
+    /// [`table`]: struct.DynTable.html
+    /// [`value`]: type.DynConfigValueRef.html
+    pub fn contains<'k, K: Into<&'k str>>(&self, key: K) -> bool {
+        match self.get_impl(key.into()) {
+            Ok(_) => true,
+            Err(err) => match err {
+                DynTableGetError::KeyDoesNotExist => false,
+                DynTableGetError::IncorrectValueType(_) => unreachable!(),
+            },
+        }
+    }
+
     /// Tries to get an immutable reference to a [`value`] in the [`table`] with the string `key`.
     ///
     /// Returns an [`error`] if the [`table`] does not contain the `key`.
@@ -58,8 +72,8 @@ impl DynTable {
     /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get<'t, 'k, K: Into<&'k str>>(
-        &'t self,
+    pub fn get<'k, K: Into<&'k str>>(
+        &self,
         key: K,
     ) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
         self.get_impl(key.into())
@@ -237,7 +251,7 @@ impl DynTable {
         self.0.len() as u32
     }
 
-    fn get_impl<'t>(&'t self, key: &str) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
+    fn get_impl(&self, key: &str) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
         if let Some(value) = self.0.get(key) {
             let value = match value {
                 Value::Bool(value) => Value::Bool(*value),

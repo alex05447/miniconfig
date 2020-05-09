@@ -249,9 +249,9 @@ impl IniConfig for DynConfig {
 
     fn contains_key(&self, section: Option<&str>, key: &str) -> bool {
         if let Some(section) = section {
-            self.root().get_table(section).unwrap().get(key).is_ok()
+            self.root().get_table(section).unwrap().contains(key)
         } else {
-            self.root().get(key).is_ok()
+            self.root().contains(key)
         }
     }
 

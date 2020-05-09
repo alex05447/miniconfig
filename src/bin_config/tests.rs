@@ -215,10 +215,14 @@ fn writer() {
     let table_value = config.root().get_table("table_value").unwrap();
 
     assert_eq!(table_value.len(), 3);
+    assert!(table_value.contains("bar"));
     assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
+    assert!(table_value.contains("baz"));
     assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
+    assert!(table_value.contains("baz"));
     assert_eq!(table_value.get_string("baz").unwrap(), "hello");
     assert_eq!(table_value.get_bool("foo").unwrap(), false);
+    assert!(!table_value.contains("bob"));
 }
 
 #[cfg(feature = "ini")]

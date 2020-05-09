@@ -31,6 +31,20 @@ impl<'t> BinTable<'t> {
         self.0.len
     }
 
+    /// Returns `true` if the [`table`] contains a [`value`] with the string `key`.
+    ///
+    /// [`table`]: struct.BinTable.html
+    /// [`value`]: type.BinConfigValue.html
+    pub fn contains<'k, K: Into<&'k str>>(&self, key: K) -> bool {
+        match self.get_impl(key.into()) {
+            Ok(_) => true,
+            Err(err) => match err {
+                BinTableGetError::KeyDoesNotExist => false,
+                BinTableGetError::IncorrectValueType(_) => unreachable!(),
+            },
+        }
+    }
+
     /// Tries to get a reference to a [`value`] in the [`table`] with the string `key`.
     ///
     /// Returns an [`error`] if the [`table`] does not contain the `key`.

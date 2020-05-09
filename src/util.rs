@@ -90,7 +90,7 @@ pub(crate) fn write_char<W: Write>(
             }
         }
 
-        // Don't escape the `.ini` special characters in quoted strings.
+        // Don't escape the `.ini` special characters in quoted `.ini` strings.
         // Else it's an error if `escape` is `false`.
         c @ '[' | c @ ']' | c @ ';' | c @ '#' | c @ '=' | c @ ':' if ini && !quoted => {
             if escape {

@@ -37,6 +37,20 @@ impl<'lua> LuaTable<'lua> {
         self.len_impl()
     }
 
+    /// Returns `true` if the [`table`] contains a [`value`] with the string `key`.
+    ///
+    /// [`table`]: struct.LuaTable.html
+    /// [`value`]: type.LuaConfigValue.html
+    pub fn contains<'k, K: Into<&'k str>>(&self, key: K) -> bool {
+        match self.get_impl(key.into()) {
+            Ok(_) => true,
+            Err(err) => match err {
+                LuaTableGetError::KeyDoesNotExist => false,
+                LuaTableGetError::IncorrectValueType(_) => unreachable!(),
+            },
+        }
+    }
+
     /// Tries to get a reference to a [`value`] in the [`table`] with the string `key`.
     ///
     /// Returns an [`error`] if the [`table`] does not contain the `key`.

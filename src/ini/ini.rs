@@ -98,7 +98,8 @@ enum IniParserState {
     AfterArrayValue,
 }
 
-/// Parses the .ini config string.
+/// Parses the .ini config string, using the user-provided parsing options
+/// and the [`config`](trait.IniConfig.html) object.
 pub struct IniParser<'s> {
     /// Source string reader.
     reader: Chars<'s>,
@@ -111,7 +112,7 @@ pub struct IniParser<'s> {
     /// Current parser FSM state.
     state: IniParserState,
 
-    // Parsing options as provided by the user.
+    /// Parsing options as provided by the user.
     options: IniOptions,
 }
 

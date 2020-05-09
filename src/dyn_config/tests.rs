@@ -19,22 +19,29 @@ fn basic_table() {
     );
 
     // Add a value.
+    assert!(!root.contains("bool"));
     root.set("bool", Value::Bool(true)).unwrap();
     assert_eq!(root.len(), 1);
+    assert!(root.contains("bool"));
     assert_eq!(root.get_bool("bool").unwrap(), true);
 
     // Add a couple more.
+    assert!(!root.contains("i64"));
     root.set("i64", Value::I64(7)).unwrap();
     assert_eq!(root.len(), 2);
+    assert!(root.contains("i64"));
     assert_eq!(root.get_i64("i64").unwrap(), 7);
 
+    assert!(!root.contains("string"));
     root.set("string", Value::String("foo".into())).unwrap();
     assert_eq!(root.len(), 3);
+    assert!(root.contains("string"));
     assert_eq!(root.get_string("string").unwrap(), "foo");
 
     // Change a value.
     root.set("string", Value::String("bar".into())).unwrap();
     assert_eq!(root.len(), 3);
+    assert!(root.contains("string"));
     assert_eq!(root.get_string("string").unwrap(), "bar");
 
     // Try to remove a nonexistent value.
@@ -46,6 +53,7 @@ fn basic_table() {
     // Remove a value.
     root.set("bool", None).unwrap();
     assert_eq!(root.len(), 2);
+    assert!(!root.contains("bool"));
     match root.get("bool") {
         Err(DynTableGetError::KeyDoesNotExist) => {}
         _ => panic!("Expected an error."),
@@ -56,9 +64,12 @@ fn basic_table() {
     nested_table.set("nested_bool", Value::Bool(false)).unwrap();
     nested_table.set("nested_int", Value::I64(-9)).unwrap();
     assert_eq!(nested_table.len(), 2);
+    assert!(nested_table.contains("nested_bool"));
+    assert!(nested_table.contains("nested_int"));
 
     root.set("table", Value::Table(nested_table)).unwrap();
     assert_eq!(root.len(), 3);
+    assert!(root.contains("table"));
 
     // Add a nested array.
     let mut nested_array = DynArray::new();
@@ -70,6 +81,7 @@ fn basic_table() {
 
     root.set("array", Value::Array(nested_array)).unwrap();
     assert_eq!(root.len(), 4);
+    assert!(root.contains("array"));
 
     // Iterate the table.
     for (key, value) in root.iter() {
