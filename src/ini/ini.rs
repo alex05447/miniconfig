@@ -98,7 +98,7 @@ enum IniParserState {
     AfterArrayValue,
 }
 
-/// Parses the .ini config string, using the user-provided parsing options
+/// Parses the `.ini` config string, using the user-provided parsing options
 /// and the [`config`](trait.IniConfig.html) object.
 pub struct IniParser<'s> {
     /// Source string reader.
@@ -117,7 +117,7 @@ pub struct IniParser<'s> {
 }
 
 impl<'s> IniParser<'s> {
-    /// Creates a new [`parser`](struct.IniParser.html) from an .ini config `string`
+    /// Creates a new [`parser`](struct.IniParser.html) from an `.ini` config `string`
     /// using default parsing options.
     pub fn new(string: &'s str) -> Self {
         Self {
@@ -245,7 +245,7 @@ impl<'s> IniParser<'s> {
         self
     }
 
-    /// Consumes the parser and tries to parse the .ini config string, filling the passed `config`.
+    /// Consumes the parser and tries to parse the `.ini` config string, filling the passed `config`.
     pub fn parse<C: IniConfig>(mut self, config: &mut C) -> Result<(), IniError> {
         use IniErrorKind::*;
 
@@ -1597,7 +1597,7 @@ enum ParseEscapeSequenceResult {
     LineContinuation,
 }
 
-/// Represents an individual leaf-level .ini config value,
+/// Represents an individual leaf-level `.ini` config value,
 /// contained in the root of the config, config section or an array.
 pub enum IniValue<S> {
     Bool(bool),
@@ -1627,7 +1627,7 @@ pub trait IniConfig {
     ///
     /// NOTE - `section` name is not empty.
     ///
-    /// NOTE - this is necessary because the .ini parser does not keep track internally of all previously parsed sections.
+    /// NOTE - this is necessary because the `.ini` parser does not keep track internally of all previously parsed sections.
     fn contains_section(&self, section: &str) -> bool;
 
     /// Adds the `section` to the config.
@@ -1646,7 +1646,7 @@ pub trait IniConfig {
     ///
     /// NOTE - `section` name, if `Some`, and `key` are not empty.
     ///
-    /// NOTE - this is necessary because the .ini parser does not keep track internally of all previously parsed keys.
+    /// NOTE - this is necessary because the `.ini` parser does not keep track internally of all previously parsed keys.
     fn contains_key(&self, section: Option<&str>, key: &str) -> bool;
 
     /// Adds the `key` / `value` pair to the `section` (if `Some`) or the config root (if `section` is `None`).
