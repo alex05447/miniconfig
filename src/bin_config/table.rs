@@ -35,8 +35,8 @@ impl<'t> BinTable<'t> {
     ///
     /// [`table`]: struct.BinTable.html
     /// [`value`]: type.BinConfigValue.html
-    pub fn contains<'k, K: Into<&'k str>>(&self, key: K) -> bool {
-        match self.get_impl(key.into()) {
+    pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
+        match self.get_impl(key.as_ref()) {
             Ok(_) => true,
             Err(err) => match err {
                 BinTableGetError::KeyDoesNotExist => false,
@@ -52,11 +52,11 @@ impl<'t> BinTable<'t> {
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: struct.BinTableGetError.html
-    pub fn get<'k, K: Into<&'k str>>(
+    pub fn get<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<BinConfigValue<'t>, BinTableGetError> {
-        self.get_impl(key.into())
+        self.get_impl(key.as_ref())
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
@@ -67,7 +67,7 @@ impl<'t> BinTable<'t> {
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: struct.BinTableGetError.html
-    pub fn get_bool<'k, K: Into<&'k str>>(&self, key: K) -> Result<bool, BinTableGetError> {
+    pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, BinTableGetError> {
         let val = self.get(key)?;
         val.bool()
             .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
@@ -81,7 +81,7 @@ impl<'t> BinTable<'t> {
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: struct.BinTableGetError.html
-    pub fn get_i64<'k, K: Into<&'k str>>(&self, key: K) -> Result<i64, BinTableGetError> {
+    pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, BinTableGetError> {
         let val = self.get(key)?;
         val.i64()
             .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
@@ -95,7 +95,7 @@ impl<'t> BinTable<'t> {
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: struct.BinTableGetError.html
-    pub fn get_f64<'k, K: Into<&'k str>>(&self, key: K) -> Result<f64, BinTableGetError> {
+    pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, BinTableGetError> {
         let val = self.get(key)?;
         val.f64()
             .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
@@ -109,7 +109,7 @@ impl<'t> BinTable<'t> {
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: struct.BinTableGetError.html
-    pub fn get_string<'k, K: Into<&'k str>>(&self, key: K) -> Result<&'t str, BinTableGetError> {
+    pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<&'t str, BinTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.string()
@@ -124,7 +124,7 @@ impl<'t> BinTable<'t> {
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: struct.BinTableGetError.html
-    pub fn get_array<'k, K: Into<&'k str>>(
+    pub fn get_array<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<BinArray<'t>, BinTableGetError> {
@@ -141,7 +141,7 @@ impl<'t> BinTable<'t> {
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: struct.BinTableGetError.html
-    pub fn get_table<'k, K: Into<&'k str>>(
+    pub fn get_table<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<BinTable<'t>, BinTableGetError> {

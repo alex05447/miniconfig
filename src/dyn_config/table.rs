@@ -55,8 +55,8 @@ impl DynTable {
     ///
     /// [`table`]: struct.DynTable.html
     /// [`value`]: type.DynConfigValueRef.html
-    pub fn contains<'k, K: Into<&'k str>>(&self, key: K) -> bool {
-        match self.get_impl(key.into()) {
+    pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
+        match self.get_impl(key.as_ref()) {
             Ok(_) => true,
             Err(err) => match err {
                 DynTableGetError::KeyDoesNotExist => false,
@@ -72,11 +72,12 @@ impl DynTable {
     /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get<'k, K: Into<&'k str>>(
+    //pub fn get<K: AsRef<str>>(
+    pub fn get<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
-        self.get_impl(key.into())
+        self.get_impl(key.as_ref())
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
@@ -87,7 +88,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_bool<'k, K: Into<&'k str>>(&self, key: K) -> Result<bool, DynTableGetError> {
+    pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, DynTableGetError> {
         let val = self.get(key)?;
         val.bool()
             .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
@@ -101,7 +102,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_i64<'k, K: Into<&'k str>>(&self, key: K) -> Result<i64, DynTableGetError> {
+    pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, DynTableGetError> {
         let val = self.get(key)?;
         val.i64()
             .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
@@ -115,7 +116,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_f64<'k, K: Into<&'k str>>(&self, key: K) -> Result<f64, DynTableGetError> {
+    pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, DynTableGetError> {
         let val = self.get(key)?;
         val.f64()
             .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
@@ -129,7 +130,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_string<'k, K: Into<&'k str>>(&self, key: K) -> Result<&str, DynTableGetError> {
+    pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<&str, DynTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.string()
@@ -144,7 +145,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_array<'k, K: Into<&'k str>>(
+    pub fn get_array<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<DynArrayRef<'_>, DynTableGetError> {
@@ -161,7 +162,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_table<'k, K: Into<&'k str>>(
+    pub fn get_table<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<DynTableRef<'_>, DynTableGetError> {
@@ -192,11 +193,11 @@ impl DynTable {
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_mut<'k, K: Into<&'k str>>(
+    pub fn get_mut<K: AsRef<str>>(
         &mut self,
         key: K,
     ) -> Result<DynConfigValueMut<'_>, DynTableGetError> {
-        self.get_mut_impl(key.into())
+        self.get_mut_impl(key.as_ref())
     }
 
     /// Tries to get a mutable reference to an [`array`] [`value`] in the [`table`] with the string `key`.
@@ -207,7 +208,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_array_mut<'k, K: Into<&'k str>>(
+    pub fn get_array_mut<K: AsRef<str>>(
         &mut self,
         key: K,
     ) -> Result<DynArrayMut<'_>, DynTableGetError> {
@@ -224,7 +225,7 @@ impl DynTable {
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: struct.DynTableGetError.html
-    pub fn get_table_mut<'k, K: Into<&'k str>>(
+    pub fn get_table_mut<K: AsRef<str>>(
         &mut self,
         key: K,
     ) -> Result<DynTableMut<'_>, DynTableGetError> {
@@ -488,7 +489,7 @@ impl<'t> DynTableRef<'t> {
 
     // Needed to return a table with `'t` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_table<'k, K: Into<&'k str>>(
+    pub fn get_table<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<DynTableRef<'t>, DynTableGetError> {
@@ -497,7 +498,7 @@ impl<'t> DynTableRef<'t> {
 
     // Needed to return an array with `'t` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_array<'k, K: Into<&'k str>>(
+    pub fn get_array<K: AsRef<str>>(
         &self,
         key: K,
     ) -> Result<DynArrayRef<'t>, DynTableGetError> {
@@ -525,7 +526,7 @@ impl<'t> DynTableMut<'t> {
 
     // Needed to return a table with `'t` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_table_mut<'k, K: Into<&'k str>>(
+    pub fn get_table_mut<K: AsRef<str>>(
         self,
         key: K,
     ) -> Result<DynTableMut<'t>, DynTableGetError> {
@@ -534,7 +535,7 @@ impl<'t> DynTableMut<'t> {
 
     // Needed to return an array with `'t` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_array_mut<'k, K: Into<&'k str>>(
+    pub fn get_array_mut<K: AsRef<str>>(
         self,
         key: K,
     ) -> Result<DynArrayMut<'t>, DynTableGetError> {

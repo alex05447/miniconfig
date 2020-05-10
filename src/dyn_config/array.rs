@@ -383,7 +383,7 @@ impl<'a> DynArrayRef<'a> {
 
     // Needed to return a table with `'a` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_table<'k, K: Into<&'k str>>(
+    pub fn get_table(
         &self,
         index: u32,
     ) -> Result<DynTableRef<'a>, DynArrayGetError> {
@@ -392,7 +392,7 @@ impl<'a> DynArrayRef<'a> {
 
     // Needed to return an array with `'a` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_array<'k, K: Into<&'k str>>(
+    pub fn get_array(
         &self,
         index: u32,
     ) -> Result<DynArrayRef<'a>, DynArrayGetError> {
@@ -421,7 +421,7 @@ impl<'a> DynArrayMut<'a> {
 
     // Needed to return a table with `'a` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_table_mut<'k, K: Into<&'k str>>(
+    pub fn get_table_mut<K: AsRef<str>>(
         self,
         index: u32,
     ) -> Result<DynTableMut<'a>, DynArrayGetError> {
@@ -430,7 +430,7 @@ impl<'a> DynArrayMut<'a> {
 
     // Needed to return an array with `'a` lifetime
     // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_array_mut<'k, K: Into<&'k str>>(
+    pub fn get_array_mut<K: AsRef<str>>(
         self,
         index: u32,
     ) -> Result<DynArrayMut<'a>, DynArrayGetError> {
