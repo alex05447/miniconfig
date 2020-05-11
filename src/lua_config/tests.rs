@@ -262,6 +262,7 @@ fn basic_table() {
         assert_eq!(root.get_string("string").unwrap().as_ref(), "bar");
 
         // Try to remove a nonexistent value.
+        assert!(!root.contains("missing"));
         assert_eq!(
             root.set("missing", None),
             Err(LuaTableSetError::KeyDoesNotExist)
@@ -270,6 +271,7 @@ fn basic_table() {
         // Remove a value.
         root.set("bool", None).unwrap();
         assert_eq!(root.len(), 2);
+        assert!(!root.contains("bool"));
         match root.get("bool") {
             Err(LuaTableGetError::KeyDoesNotExist) => {}
             _ => panic!("Expected an error."),
@@ -287,6 +289,46 @@ fn basic_table() {
 
         root.set("table", Value::Table(nested_table)).unwrap();
         assert_eq!(root.len(), 3);
+        assert!(root.contains("table"));
+
+        assert_eq!(
+            root.get_path(["missing", "nested_missing"].iter())
+                .err()
+                .unwrap(),
+            LuaTableGetPathError::PathDoesNotExist(vec!["missing".into()])
+        );
+        assert_eq!(
+            root.get_path(["table", "nested_missing"].iter())
+                .err()
+                .unwrap(),
+            LuaTableGetPathError::PathDoesNotExist(vec!["table".into(), "nested_missing".into()])
+        );
+        assert_eq!(
+            root.get_path(["table", "nested_bool", "nested_missing"].iter())
+                .err()
+                .unwrap(),
+            LuaTableGetPathError::ValueNotATable {
+                path: vec!["table".into(), "nested_bool".into()],
+                value_type: ValueType::Bool
+            }
+        );
+        assert_eq!(
+            root.get_i64_path(["table", "nested_bool"].iter())
+                .err()
+                .unwrap(),
+            LuaTableGetPathError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            root.get_path(["table", "nested_bool"].iter())
+                .unwrap()
+                .bool()
+                .unwrap(),
+            false
+        );
+        assert_eq!(
+            root.get_bool_path(["table", "nested_bool"].iter()).unwrap(),
+            false
+        );
 
         // Add a nested array.
         let mut nested_array = LuaArray::new(lua);
@@ -296,8 +338,10 @@ fn basic_table() {
         nested_array.push(Value::F64(-17.235)).unwrap();
         assert_eq!(nested_array.len(), 3);
 
+        assert!(!root.contains("array"));
         root.set("array", Value::Array(nested_array)).unwrap();
         assert_eq!(root.len(), 4);
+        assert!(root.contains("array"));
 
         // Iterate the table.
         for (key, value) in root.iter() {

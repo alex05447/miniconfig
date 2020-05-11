@@ -191,6 +191,67 @@ impl Display for LuaTableGetError {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum LuaTableGetPathError {
+    /// (Part of the) provided path does not exist in the [`table`].
+    /// Contains the invalid path.
+    /// [`table`]: struct.LuaTable.html
+    PathDoesNotExist(Vec<String>),
+    /// Value at non-terminating path element is not a [`table`].
+    /// Contains the invalid path and the value [`type`].
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: struct.ValueType.html
+    ValueNotATable {
+        path: Vec<String>,
+        value_type: ValueType,
+    },
+    /// Value is of incorrect [`type`].
+    /// Contains the value [`type`].
+    /// [`type`]: struct.ValueType.html
+    IncorrectValueType(ValueType),
+}
+
+struct Path<'p>(&'p Vec<String>);
+
+impl<'p> Display for Path<'p> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        for (i, key) in self.0.iter().enumerate() {
+            let last = i == self.0.len() - 1;
+
+            write!(f, "\"{}\"", key)?;
+
+            if !last {
+                write!(f, ".")?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Display for LuaTableGetPathError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use LuaTableGetPathError::*;
+
+        match self {
+            PathDoesNotExist(path) => write!(
+                f,
+                "(Part of the) provided path ({}) does not exist in the table.",
+                Path(&path)
+            ),
+            ValueNotATable { path, value_type } => write!(
+                f,
+                "Value at non-terminating path element ({}) is not a table, but a \"{}\".",
+                Path(&path),
+                value_type
+            ),
+            IncorrectValueType(invalid_type) => {
+                write!(f, "Value is of incorrect type ({}).", invalid_type)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LuaTableSetError {
     /// Tried to remove a non-existant [`value`] from the [`table`].

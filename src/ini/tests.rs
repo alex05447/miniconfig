@@ -522,7 +522,9 @@ fn EmptyKey() {
     // Empty quoted key.
     assert_eq!(
         DynConfig::from_ini(
-            IniParser::new(" '' : 7").key_value_separator(IniKeyValueSeparator::Colon).string_quotes(IniStringQuote::Single),
+            IniParser::new(" '' : 7")
+                .key_value_separator(IniKeyValueSeparator::Colon)
+                .string_quotes(IniStringQuote::Single),
         )
         .err()
         .unwrap(),
@@ -1613,7 +1615,9 @@ fn escape() {
     );
 
     let ini = DynConfig::from_ini(
-        IniParser::new("[\"a\\ b\"]\n\"c\\t\" = '\\x0066\\x006f\\x006f'").escape(false).string_quotes(IniStringQuote::Single | IniStringQuote::Double)
+        IniParser::new("[\"a\\ b\"]\n\"c\\t\" = '\\x0066\\x006f\\x006f'")
+            .escape(false)
+            .string_quotes(IniStringQuote::Single | IniStringQuote::Double),
     )
     .unwrap();
 

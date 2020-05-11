@@ -296,14 +296,14 @@ impl<'lua> LuaConfig<'lua> {
                     .unwrap();
             }
             Array(value) => {
-                dyn_table.set(key, Value::Array(DynArray::new())).unwrap();
-                let mut array = dyn_table.get_mut(key).unwrap().array().unwrap();
-                Self::array_to_dyn_array(value, &mut array);
+                let mut array = DynArray::new();
+                Self::array_to_dyn_array(value, &mut DynArrayMut::new(&mut array));
+                dyn_table.set(key, Value::Array(array)).unwrap();
             }
             Table(value) => {
-                dyn_table.set(key, Value::Table(DynTable::new())).unwrap();
-                let mut table = dyn_table.get_mut(key).unwrap().table().unwrap();
-                Self::table_to_dyn_table(value, &mut table);
+                let mut table = DynTable::new();
+                Self::table_to_dyn_table(value, &mut DynTableMut::new(&mut table));
+                dyn_table.set(key, Value::Table(table)).unwrap();
             }
         }
     }
@@ -331,16 +331,14 @@ impl<'lua> LuaConfig<'lua> {
                     .unwrap();
             }
             Array(value) => {
-                dyn_array.push(Value::Array(DynArray::new())).unwrap();
-                let last = dyn_array.len() - 1;
-                let mut array = dyn_array.get_mut(last).unwrap().array().unwrap();
-                Self::array_to_dyn_array(value, &mut array);
+                let mut array = DynArray::new();
+                Self::array_to_dyn_array(value, &mut DynArrayMut::new(&mut array));
+                dyn_array.push(Value::Array(array)).unwrap();
             }
             Table(value) => {
-                dyn_array.push(Value::Table(DynTable::new())).unwrap();
-                let last = dyn_array.len() - 1;
-                let mut table = dyn_array.get_mut(last).unwrap().table().unwrap();
-                Self::table_to_dyn_table(value, &mut table);
+                let mut table = DynTable::new();
+                Self::table_to_dyn_table(value, &mut DynTableMut::new(&mut table));
+                dyn_array.push(Value::Table(table)).unwrap();
             }
         }
     }

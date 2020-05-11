@@ -5,7 +5,7 @@ use std::fmt::Write;
 
 use crate::{
     util::{write_lua_key, DisplayLua},
-    LuaArray, LuaConfigValue, LuaString, LuaTableGetError, LuaTableSetError, Value,
+    LuaArray, LuaConfigValue, LuaString, LuaTableGetError, LuaTableSetError, Value, LuaTableGetPathError,
 };
 
 #[cfg(feature = "ini")]
@@ -42,7 +42,7 @@ impl<'lua> LuaTable<'lua> {
     /// [`table`]: struct.LuaTable.html
     /// [`value`]: type.LuaConfigValue.html
     pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
-        match self.get_impl(key.as_ref()) {
+        match self.get(key) {
             Ok(_) => true,
             Err(err) => match err {
                 LuaTableGetError::KeyDoesNotExist => false,
@@ -58,11 +58,59 @@ impl<'lua> LuaTable<'lua> {
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: struct.LuaTableGetError.html
-    pub fn get<K: AsRef<str>>(
-        &self,
-        key: K,
-    ) -> Result<LuaConfigValue<'lua>, LuaTableGetError> {
+    pub fn get<K: AsRef<str>>(&self, key: K) -> Result<LuaConfigValue<'lua>, LuaTableGetError> {
         self.get_impl(key.as_ref())
+    }
+
+    /// Tries to get an immutable reference to a [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested table keys.
+    /// All keys except the last one must correspond to a [`table`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns the table itself if the `path` is empty.
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
+    /// or if any of the non-terminating `path` elements is not a [`table`].
+    ///
+    /// [`value`]: type.LuaConfigValueRef.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`error`]: struct.LuaTableGetError.html
+    pub fn get_path<K: AsRef<str>, P: Iterator<Item = K>>(
+        &self,
+        mut path: P,
+    ) -> Result<LuaConfigValue<'lua>, LuaTableGetPathError> {
+        let mut _path = Vec::new();
+        let table = LuaTable(self.0.clone());
+
+        if let Some(key) = path.next() {
+            let key = key.as_ref();
+
+            _path.push(key.into());
+            let mut value = table.get_table_value(key, _path.clone())?;
+
+            while let Some(key) = path.next() {
+                let key = key.as_ref();
+
+                match value {
+                    Value::Table(table) => {
+                        _path.push(key.into());
+                        value = table.get_table_value(key, _path.clone())?;
+                    }
+                    value => {
+                        return Err(LuaTableGetPathError::ValueNotATable {
+                            path: _path,
+                            value_type: value.get_type(),
+                        })
+                    }
+                }
+            }
+
+            Ok(value)
+        } else {
+            Ok(Value::Table(table))
+        }
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
@@ -79,6 +127,30 @@ impl<'lua> LuaTable<'lua> {
             .ok_or(LuaTableGetError::IncorrectValueType(val.get_type()))
     }
 
+    /// Tries to get a [`bool`] [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested table keys.
+    /// All keys except the last one must correspond to a [`table`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
+    /// if any of the non-terminating `path` elements is not a [`table`],
+    /// or if value is not a [`bool`].
+    ///
+    /// [`bool`]: enum.Value.html#variant.Bool
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`error`]: struct.LuaTableGetPathError.html
+    pub fn get_bool_path<K: AsRef<str>, P: Iterator<Item = K>>(
+        &self,
+        path: P,
+    ) -> Result<bool, LuaTableGetPathError> {
+        let val = self.get_path(path)?;
+        val.bool()
+            .ok_or(LuaTableGetPathError::IncorrectValueType(val.get_type()))
+    }
+
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the string `key`.
     ///
     /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`].
@@ -91,6 +163,30 @@ impl<'lua> LuaTable<'lua> {
         let val = self.get(key)?;
         val.i64()
             .ok_or(LuaTableGetError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get a [`i64`] [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested table keys.
+    /// All keys except the last one must correspond to a [`table`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
+    /// if any of the non-terminating `path` elements is not a [`table`],
+    /// or if value is not an [`i64`].
+    ///
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`error`]: struct.LuaTableGetPathError.html
+    pub fn get_i64_path<K: AsRef<str>, P: Iterator<Item = K>>(
+        &self,
+        path: P,
+    ) -> Result<i64, LuaTableGetPathError> {
+        let val = self.get_path(path)?;
+        val.i64()
+            .ok_or(LuaTableGetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the string `key`.
@@ -107,6 +203,30 @@ impl<'lua> LuaTable<'lua> {
             .ok_or(LuaTableGetError::IncorrectValueType(val.get_type()))
     }
 
+    /// Tries to get an [`f64`] [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested table keys.
+    /// All keys except the last one must correspond to a [`table`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
+    /// if any of the non-terminating `path` elements is not a [`table`],
+    /// or if value is not an [`f64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`error`]: struct.LuaTableGetPathError.html
+    pub fn get_f64_path<K: AsRef<str>, P: Iterator<Item = K>>(
+        &self,
+        path: P,
+    ) -> Result<f64, LuaTableGetPathError> {
+        let val = self.get_path(path)?;
+        val.f64()
+            .ok_or(LuaTableGetPathError::IncorrectValueType(val.get_type()))
+    }
+
     /// Tries to get a [`string`] [`value`] in the [`table`] with the string `key`.
     ///
     /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
@@ -115,14 +235,36 @@ impl<'lua> LuaTable<'lua> {
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: struct.LuaTableGetError.html
-    pub fn get_string<K: AsRef<str>>(
-        &self,
-        key: K,
-    ) -> Result<LuaString<'lua>, LuaTableGetError> {
+    pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<LuaString<'lua>, LuaTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.string()
             .ok_or(LuaTableGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get a [`string`] [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested table keys.
+    /// All keys except the last one must correspond to a [`table`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
+    /// if any of the non-terminating `path` elements is not a [`table`],
+    /// or if value is not a [`string`].
+    ///
+    /// [`string`]: enum.Value.html#variant.String
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`error`]: struct.LuaTableGetPathError.html
+    pub fn get_string_path<K: AsRef<str>, P: Iterator<Item = K>>(
+        &self,
+        path: P,
+    ) -> Result<LuaString<'lua>, LuaTableGetPathError> {
+        let val = self.get_path(path)?;
+        let val_type = val.get_type();
+        val.string()
+            .ok_or(LuaTableGetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
@@ -133,14 +275,36 @@ impl<'lua> LuaTable<'lua> {
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: struct.LuaTableGetError.html
-    pub fn get_array<K: AsRef<str>>(
-        &self,
-        key: K,
-    ) -> Result<LuaArray<'lua>, LuaTableGetError> {
+    pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<LuaArray<'lua>, LuaTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.array()
             .ok_or(LuaTableGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested table keys.
+    /// All keys except the last one must correspond to a [`table`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
+    /// if any of the non-terminating `path` elements is not a [`table`],
+    /// or if value is not an [`array`].
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`error`]: struct.LuaTableGetPathError.html
+    pub fn get_array_path<K: AsRef<str>, P: Iterator<Item = K>>(
+        &self,
+        path: P,
+    ) -> Result<LuaArray<'lua>, LuaTableGetPathError> {
+        let val = self.get_path(path)?;
+        let val_type = val.get_type();
+        val.array()
+            .ok_or(LuaTableGetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
@@ -150,14 +314,36 @@ impl<'lua> LuaTable<'lua> {
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: struct.LuaTableGetError.html
-    pub fn get_table<K: AsRef<str>>(
-        &self,
-        key: K,
-    ) -> Result<LuaTable<'lua>, LuaTableGetError> {
+    pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<LuaTable<'lua>, LuaTableGetError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
         val.table()
             .ok_or(LuaTableGetError::IncorrectValueType(val_type))
+    }
+
+    /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested table keys.
+    /// All keys except the last one must correspond to a [`table`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
+    /// if any of the non-terminating `path` elements is not a [`table`],
+    /// or if value is not a [`table`](enum.Value.html#variant.Table).
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`error`]: struct.LuaTableGetPathError.html
+    pub fn get_table_path<K: AsRef<str>, P: Iterator<Item = K>>(
+        &self,
+        path: P,
+    ) -> Result<LuaTable<'lua>, LuaTableGetPathError> {
+        let val = self.get_path(path)?;
+        let val_type = val.get_type();
+        val.table()
+            .ok_or(LuaTableGetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an iterator over ([`key`], [`value`]) pairs of the [`table`], in unspecified order.
@@ -263,6 +449,17 @@ impl<'lua> LuaTable<'lua> {
         } else {
             false
         }
+    }
+
+    fn get_table_value(
+        &self,
+        key: &str,
+        path: Vec<String>,
+    ) -> Result<LuaConfigValue<'lua>, LuaTableGetPathError> {
+        self.get(key).map_err(|err| match err {
+            LuaTableGetError::KeyDoesNotExist => LuaTableGetPathError::PathDoesNotExist(path),
+            LuaTableGetError::IncorrectValueType(_) => unreachable!(),
+        })
     }
 
     fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {

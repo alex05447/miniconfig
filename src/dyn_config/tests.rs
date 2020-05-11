@@ -45,6 +45,7 @@ fn basic_table() {
     assert_eq!(root.get_string("string").unwrap(), "bar");
 
     // Try to remove a nonexistent value.
+    assert!(!root.contains("missing"));
     assert_eq!(
         root.set("missing", None),
         Err(DynTableSetError::KeyDoesNotExist)
@@ -61,6 +62,8 @@ fn basic_table() {
 
     // Add a nested table.
     let mut nested_table = DynTable::new();
+    assert!(!nested_table.contains("nested_bool"));
+    assert!(!nested_table.contains("nested_int"));
     nested_table.set("nested_bool", Value::Bool(false)).unwrap();
     nested_table.set("nested_int", Value::I64(-9)).unwrap();
     assert_eq!(nested_table.len(), 2);
@@ -70,6 +73,45 @@ fn basic_table() {
     root.set("table", Value::Table(nested_table)).unwrap();
     assert_eq!(root.len(), 3);
     assert!(root.contains("table"));
+
+    assert_eq!(
+        root.get_path(["missing", "nested_missing"].iter())
+            .err()
+            .unwrap(),
+        DynTableGetPathError::PathDoesNotExist(vec!["missing".into()])
+    );
+    assert_eq!(
+        root.get_path(["table", "nested_missing"].iter())
+            .err()
+            .unwrap(),
+        DynTableGetPathError::PathDoesNotExist(vec!["table".into(), "nested_missing".into()])
+    );
+    assert_eq!(
+        root.get_path(["table", "nested_bool", "nested_missing"].iter())
+            .err()
+            .unwrap(),
+        DynTableGetPathError::ValueNotATable {
+            path: vec!["table".into(), "nested_bool".into()],
+            value_type: ValueType::Bool
+        }
+    );
+    assert_eq!(
+        root.get_i64_path(["table", "nested_bool"].iter())
+            .err()
+            .unwrap(),
+        DynTableGetPathError::IncorrectValueType(ValueType::Bool)
+    );
+    assert_eq!(
+        root.get_path(["table", "nested_bool"].iter())
+            .unwrap()
+            .bool()
+            .unwrap(),
+        false
+    );
+    assert_eq!(
+        root.get_bool_path(["table", "nested_bool"].iter()).unwrap(),
+        false
+    );
 
     // Add a nested array.
     let mut nested_array = DynArray::new();

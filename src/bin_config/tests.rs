@@ -194,6 +194,9 @@ fn writer() {
 
     let config = BinConfig::new(data).unwrap();
 
+    assert!(!config.root().contains("missing_value"));
+
+    assert!(config.root().contains("array_value"));
     let array_value = config.root().get_array("array_value").unwrap();
 
     assert_eq!(array_value.len(), 3);
@@ -204,14 +207,19 @@ fn writer() {
     assert_eq!(array_value.get_i64(2).unwrap(), 78);
     assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
 
+    assert!(config.root().contains("bool_value"));
     assert_eq!(config.root().get_bool("bool_value").unwrap(), true);
 
+    assert!(config.root().contains("float_value"));
     assert!(cmp_f64(config.root().get_f64("float_value").unwrap(), 3.14));
 
+    assert!(config.root().contains("int_value"));
     assert_eq!(config.root().get_i64("int_value").unwrap(), 7);
 
+    assert!(config.root().contains("string_value"));
     assert_eq!(config.root().get_string("string_value").unwrap(), "foo");
 
+    assert!(config.root().contains("table_value"));
     let table_value = config.root().get_table("table_value").unwrap();
 
     assert_eq!(table_value.len(), 3);
@@ -223,6 +231,45 @@ fn writer() {
     assert_eq!(table_value.get_string("baz").unwrap(), "hello");
     assert_eq!(table_value.get_bool("foo").unwrap(), false);
     assert!(!table_value.contains("bob"));
+
+    assert_eq!(
+        config.root().get_path(["missing", "nested_missing"].iter())
+            .err()
+            .unwrap(),
+        BinTableGetPathError::PathDoesNotExist(vec!["missing".into()])
+    );
+    assert_eq!(
+        config.root().get_path(["table_value", "nested_missing"].iter())
+            .err()
+            .unwrap(),
+            BinTableGetPathError::PathDoesNotExist(vec!["table_value".into(), "nested_missing".into()])
+    );
+    assert_eq!(
+        config.root().get_path(["table_value", "bar", "nested_missing"].iter())
+            .err()
+            .unwrap(),
+            BinTableGetPathError::ValueNotATable {
+            path: vec!["table_value".into(), "bar".into()],
+            value_type: ValueType::I64
+        }
+    );
+    assert_eq!(
+        config.root().get_bool_path(["table_value", "bar"].iter())
+            .err()
+            .unwrap(),
+            BinTableGetPathError::IncorrectValueType(ValueType::I64)
+    );
+    assert_eq!(
+        config.root().get_path(["table_value", "bar"].iter())
+            .unwrap()
+            .i64()
+            .unwrap(),
+        2020
+    );
+    assert_eq!(
+        config.root().get_i64_path(["table_value", "bar"].iter()).unwrap(),
+        2020
+    );
 }
 
 #[cfg(feature = "ini")]
