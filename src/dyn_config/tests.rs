@@ -121,6 +121,7 @@ fn basic_table() {
     nested_array.push(Value::F64(-17.235)).unwrap();
     assert_eq!(nested_array.len(), 3);
 
+    assert!(!root.contains("array"));
     root.set("array", Value::Array(nested_array)).unwrap();
     assert_eq!(root.len(), 4);
     assert!(root.contains("array"));
