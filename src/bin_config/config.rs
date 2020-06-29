@@ -1,23 +1,25 @@
-use std::fmt::{Display, Formatter};
-use std::io::Write;
-use std::mem::size_of;
-
-#[cfg(feature = "dyn")]
-use std::ops::DerefMut;
-
-use crate::{
-    util::DisplayLua, BinConfigError, BinConfigValue, BinConfigWriterError, BinTable, ValueType,
+use {
+    super::{
+        array_or_table::BinArrayOrTable,
+        util::{string_hash_fnv1a, u32_from_bin, u32_to_bin_bytes},
+        value::BinConfigPackedValue,
+    },
+    crate::{util::DisplayLua, BinConfigError, BinConfigWriterError, BinTable, ValueType},
+    std::{
+        fmt::{Display, Formatter},
+        io::Write,
+        mem::size_of,
+    },
 };
 
-use super::array_or_table::BinArrayOrTable;
-use super::util::{string_hash_fnv1a, u32_from_bin, u32_to_bin_bytes};
-use super::value::BinConfigPackedValue;
+#[cfg(feature = "dyn")]
+use {
+    crate::{BinArray, BinConfigValue, DynArray, DynConfig, DynTable},
+    std::ops::DerefMut,
+};
 
 #[cfg(feature = "ini")]
 use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
-
-#[cfg(feature = "dyn")]
-use crate::{BinArray, DynArray, DynConfig, DynTable};
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
@@ -456,12 +458,6 @@ impl Display for BinConfig {
     }
 }
 
-impl<'a> Display for BinConfigValue<'a> {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_lua(f, 0)
-    }
-}
-
 /// Binary config data blob header.
 ///
 /// Fields are in whatever endianness we use; see `super::util::__to_bin_bytes(), _from_bin()`.
@@ -498,5 +494,399 @@ impl BinConfigHeader {
             .map_err(|_| WriteError)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(non_snake_case)]
+
+    use crate::*;
+
+    #[test]
+    fn GetPathError_EmptyKey() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.table("foo", 1).unwrap();
+        writer.bool("bar", true).unwrap();
+        writer.end().unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config
+                .root()
+                .get_path(&["foo".into(), "".into()])
+                .err()
+                .unwrap(),
+            GetPathError::EmptyKey(ConfigPath(vec!["foo".into()]))
+        );
+
+        // But this works.
+
+        assert_eq!(
+            config
+                .root()
+                .get_bool_path(&["foo".into(), "bar".into()])
+                .unwrap(),
+            true,
+        );
+    }
+
+    #[test]
+    fn GetPathError_PathDoesNotExist() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.table("foo", 1).unwrap();
+        writer.array("bar", 1).unwrap();
+        writer.table(None, 1).unwrap();
+        writer.bool("bob", true).unwrap();
+        writer.end().unwrap();
+        writer.end().unwrap();
+        writer.end().unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config
+                .root()
+                .get_path(&["foo".into(), "baz".into()])
+                .err()
+                .unwrap(),
+            GetPathError::KeyDoesNotExist(ConfigPath(vec!["foo".into(), "baz".into()]))
+        );
+
+        assert_eq!(
+            config
+                .root()
+                .get_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
+                .err()
+                .unwrap(),
+            GetPathError::KeyDoesNotExist(ConfigPath(vec![
+                "foo".into(),
+                "bar".into(),
+                0.into(),
+                "bill".into()
+            ]))
+        );
+
+        // But this works.
+
+        assert_eq!(
+            config
+                .root()
+                .get_bool_path(&["foo".into(), "bar".into(), 0.into(), "bob".into()])
+                .unwrap(),
+            true
+        );
+    }
+
+    #[test]
+    fn GetPathError_IndexOutOfBounds() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array("array", 1).unwrap();
+        writer.bool(None, true).unwrap();
+        writer.end().unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config
+                .root()
+                .get_path(&["array".into(), 1.into()])
+                .err()
+                .unwrap(),
+            GetPathError::IndexOutOfBounds {
+                path: ConfigPath(vec!["array".into(), 1.into()]),
+                len: 1
+            }
+        );
+
+        // But this works.
+
+        assert_eq!(
+            config
+                .root()
+                .get_bool_path(&["array".into(), 0.into()])
+                .unwrap(),
+            true
+        );
+    }
+
+    #[test]
+    fn GetPathError_ValueNotAnArray() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.table("table", 1).unwrap();
+        writer.bool("array", true).unwrap();
+        writer.end().unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config
+                .root()
+                .get_path(&["table".into(), "array".into(), 1.into()])
+                .err()
+                .unwrap(),
+            GetPathError::ValueNotAnArray {
+                path: ConfigPath(vec!["table".into(), "array".into()]),
+                value_type: ValueType::Bool
+            }
+        );
+
+        // But this works.
+
+        assert_eq!(
+            config
+                .root()
+                .get_bool_path(&["table".into(), "array".into()])
+                .unwrap(),
+            true,
+        );
+    }
+
+    #[test]
+    fn GetPathError_ValueNotATable() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array("array", 1).unwrap();
+        writer.bool(None, true).unwrap();
+        writer.end().unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config
+                .root()
+                .get_path(&["array".into(), 0.into(), "foo".into()])
+                .err()
+                .unwrap(),
+            GetPathError::ValueNotATable {
+                path: ConfigPath(vec!["array".into(), 0.into()]),
+                value_type: ValueType::Bool
+            }
+        );
+
+        // But this works.
+
+        assert_eq!(
+            config
+                .root()
+                .get_bool_path(&["array".into(), 0.into()])
+                .unwrap(),
+            true,
+        );
+    }
+
+    #[test]
+    fn GetPathError_IncorrectValueType() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.table("table", 2).unwrap();
+        writer.bool("foo", true).unwrap();
+        writer.f64("bar", 3.14).unwrap();
+        writer.end().unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config
+                .root()
+                .get_i64_path(&["table".into(), "foo".into()])
+                .err()
+                .unwrap(),
+            GetPathError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            config
+                .root()
+                .get_f64_path(&["table".into(), "foo".into()])
+                .err()
+                .unwrap(),
+            GetPathError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            config
+                .root()
+                .get_string_path(&["table".into(), "foo".into()])
+                .err()
+                .unwrap(),
+            GetPathError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            config
+                .root()
+                .get_array_path(&["table".into(), "foo".into()])
+                .err()
+                .unwrap(),
+            GetPathError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            config
+                .root()
+                .get_table_path(&["table".into(), "foo".into()])
+                .err()
+                .unwrap(),
+            GetPathError::IncorrectValueType(ValueType::Bool)
+        );
+
+        // But this works.
+
+        assert_eq!(
+            config
+                .root()
+                .get_bool_path(&["table".into(), "foo".into()])
+                .unwrap(),
+            true
+        );
+
+        assert_eq!(
+            config
+                .root()
+                .get_i64_path(&["table".into(), "bar".into()])
+                .unwrap(),
+            3
+        );
+        assert!(cmp_f64(
+            config
+                .root()
+                .get_f64_path(&["table".into(), "bar".into()])
+                .unwrap(),
+            3.14
+        ));
+    }
+
+    #[test]
+    fn hash_collisions() {
+        // See `fnv1a_hash_collisions()`.
+
+        let mut writer = BinConfigWriter::new(2).unwrap();
+
+        writer.string("costarring", "declinate").unwrap();
+        writer.string("liquid", "macallums").unwrap();
+
+        let data = writer.finish().unwrap();
+
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(config.root().get_string("liquid").unwrap(), "macallums");
+        assert_eq!(config.root().get_string("costarring").unwrap(), "declinate");
+    }
+
+    #[cfg(feature = "dyn")]
+    #[test]
+    fn to_dyn_config() {
+        let mut writer = BinConfigWriter::new(6).unwrap();
+
+        writer.array("array_value", 3).unwrap();
+        writer.i64(None, 54).unwrap();
+        writer.i64(None, 12).unwrap();
+        writer.f64(None, 78.9).unwrap();
+        writer.end().unwrap();
+
+        writer.bool("bool_value", true).unwrap();
+        writer.f64("float_value", 3.14).unwrap();
+        writer.i64("int_value", 7).unwrap();
+        writer.string("string_value", "foo").unwrap();
+
+        writer.table("table_value", 3).unwrap();
+        writer.i64("bar", 2020).unwrap();
+        writer.string("baz", "hello").unwrap();
+        writer.bool("foo", false).unwrap();
+        writer.end().unwrap();
+
+        let data = writer.finish().unwrap();
+
+        let config = BinConfig::new(data).unwrap();
+
+        // Serialize to dynamic config.
+        let dyn_config = config.to_dyn_config();
+
+        let array_value = dyn_config.root().get_array("array_value").unwrap();
+
+        assert_eq!(array_value.len(), 3);
+        assert_eq!(array_value.get_i64(0).unwrap(), 54);
+        assert!(cmp_f64(array_value.get_f64(0).unwrap(), 54.0));
+        assert_eq!(array_value.get_i64(1).unwrap(), 12);
+        assert!(cmp_f64(array_value.get_f64(1).unwrap(), 12.0));
+        assert_eq!(array_value.get_i64(2).unwrap(), 78);
+        assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
+
+        assert_eq!(dyn_config.root().get_bool("bool_value").unwrap(), true);
+
+        assert!(cmp_f64(
+            dyn_config.root().get_f64("float_value").unwrap(),
+            3.14
+        ));
+
+        assert_eq!(dyn_config.root().get_i64("int_value").unwrap(), 7);
+
+        assert_eq!(dyn_config.root().get_string("string_value").unwrap(), "foo");
+
+        let table_value = dyn_config.root().get_table("table_value").unwrap();
+
+        assert_eq!(table_value.len(), 3);
+        assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
+        assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
+        assert_eq!(table_value.get_string("baz").unwrap(), "hello");
+        assert_eq!(table_value.get_bool("foo").unwrap(), false);
+    }
+
+    #[cfg(feature = "ini")]
+    #[test]
+    fn to_ini_string() {
+        let ini = r#"array = ["foo", "bar", "baz"]
+bool = true
+float = 3.14
+int = 7
+string = "foo"
+
+[other_section]
+other_bool = true
+other_float = 3.14
+other_int = 7
+other_string = "foo"
+
+[section]
+bool = false
+float = 7.62
+int = 9
+string = "bar""#;
+
+        let mut writer = BinConfigWriter::new(7).unwrap();
+
+        writer.array("array", 3).unwrap();
+        writer.string(None, "foo").unwrap();
+        writer.string(None, "bar").unwrap();
+        writer.string(None, "baz").unwrap();
+        writer.end().unwrap();
+
+        writer.bool("bool", true).unwrap();
+        writer.f64("float", 3.14).unwrap();
+        writer.i64("int", 7).unwrap();
+        writer.string("string", "foo").unwrap();
+
+        writer.table("other_section", 4).unwrap();
+        writer.bool("other_bool", true).unwrap();
+        writer.f64("other_float", 3.14).unwrap();
+        writer.i64("other_int", 7).unwrap();
+        writer.string("other_string", "foo").unwrap();
+        writer.end().unwrap();
+
+        writer.table("section", 4).unwrap();
+        writer.bool("bool", false).unwrap();
+        writer.f64("float", 7.62).unwrap();
+        writer.i64("int", 9).unwrap();
+        writer.string("string", "bar").unwrap();
+        writer.end().unwrap();
+
+        let data = writer.finish().unwrap();
+
+        let config = BinConfig::new(data).unwrap();
+
+        let string = config
+            .to_ini_string_opts(ToIniStringOptions {
+                arrays: true,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(string, ini);
     }
 }

@@ -1,12 +1,6 @@
 mod array;
 mod config;
-mod error;
 mod table;
+mod value;
 
-#[cfg(test)]
-mod tests;
-
-pub use array::{DynArray, DynArrayMut, DynArrayRef};
-pub use config::{DynConfig, DynConfigValue, DynConfigValueMut, DynConfigValueRef};
-pub use error::*;
-pub use table::{DynTable, DynTableMut, DynTableRef};
+pub use {array::DynArray, config::*, table::DynTable, value::*};

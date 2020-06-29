@@ -3,11 +3,10 @@ mod config;
 mod error;
 mod table;
 mod util;
-
-#[cfg(test)]
-mod tests;
+mod value;
 
 pub use array::LuaArray;
-pub use config::{LuaConfig, LuaConfigKey, LuaConfigValue, LuaString};
+pub use config::{LuaConfig, LuaConfigKey};
 pub use error::*;
 pub use table::LuaTable;
+pub use value::{LuaConfigValue, LuaString};

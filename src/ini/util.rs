@@ -1,8 +1,9 @@
-use std::fmt::Write;
-
-use crate::{
-    util::{write_char, WriteCharError},
-    ToIniStringError, ToIniStringOptions, Value,
+use {
+    crate::{
+        util::{write_char, WriteCharError},
+        ToIniStringError, ToIniStringOptions, Value,
+    },
+    std::fmt::Write,
 };
 
 pub(crate) trait DisplayIni {

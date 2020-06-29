@@ -1,7 +1,9 @@
-use std::fmt::{Display, Formatter, Write};
-
-use super::util::{new_table, validate_lua_config_table};
-use crate::{util::DisplayLua, LuaArray, LuaConfigError, LuaConfigKeyError, LuaTable, Value};
+use {
+    super::util::{new_table, validate_lua_config_table},
+    crate::{util::DisplayLua, LuaConfigError, LuaConfigKeyError, LuaTable},
+    rlua::{Context, RegistryKey},
+    std::fmt::{Display, Formatter, Write},
+};
 
 #[cfg(feature = "bin")]
 use crate::{BinConfigWriter, BinConfigWriterError};
@@ -10,38 +12,16 @@ use crate::{BinConfigWriter, BinConfigWriterError};
 use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
 
 #[cfg(feature = "dyn")]
-use crate::{DynArray, DynArrayMut, DynConfig, DynTable, DynTableMut};
+use crate::{DynArray, DynConfig, DynTable};
 
-use rlua::{Context, RegistryKey};
-
-/// Represents a Lua-interned string.
-pub struct LuaString<'lua>(rlua::String<'lua>);
-
-impl<'lua> LuaString<'lua> {
-    pub(super) fn new(string: rlua::String<'lua>) -> Self {
-        Self(string)
-    }
-}
-
-impl<'lua> AsRef<str> for LuaString<'lua> {
-    fn as_ref(&self) -> &str {
-        // Guaranteed to be a valid UTF-8 string because 1) we validate the config on construction
-        // and 2) only accept valid UTF-8 strings when modifying the config.
-        unsafe { std::str::from_utf8_unchecked(self.0.as_bytes()) }
-    }
-}
-
-/// A [`value`] returned when accessing a Lua [`array`] or [`table`].
-///
-/// [`value`]: enum.Value.html
-/// [`array`]: struct.LuaArray.html
-/// [`table`]: struct.LuaTable.html
-pub type LuaConfigValue<'lua> = Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>;
+#[cfg(any(feature = "bin", feature = "dyn"))]
+use crate::{LuaArray, LuaString, Value};
 
 /// Represents a mutable config with a root [`Lua table`] within the [`Lua context`].
 ///
 /// [`Lua table`]: struct.LuaTable.html
 /// [`Lua context`]: https://docs.rs/rlua/*/rlua/struct.Context.html
+#[derive(Clone)]
 pub struct LuaConfig<'lua>(LuaTable<'lua>);
 
 impl<'lua> LuaConfig<'lua> {
@@ -53,10 +33,10 @@ impl<'lua> LuaConfig<'lua> {
         LuaConfig(LuaTable::from_valid_table(new_table(lua)))
     }
 
-    /// Creates a new [`config`] from the Lua `script`.
+    /// Creates a new [`Lua config`] from the Lua `script`.
     ///
-    /// [`config`]: struct.LuaConfig.html
-    pub fn from_script(lua: Context<'lua>, script: &str) -> Result<Self, LuaConfigError> {
+    /// [`Lua config`]: struct.LuaConfig.html
+    pub fn from_script<'a>(lua: Context<'lua>, script: &str) -> Result<Self, LuaConfigError<'a>> {
         use LuaConfigError::*;
 
         let root = lua.create_table().unwrap();
@@ -77,17 +57,16 @@ impl<'lua> LuaConfig<'lua> {
     /// Creates a new [`config`] from the Lua `table`.
     ///
     /// [`config`]: struct.LuaConfig.html
-    pub fn from_table(
+    pub fn from_table<'a>(
         lua: Context<'lua>,
         table: rlua::Table<'lua>,
-    ) -> Result<Self, LuaConfigError> {
-        let mut path = String::new();
-        validate_lua_config_table(lua, &table, &mut path)?;
+    ) -> Result<Self, LuaConfigError<'a>> {
+        validate_lua_config_table(lua, &table)?;
 
         Ok(LuaConfig(LuaTable::from_valid_table(table)))
     }
 
-    /// Returns the mutable reference to the root [`table`] of the [`config`].
+    /// Returns the reference to the root [`table`] of the [`config`].
     ///
     /// [`table`]: struct.LuaTable.html
     /// [`config`]: struct.LuaConfig.html
@@ -124,6 +103,19 @@ impl<'lua> LuaConfig<'lua> {
         Ok(result)
     }
 
+    /// Serializes this [`config`] to a [`dynamic config`].
+    ///
+    /// [`config`]: struct.LuaConfig.html
+    /// [`dynamic config`]: struct.DynConfig.html
+    #[cfg(feature = "dyn")]
+    pub fn to_dyn_config(&self) -> DynConfig {
+        let mut result = DynConfig::new();
+
+        Self::table_to_dyn_table(self.root(), &mut result.root_mut());
+
+        result
+    }
+
     /// Tries to serialize this [`config`] to a [`binary config`].
     ///
     /// [`config`]: struct.LuaConfig.html
@@ -141,7 +133,7 @@ impl<'lua> LuaConfig<'lua> {
 
         let mut writer = BinConfigWriter::new(root.len())?;
 
-        Self::table_to_bin_config(root, &mut writer)?;
+        table_to_bin_config(root, &mut writer)?;
 
         writer.finish()
     }
@@ -172,101 +164,15 @@ impl<'lua> LuaConfig<'lua> {
         Ok(result)
     }
 
-    /// Serializes this [`config`] to a [`dynamic config`].
-    ///
-    /// [`config`]: struct.LuaConfig.html
-    /// [`dynamic config`]: struct.DynConfig.html
     #[cfg(feature = "dyn")]
-    pub fn to_dyn_config(&self) -> DynConfig {
-        let mut result = DynConfig::new();
-
-        Self::table_to_dyn_table(self.root(), &mut result.root_mut());
-
-        result
-    }
-
-    #[cfg(feature = "bin")]
-    fn table_to_bin_config(
-        table: LuaTable<'_>,
-        writer: &mut BinConfigWriter,
-    ) -> Result<(), BinConfigWriterError> {
-        // Gather the keys.
-        let mut keys: Vec<_> = table.iter().map(|(key, _)| key).collect();
-
-        // Sort the keys in alphabetical order.
-        keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
-
-        // Iterate the table using the sorted keys.
-        for key in keys.into_iter() {
-            let key_str = key.as_ref();
-
-            // Must succeed.
-            let value = table.get(key_str).unwrap();
-
-            Self::value_to_bin_config(Some(key_str), value, writer)?;
-        }
-
-        Ok(())
-    }
-
-    #[cfg(feature = "bin")]
-    fn array_to_bin_config(
-        array: LuaArray<'_>,
-        writer: &mut BinConfigWriter,
-    ) -> Result<(), BinConfigWriterError> {
-        // Iterate the array in order.
-        for value in array.iter() {
-            Self::value_to_bin_config(None, value, writer)?;
-        }
-
-        Ok(())
-    }
-
-    #[cfg(feature = "bin")]
-    fn value_to_bin_config(
-        key: Option<&str>,
-        value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
-        writer: &mut BinConfigWriter,
-    ) -> Result<(), BinConfigWriterError> {
-        use Value::*;
-
-        match value {
-            Bool(value) => {
-                writer.bool(key, value)?;
-            }
-            I64(value) => {
-                writer.i64(key, value)?;
-            }
-            F64(value) => {
-                writer.f64(key, value)?;
-            }
-            String(value) => {
-                writer.string(key, value.as_ref())?;
-            }
-            Array(value) => {
-                writer.array(key, value.len())?;
-                Self::array_to_bin_config(value, writer)?;
-                writer.end()?;
-            }
-            Table(value) => {
-                writer.table(key, value.len())?;
-                Self::table_to_bin_config(value, writer)?;
-                writer.end()?;
-            }
-        }
-
-        Ok(())
-    }
-
-    #[cfg(feature = "dyn")]
-    fn table_to_dyn_table(table: LuaTable<'_>, dyn_table: &mut DynTableMut<'_>) {
+    fn table_to_dyn_table(table: LuaTable<'_>, dyn_table: &mut DynTable) {
         for (key, value) in table.iter() {
             Self::value_to_dyn_table(key.as_ref(), value, dyn_table);
         }
     }
 
     #[cfg(feature = "dyn")]
-    fn array_to_dyn_array(array: LuaArray<'_>, dyn_array: &mut DynArrayMut<'_>) {
+    fn array_to_dyn_array(array: LuaArray<'_>, dyn_array: &mut DynArray) {
         for value in array.iter() {
             Self::value_to_dyn_array(value, dyn_array);
         }
@@ -276,7 +182,7 @@ impl<'lua> LuaConfig<'lua> {
     fn value_to_dyn_table(
         key: &str,
         value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
-        dyn_table: &mut DynTableMut<'_>,
+        dyn_table: &mut DynTable,
     ) {
         use Value::*;
 
@@ -297,12 +203,12 @@ impl<'lua> LuaConfig<'lua> {
             }
             Array(value) => {
                 let mut array = DynArray::new();
-                Self::array_to_dyn_array(value, &mut DynArrayMut::new(&mut array));
+                Self::array_to_dyn_array(value, &mut array);
                 dyn_table.set(key, Value::Array(array)).unwrap();
             }
             Table(value) => {
                 let mut table = DynTable::new();
-                Self::table_to_dyn_table(value, &mut DynTableMut::new(&mut table));
+                Self::table_to_dyn_table(value, &mut table);
                 dyn_table.set(key, Value::Table(table)).unwrap();
             }
         }
@@ -311,7 +217,7 @@ impl<'lua> LuaConfig<'lua> {
     #[cfg(feature = "dyn")]
     fn value_to_dyn_array(
         value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
-        dyn_array: &mut DynArrayMut<'_>,
+        dyn_array: &mut DynArray,
     ) {
         use Value::*;
 
@@ -332,12 +238,12 @@ impl<'lua> LuaConfig<'lua> {
             }
             Array(value) => {
                 let mut array = DynArray::new();
-                Self::array_to_dyn_array(value, &mut DynArrayMut::new(&mut array));
+                Self::array_to_dyn_array(value, &mut array);
                 dyn_array.push(Value::Array(array)).unwrap();
             }
             Table(value) => {
                 let mut table = DynTable::new();
-                Self::table_to_dyn_table(value, &mut DynTableMut::new(&mut table));
+                Self::table_to_dyn_table(value, &mut table);
                 dyn_array.push(Value::Table(table)).unwrap();
             }
         }
@@ -382,15 +288,18 @@ impl LuaConfigKey {
         })
     }
 
-    /// Creates a new Lua config with an empty root [`table`].
+    /// Creates a new [`Lua config`] with an empty root [`table`].
     ///
+    /// [`Lua config`]: struct.LuaConfigKey.html
     /// [`table`]: struct.LuaTable.html
     pub fn new(lua: Context<'_>) -> Self {
         LuaConfig::new(lua).key(lua)
     }
 
-    /// Creates a new Lua config from the Lua `script`.
-    pub fn from_script(lua: Context<'_>, script: &str) -> Result<Self, LuaConfigError> {
+    /// Creates a new [`Lua config`] from the Lua `script`.
+    ///
+    /// [`Lua config`]: struct.LuaConfigKey.html
+    pub fn from_script<'a>(lua: Context<'_>, script: &str) -> Result<Self, LuaConfigError<'a>> {
         LuaConfig::from_script(lua, script).map(|config| config.key(lua))
     }
 
@@ -402,14 +311,793 @@ impl LuaConfigKey {
     }
 }
 
+#[cfg(feature = "bin")]
+fn table_to_bin_config(
+    table: LuaTable<'_>,
+    writer: &mut BinConfigWriter,
+) -> Result<(), BinConfigWriterError> {
+    // Gather the keys.
+    let mut keys: Vec<_> = table.iter().map(|(key, _)| key).collect();
+
+    // Sort the keys in alphabetical order.
+    keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
+
+    // Iterate the table using the sorted keys.
+    for key in keys.into_iter() {
+        let key_str = key.as_ref();
+
+        // Must succeed.
+        let value = table.get(key_str).unwrap();
+
+        value_to_bin_config(Some(key_str), value, writer)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "bin")]
+fn array_to_bin_config(
+    array: LuaArray<'_>,
+    writer: &mut BinConfigWriter,
+) -> Result<(), BinConfigWriterError> {
+    // Iterate the array in order.
+    for value in array.iter() {
+        value_to_bin_config(None, value, writer)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "bin")]
+fn value_to_bin_config(
+    key: Option<&str>,
+    value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
+    writer: &mut BinConfigWriter,
+) -> Result<(), BinConfigWriterError> {
+    use Value::*;
+
+    match value {
+        Bool(value) => {
+            writer.bool(key, value)?;
+        }
+        I64(value) => {
+            writer.i64(key, value)?;
+        }
+        F64(value) => {
+            writer.f64(key, value)?;
+        }
+        String(value) => {
+            writer.string(key, value.as_ref())?;
+        }
+        Array(value) => {
+            writer.array(key, value.len())?;
+            array_to_bin_config(value, writer)?;
+            writer.end()?;
+        }
+        Table(value) => {
+            writer.table(key, value.len())?;
+            table_to_bin_config(value, writer)?;
+            writer.end()?;
+        }
+    }
+
+    Ok(())
+}
+
 impl<'lua> Display for LuaConfig<'lua> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.root().fmt_lua(f, 0)
     }
 }
 
-impl<'lua> Display for Value<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>> {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_lua(f, 0)
+#[cfg(test)]
+mod tests {
+    #![allow(non_snake_case)]
+
+    use {crate::*, rlua_ext::ValueType as LuaValueType};
+
+    fn lua_config(script: &str) -> Result<(), LuaConfigError> {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| LuaConfigKey::from_script(lua, script))?;
+
+        Ok(())
+    }
+
+    fn lua_config_error(script: &str) -> LuaConfigError {
+        lua_config(script).err().expect("Expected an error.")
+    }
+
+    #[test]
+    fn LuaConfigError_LuaScriptError() {
+        assert!(matches!(
+            lua_config_error(r#" ?!#>& "#),
+            LuaConfigError::LuaScriptError(_)
+        ));
+    }
+
+    #[test]
+    fn LuaConfigError_MixedKeys() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        foo = true,
+                        [1] = 7,
+                    }"#,
+            ),
+            LuaConfigError::MixedKeys(path) if path == ConfigPath::new()
+        ));
+
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        table = {
+                            foo = true,
+                            [1] = 7,
+                        }
+                    }"#,
+            ),
+            LuaConfigError::MixedKeys(path) if path == ConfigPath(vec!["table".into()])
+        ));
+
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        table = {
+                            nested_table = {
+                                foo = true,
+                                [1] = 7,
+                            }
+                        }
+                    }"#,
+            ),
+            LuaConfigError::MixedKeys(path) if path == ConfigPath(vec!["table".into(), "nested_table".into()])
+        ));
+
+        // But this should work.
+
+        lua_config(
+            r#"{
+                    foo = true,
+                    bar = 7,
+                }"#,
+        )
+        .unwrap();
+
+        lua_config(
+            r#"{
+                    array = {
+                        true,
+                        false,
+                    }
+                }"#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn LuaConfigError_MixedArray() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        array = {
+                            true,
+                            7,
+                            3.14,
+                        }
+                    }"#,
+            ),
+            LuaConfigError::MixedArray { path, expected, found } if path == ConfigPath(vec!["array".into(), 1.into()]) && expected == LuaValueType::Boolean && found == LuaValueType::Integer
+        ));
+
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        table = {
+                            array = {
+                                true,
+                                7,
+                                3.14,
+                            }
+                        }
+                    }"#,
+            ),
+            LuaConfigError::MixedArray { path, expected, found } if path == ConfigPath(vec!["table".into(), "array".into(), 1.into()]) && expected == LuaValueType::Boolean && found == LuaValueType::Integer
+        ));
+
+        // But this should work.
+
+        lua_config(
+            r#"{
+                array = {
+                    -24,
+                    7,
+                    3.14,
+                }
+            }"#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn LuaConfigError_InvalidKeyType() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        [3.14] = true,
+                    }"#,
+            ),
+            LuaConfigError::InvalidKeyType { path, invalid_type } if path == ConfigPath::new() && invalid_type == LuaValueType::Number
+        ));
+
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        table = {
+                            [3.14] = true,
+                        }
+                    }"#,
+            ),
+            LuaConfigError::InvalidKeyType { path, invalid_type } if path == ConfigPath(vec!["table".into()]) && invalid_type == LuaValueType::Number
+        ));
+
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        table = {
+                            nested_table = {
+                                [3.14] = true,
+                            }
+                        }
+                    }"#,
+            ),
+            LuaConfigError::InvalidKeyType { path, invalid_type } if path == ConfigPath(vec!["table".into(), "nested_table".into()]) && invalid_type == LuaValueType::Number
+        ));
+    }
+
+    #[test]
+    fn LuaConfigError_InvalidKeyUTF8() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        ["\xc0"] = 7
+                    }"#,
+            ),
+            LuaConfigError::InvalidKeyUTF8 { path, .. } if path == ConfigPath::new()
+        ));
+
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        table = {
+                            ["\xc0"] = 7
+                        }
+                    }"#,
+            ),
+            LuaConfigError::InvalidKeyUTF8 { path, .. } if path == ConfigPath(vec!["table".into()])
+        ));
+    }
+
+    #[test]
+    fn LuaConfigError_EmptyKey() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                        table = {
+                            [""] = 7
+                        }
+                    }"#,
+            ),
+            LuaConfigError::EmptyKey(path) if path == ConfigPath(vec!["table".into()])
+        ));
+    }
+
+    #[test]
+    fn LuaConfigError_InvalidArrayIndex() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                    table = {
+                        [0] = 7
+                    }
+                }"#,
+            ),
+            LuaConfigError::InvalidArrayIndex(path) if path == ConfigPath(vec!["table".into()])
+        ));
+
+        // But this should work.
+
+        lua_config(
+            r#"{
+                table = {
+                    [1] = 7
+                }
+            }"#,
+        )
+        .unwrap();
+
+        lua_config(
+            r#"{
+                table = {
+                    7
+                }
+            }"#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn LuaConfigError_InvalidValueType() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                    table = {
+                        invalid = function () end
+                    }
+                }"#,
+            ),
+            LuaConfigError::InvalidValueType { path, invalid_type } if path == ConfigPath(vec!["table".into(), "invalid".into()]) && invalid_type == LuaValueType::Function
+        ));
+
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                    array = {
+                        [1] = function () end
+                    }
+                }"#,
+            ),
+            LuaConfigError::InvalidValueType { path, invalid_type } if path == ConfigPath(vec!["array".into(), 0.into()]) && invalid_type == LuaValueType::Function
+        ));
+    }
+
+    #[test]
+    fn LuaConfigError_InvalidValueUTF8() {
+        assert!(matches!(
+            lua_config_error(
+                r#"{
+                    table = {
+                        string = "\xc0"
+                    }
+                }"#,
+            ),
+            LuaConfigError::InvalidValueUTF8 { path, .. } if path == ConfigPath(vec!["table".into(), "string".into()])
+        ));
+    }
+
+    const SCRIPT: &str = "{
+\tarray_value = {
+\t\t54,
+\t\t12,
+\t\t78.9,
+\t}, -- array_value
+\tbool_value = true,
+\t[\"fancy 'value'\"] = \"\\t'\\\"\",
+\tfloat_value = 3.14,
+\tint_value = 7,
+\tstring_value = \"foo{}[];#:=\",
+\ttable_value = {
+\t\tbar = 2020,
+\t\tbaz = \"hello\",
+\t\tfoo = false,
+\t}, -- table_value
+}";
+
+    #[test]
+    fn from_script_and_back() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            // Load from script.
+            let config = LuaConfig::from_script(lua, SCRIPT).unwrap();
+
+            // Serialize to string.
+            let string = config.to_string();
+
+            assert_eq!(SCRIPT, string, "Script and serialized config mismatch.");
+        });
+    }
+
+    #[cfg(feature = "bin")]
+    #[test]
+    fn to_bin_config() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            // Load from script.
+            let lua_config = LuaConfig::from_script(lua, SCRIPT).unwrap();
+
+            // Serialize to binary config.
+            let bin_data = lua_config.to_bin_config().unwrap();
+
+            // Load the binary config.
+            let bin_config = BinConfig::new(bin_data).unwrap();
+
+            let array_value = bin_config.root().get_array("array_value").unwrap();
+
+            assert_eq!(array_value.len(), 3);
+            assert_eq!(array_value.get_i64(0).unwrap(), 54);
+            assert!(cmp_f64(array_value.get_f64(0).unwrap(), 54.0));
+            assert_eq!(array_value.get_i64(1).unwrap(), 12);
+            assert!(cmp_f64(array_value.get_f64(1).unwrap(), 12.0));
+            assert_eq!(array_value.get_i64(2).unwrap(), 78);
+            assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
+
+            assert_eq!(bin_config.root().get_bool("bool_value").unwrap(), true);
+
+            assert_eq!(
+                bin_config.root().get_string("fancy 'value'").unwrap(),
+                "\t'\""
+            );
+
+            assert!(cmp_f64(
+                bin_config.root().get_f64("float_value").unwrap(),
+                3.14
+            ));
+
+            assert_eq!(bin_config.root().get_i64("int_value").unwrap(), 7);
+
+            assert_eq!(
+                bin_config.root().get_string("string_value").unwrap(),
+                "foo{}[];#:="
+            );
+
+            let table_value = bin_config.root().get_table("table_value").unwrap();
+
+            assert_eq!(table_value.len(), 3);
+            assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
+            assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
+            assert_eq!(table_value.get_string("baz").unwrap(), "hello");
+            assert_eq!(table_value.get_bool("foo").unwrap(), false);
+        });
+    }
+
+    #[cfg(feature = "ini")]
+    #[test]
+    fn to_ini_string() {
+        let script = r#"
+{
+    array = { "foo", "bar", "baz" },
+    bool = true,
+    float = 3.14,
+    int = 7,
+    -- "foo"
+    string = "\x66\x6f\x6f",
+
+    ["'other' section"] = {
+        other_bool = true,
+        other_float = 3.14,
+        other_int = 7,
+        other_string = "foo",
+    },
+
+    section = {
+        bool = false,
+        float = 7.62,
+        int = 9,
+        string = "bar",
+    },
+}
+"#;
+
+        let ini = r#"array = ["foo", "bar", "baz"]
+bool = true
+float = 3.14
+int = 7
+string = "foo"
+
+["'other' section"]
+other_bool = true
+other_float = 3.14
+other_int = 7
+other_string = "foo"
+
+[section]
+bool = false
+float = 7.62
+int = 9
+string = "bar""#;
+
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            let config = LuaConfig::from_script(lua, script).unwrap();
+
+            assert_eq!(
+                ini,
+                config
+                    .to_ini_string_opts(ToIniStringOptions {
+                        arrays: true,
+                        ..Default::default()
+                    })
+                    .unwrap()
+            );
+        });
+    }
+
+    #[cfg(feature = "dyn")]
+    #[test]
+    fn to_dyn_config() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            // Load from script.
+            let config = LuaConfig::from_script(lua, SCRIPT).unwrap();
+
+            // Serialize to dynamic config.
+            let dyn_config = config.to_dyn_config();
+
+            let array_value = dyn_config.root().get_array("array_value").unwrap();
+
+            assert_eq!(array_value.len(), 3);
+            assert_eq!(array_value.get_i64(0).unwrap(), 54);
+            assert!(cmp_f64(array_value.get_f64(0).unwrap(), 54.0));
+            assert_eq!(array_value.get_i64(1).unwrap(), 12);
+            assert!(cmp_f64(array_value.get_f64(1).unwrap(), 12.0));
+            assert_eq!(array_value.get_i64(2).unwrap(), 78);
+            assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
+
+            assert_eq!(dyn_config.root().get_bool("bool_value").unwrap(), true);
+
+            assert!(cmp_f64(
+                dyn_config.root().get_f64("float_value").unwrap(),
+                3.14
+            ));
+
+            assert_eq!(dyn_config.root().get_i64("int_value").unwrap(), 7);
+
+            assert_eq!(
+                dyn_config.root().get_string("string_value").unwrap(),
+                "foo{}[];#:="
+            );
+
+            let table_value = dyn_config.root().get_table("table_value").unwrap();
+
+            assert_eq!(table_value.len(), 3);
+            assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
+            assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
+            assert_eq!(table_value.get_string("baz").unwrap(), "hello");
+            assert_eq!(table_value.get_bool("foo").unwrap(), false);
+        });
+    }
+
+    #[test]
+    fn GetPathError_EmptyKey() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            let mut table = LuaTable::new(lua);
+
+            assert_eq!(
+                table.get_path(&["".into()]).err().unwrap(),
+                GetPathError::EmptyKey(ConfigPath::new())
+            );
+
+            let mut other_table = LuaTable::new(lua);
+            other_table.set("bar", Some(true.into())).unwrap();
+
+            table.set("foo", Some(other_table.into())).unwrap();
+
+            assert_eq!(
+                table.get_path(&["foo".into(), "".into()]).err().unwrap(),
+                GetPathError::EmptyKey(ConfigPath(vec!["foo".into()]))
+            );
+
+            // But this works.
+
+            assert_eq!(
+                table.get_bool_path(&["foo".into(), "bar".into()]).unwrap(),
+                true,
+            );
+        });
+    }
+
+    #[test]
+    fn GetPathError_PathDoesNotExist() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            let mut table = LuaTable::new(lua);
+
+            let mut foo = LuaTable::new(lua);
+            let mut bar = LuaArray::new(lua);
+            let mut baz = LuaTable::new(lua);
+
+            baz.set("bob", Some(true.into())).unwrap();
+            bar.push(baz.into()).unwrap();
+            foo.set("bar", Some(bar.into())).unwrap();
+            table.set("foo", Some(foo.into())).unwrap();
+
+            assert_eq!(
+                table.get_path(&["foo".into(), "baz".into()]).err().unwrap(),
+                GetPathError::KeyDoesNotExist(ConfigPath(vec!["foo".into(), "baz".into()]))
+            );
+
+            assert_eq!(
+                table
+                    .get_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::KeyDoesNotExist(ConfigPath(vec![
+                    "foo".into(),
+                    "bar".into(),
+                    0.into(),
+                    "bill".into()
+                ]))
+            );
+
+            // But this works.
+
+            assert_eq!(
+                table
+                    .get_bool_path(&["foo".into(), "bar".into(), 0.into(), "bob".into()])
+                    .unwrap(),
+                true
+            );
+        });
+    }
+
+    #[test]
+    fn GetPathError_IndexOutOfBounds() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            let mut table = LuaTable::new(lua);
+
+            let mut array = LuaArray::new(lua);
+            array.push(true.into()).unwrap();
+
+            table.set("array", Some(array.into())).unwrap();
+
+            assert_eq!(
+                table.get_path(&["array".into(), 1.into()]).err().unwrap(),
+                GetPathError::IndexOutOfBounds {
+                    path: ConfigPath(vec!["array".into(), 1.into()]),
+                    len: 1
+                }
+            );
+
+            // But this works.
+
+            assert_eq!(
+                table.get_bool_path(&["array".into(), 0.into()]).unwrap(),
+                true
+            );
+        });
+    }
+
+    #[test]
+    fn GetPathError_ValueNotAnArray() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            let mut table = LuaTable::new(lua);
+
+            let mut other_table = LuaTable::new(lua);
+            other_table.set("array", Some(true.into())).unwrap();
+
+            table.set("table", Some(other_table.into())).unwrap();
+
+            assert_eq!(
+                table
+                    .get_path(&["table".into(), "array".into(), 1.into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::ValueNotAnArray {
+                    path: ConfigPath(vec!["table".into(), "array".into()]),
+                    value_type: ValueType::Bool
+                }
+            );
+
+            // But this works.
+
+            assert_eq!(
+                table
+                    .get_bool_path(&["table".into(), "array".into()])
+                    .unwrap(),
+                true,
+            );
+        });
+    }
+
+    #[test]
+    fn GetPathError_ValueNotATable() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            let mut table = LuaTable::new(lua);
+
+            let mut array = LuaArray::new(lua);
+            array.push(true.into()).unwrap();
+
+            table.set("array", Some(array.into())).unwrap();
+
+            assert_eq!(
+                table
+                    .get_path(&["array".into(), 0.into(), "foo".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::ValueNotATable {
+                    path: ConfigPath(vec!["array".into(), 0.into()]),
+                    value_type: ValueType::Bool
+                }
+            );
+
+            // But this works.
+
+            assert_eq!(
+                table.get_bool_path(&["array".into(), 0.into()]).unwrap(),
+                true,
+            );
+        });
+    }
+
+    #[test]
+    fn GetPathError_IncorrectValueType() {
+        let lua = rlua::Lua::new();
+
+        lua.context(|lua| {
+            let mut table = LuaTable::new(lua);
+
+            let mut other_table = LuaTable::new(lua);
+            other_table.set("foo", Some(true.into())).unwrap();
+            other_table.set("bar", Some(3.14.into())).unwrap();
+
+            table.set("table", Some(other_table.into())).unwrap();
+
+            assert_eq!(
+                table
+                    .get_i64_path(&["table".into(), "foo".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::IncorrectValueType(ValueType::Bool)
+            );
+            assert_eq!(
+                table
+                    .get_f64_path(&["table".into(), "foo".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::IncorrectValueType(ValueType::Bool)
+            );
+            assert_eq!(
+                table
+                    .get_string_path(&["table".into(), "foo".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::IncorrectValueType(ValueType::Bool)
+            );
+            assert_eq!(
+                table
+                    .get_array_path(&["table".into(), "foo".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::IncorrectValueType(ValueType::Bool)
+            );
+            assert_eq!(
+                table
+                    .get_table_path(&["table".into(), "foo".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::IncorrectValueType(ValueType::Bool)
+            );
+
+            // But this works.
+
+            assert_eq!(
+                table
+                    .get_bool_path(&["table".into(), "foo".into()])
+                    .unwrap(),
+                true
+            );
+
+            assert_eq!(
+                table.get_i64_path(&["table".into(), "bar".into()]).unwrap(),
+                3
+            );
+            assert!(cmp_f64(
+                table.get_f64_path(&["table".into(), "bar".into()]).unwrap(),
+                3.14
+            ));
+        });
     }
 }

@@ -1,13 +1,20 @@
-use std::io::Write;
-
-use crate::{
-    value::{value_type_from_u32, value_type_to_u32},
-    Value, ValueType,
+use {
+    super::{
+        array::BinArray,
+        table::BinTable,
+        util::{u32_from_bin, u32_to_bin, u64_from_bin, u64_to_bin},
+    },
+    crate::{
+        value::{value_type_from_u32, value_type_to_u32},
+        BinArrayError, ConfigKey, ConfigPath, DisplayLua, GetPathError, TableError, Value,
+        ValueType,
+    },
+    std::{
+        borrow::Borrow,
+        fmt::{Display, Formatter},
+        io::Write,
+    },
 };
-
-use super::array::BinArray;
-use super::table::BinTable;
-use super::util::{u32_from_bin, u32_to_bin, u64_from_bin, u64_to_bin};
 
 /// Represents a single config value as stored in the binary config data blob.
 ///
@@ -83,10 +90,6 @@ impl BinConfigPackedValue {
 
     /// Create a new packed value representing an array / table.
     pub(super) fn new_array_or_table(key: BinTableKey, offset: u32, len: u32, table: bool) -> Self {
-        if len == 0 {
-            debug_assert_eq!(offset, 0);
-        }
-
         let mut result = Self::default();
 
         result.set_value_type(if table {
@@ -95,7 +98,7 @@ impl BinConfigPackedValue {
             ValueType::Array
         });
         result.set_key(key);
-        result.set_offset(offset);
+        result.set_offset(if len == 0 { 0 } else { offset });
         result.set_len(len);
 
         result
@@ -354,3 +357,61 @@ pub(super) enum BinConfigUnpackedValue {
 /// [`array`]: struct.BinArray.html
 /// [`table`]: struct.BinTable.html
 pub type BinConfigValue<'at> = Value<&'at str, BinArray<'at>, BinTable<'at>>;
+
+impl<'at> BinConfigValue<'at> {
+    pub(crate) fn get_path<'a, K, P>(self, mut path: P) -> Result<Self, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: Iterator<Item = K>,
+    {
+        if let Some(key) = path.next() {
+            let key = key.borrow();
+            match key {
+                ConfigKey::Array(index) => match self {
+                    Value::Array(array) => {
+                        let value = array.get(*index).map_err(|err| match err {
+                            BinArrayError::IndexOutOfBounds(len) => {
+                                GetPathError::IndexOutOfBounds {
+                                    path: ConfigPath::from_key(key.clone()),
+                                    len,
+                                }
+                            }
+                            BinArrayError::IncorrectValueType(_) => unreachable!(),
+                        })?;
+
+                        value.get_path(path).map_err(|err| err.push_key(key))
+                    }
+                    _ => Err(GetPathError::ValueNotAnArray {
+                        path: ConfigPath::new(),
+                        value_type: self.get_type(),
+                    }),
+                },
+                ConfigKey::Table(ref table_key) => match self {
+                    Value::Table(table) => {
+                        let value = table.get(table_key).map_err(|err| match err {
+                            TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
+                            TableError::KeyDoesNotExist => {
+                                GetPathError::KeyDoesNotExist(ConfigPath::from_key(key.clone()))
+                            }
+                            TableError::IncorrectValueType(_) => unreachable!(),
+                        })?;
+
+                        value.get_path(path).map_err(|err| err.push_key(key))
+                    }
+                    _ => Err(GetPathError::ValueNotATable {
+                        path: ConfigPath::new(),
+                        value_type: self.get_type(),
+                    }),
+                },
+            }
+        } else {
+            Ok(self)
+        }
+    }
+}
+
+impl<'a> Display for BinConfigValue<'a> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        self.fmt_lua(f, 0)
+    }
+}

@@ -1,12 +1,17 @@
-use std::collections::{hash_map::Entry, HashMap};
-use std::io::{Cursor, Seek, SeekFrom, Write};
-use std::mem::size_of;
-use std::str::from_utf8_unchecked;
-
-use super::config::BinConfigHeader;
-use super::util::string_hash_fnv1a;
-use super::value::{BinConfigPackedValue, BinTableKey};
-use crate::{BinConfigWriterError, ValueType};
+use {
+    super::{
+        config::BinConfigHeader,
+        util::string_hash_fnv1a,
+        value::{BinConfigPackedValue, BinTableKey},
+    },
+    crate::{BinConfigWriterError, ValueType},
+    std::{
+        collections::{hash_map::Entry, HashMap},
+        io::{Cursor, Seek, SeekFrom, Write},
+        mem::size_of,
+        str::from_utf8_unchecked,
+    },
+};
 
 /// Provides an interface for recording of [`binary configs`].
 ///
@@ -211,12 +216,15 @@ impl BinConfigWriter {
         }
 
         let parent = self.stack.pop().unwrap();
+        let (len, cur_len) = (parent.len, parent.current_len);
 
         // Must have been full.
-        if parent.current_len != parent.len {
+        if cur_len != len {
+            self.stack.push(parent);
+
             return Err(ArrayOrTableLengthMismatch {
-                expected: parent.len,
-                found: parent.current_len,
+                expected: len,
+                found: cur_len,
             });
         }
 
@@ -307,11 +315,9 @@ impl BinConfigWriter {
             value_offset,
         )?;
 
-        // Push the array/table on the stack, if not empty.
-        if len > 0 {
-            self.stack
-                .push(BinConfigArrayOrTable::new(table, len, self.data_offset));
-        }
+        // Push the array/table on the stack.
+        self.stack
+            .push(BinConfigArrayOrTable::new(table, len, self.data_offset));
 
         // Bump the data offset by the combined value length.
         self.data_offset += len * size_of::<BinConfigPackedValue>() as u32;
@@ -513,8 +519,8 @@ impl BinConfigWriter {
     }
 
     /// Increments the currently active array's / table's length;
-    /// pops the array / table from the stack if it's finished,
-    /// else bumps the value offset for the next value.
+    /// bumps the value offset for the next value.
+    /// NOTE - caller guarantees the parent array / table in not full.
     fn increment_len(stack: &mut Vec<BinConfigArrayOrTable>) {
         // Must have a parent array/table.
         debug_assert_ne!(stack.len(), 0);
@@ -599,7 +605,7 @@ impl BinConfigWriter {
             .map_err(|_| WriteError)?;
         value.write(config_writer).map_err(|_| WriteError)?;
 
-        // Increment the parent array's/table's table length/value offset, or pop the stack if this was the last value.
+        // Increment the parent array's/table's table length/value offset.
         Self::increment_len(stack);
 
         Ok(())
@@ -656,5 +662,315 @@ impl BinConfigArrayOrTable {
             keys: HashMap::new(),
             array_type: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(non_snake_case)]
+
+    use crate::*;
+
+    #[test]
+    fn EmptyRootTable() {
+        assert_eq!(
+            BinConfigWriter::new(0).err().unwrap(),
+            BinConfigWriterError::EmptyRootTable
+        );
+
+        // But this works.
+
+        BinConfigWriter::new(1).unwrap();
+    }
+
+    #[test]
+    fn TableKeyRequired() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        assert_eq!(
+            writer.bool(None, true).err().unwrap(),
+            BinConfigWriterError::TableKeyRequired
+        );
+
+        // But this works.
+
+        writer.bool("bool", true).unwrap();
+    }
+
+    #[test]
+    fn ArrayKeyNotRequired() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array("array", 1).unwrap();
+        assert_eq!(
+            writer.bool("bool", true).err().unwrap(),
+            BinConfigWriterError::ArrayKeyNotRequired
+        );
+
+        // But this works.
+
+        writer.bool(None, true).unwrap();
+    }
+
+    #[test]
+    fn MixedArray() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array("array", 2).unwrap();
+        writer.bool(None, true).unwrap();
+        assert_eq!(
+            writer.i64(None, 7).err().unwrap(),
+            BinConfigWriterError::MixedArray {
+                expected: ValueType::Bool,
+                found: ValueType::I64
+            }
+        );
+
+        // But this works.
+
+        writer.bool(None, false).unwrap();
+    }
+
+    #[test]
+    fn NonUniqueKey() {
+        let mut writer = BinConfigWriter::new(2).unwrap();
+        writer.bool("bool", true).unwrap();
+        assert_eq!(
+            writer.bool("bool", true).err().unwrap(),
+            BinConfigWriterError::NonUniqueKey
+        );
+
+        // But this works.
+
+        writer.bool("other_bool", false).unwrap();
+    }
+
+    #[test]
+    fn ArrayOrTableLengthMismatch() {
+        // Underflow, root table.
+        {
+            let writer = BinConfigWriter::new(1).unwrap();
+            assert_eq!(
+                writer.finish().err().unwrap(),
+                BinConfigWriterError::ArrayOrTableLengthMismatch {
+                    expected: 1,
+                    found: 0
+                }
+            );
+
+            // But this works.
+
+            let mut writer = BinConfigWriter::new(1).unwrap();
+            writer.bool("bool", true).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Overflow, root table.
+        {
+            let mut writer = BinConfigWriter::new(1).unwrap();
+            writer.bool(Some("bool_0"), true).unwrap();
+            assert_eq!(
+                writer.bool(Some("bool_1"), true).err().unwrap(),
+                BinConfigWriterError::ArrayOrTableLengthMismatch {
+                    expected: 1,
+                    found: 2
+                }
+            );
+
+            // But this works.
+
+            writer.finish().unwrap();
+        }
+
+        // Overflow, nested table.
+        {
+            let mut writer = BinConfigWriter::new(1).unwrap();
+            writer.table(Some("table"), 1).unwrap();
+            writer.bool(Some("bool_0"), true).unwrap();
+            assert_eq!(
+                writer.bool(Some("bool_1"), true).err().unwrap(),
+                BinConfigWriterError::ArrayOrTableLengthMismatch {
+                    expected: 1,
+                    found: 2
+                }
+            );
+
+            // But this works.
+
+            writer.end().unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Underflow, nested table.
+        {
+            let mut writer = BinConfigWriter::new(1).unwrap();
+            writer.table("table", 2).unwrap();
+            writer.bool("bool_0", true).unwrap();
+            assert_eq!(
+                writer.end().err().unwrap(),
+                BinConfigWriterError::ArrayOrTableLengthMismatch {
+                    expected: 2,
+                    found: 1
+                }
+            );
+
+            // But this works.
+
+            writer.bool("bool_1", false).unwrap();
+            writer.end().unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Overflow, nested array.
+        {
+            let mut writer = BinConfigWriter::new(1).unwrap();
+            writer.array("array", 1).unwrap();
+            writer.bool(None, true).unwrap();
+            assert_eq!(
+                writer.bool(None, true).err().unwrap(),
+                BinConfigWriterError::ArrayOrTableLengthMismatch {
+                    expected: 1,
+                    found: 2
+                }
+            );
+
+            // But this works.
+
+            writer.end().unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Underflow, nested array.
+        {
+            let mut writer = BinConfigWriter::new(1).unwrap();
+            writer.array(Some("array"), 2).unwrap();
+            writer.bool(None, true).unwrap();
+            assert_eq!(
+                writer.end().err().unwrap(),
+                BinConfigWriterError::ArrayOrTableLengthMismatch {
+                    expected: 2,
+                    found: 1
+                }
+            );
+
+            // But this works.
+
+            writer.bool(None, false).unwrap();
+            writer.end().unwrap();
+            writer.finish().unwrap();
+        }
+    }
+
+    #[test]
+    fn EndCallMismatch() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.bool(Some("bool"), true).unwrap();
+        assert_eq!(
+            writer.end().err().unwrap(),
+            BinConfigWriterError::EndCallMismatch
+        );
+
+        // But this works.
+
+        writer.finish().unwrap();
+
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array("array", 0).unwrap();
+        writer.end().unwrap();
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn UnfinishedArraysOrTables() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array(Some("array"), 1).unwrap();
+        assert_eq!(
+            writer.finish().err().unwrap(),
+            BinConfigWriterError::UnfinishedArraysOrTables(1)
+        );
+
+        // But this succeeds.
+
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.array(Some("array"), 1).unwrap();
+        writer.bool(None, false).unwrap();
+        writer.end().unwrap();
+        writer.finish().unwrap();
+    }
+
+    // "array_value = { 54, 12, 78.9 } -- array_value
+    // bool_value = true
+    // float_value = 3.14
+    // int_value = 7
+    // string_value = \"foo\"
+    // table_value = {
+    // \tbar = 2020,
+    // \tbaz = \"hello\",
+    // \tfoo = false,
+    // } -- table_value";
+
+    #[test]
+    fn writer() {
+        // Write the config.
+
+        let mut writer = BinConfigWriter::new(6).unwrap();
+
+        writer.array("array_value", 3).unwrap();
+        writer.i64(None, 54).unwrap();
+        writer.i64(None, 12).unwrap();
+        writer.f64(None, 78.9).unwrap();
+        writer.end().unwrap();
+
+        writer.bool("bool_value", true).unwrap();
+        writer.f64("float_value", 3.14).unwrap();
+        writer.i64("int_value", 7).unwrap();
+        writer.string("string_value", "foo").unwrap();
+
+        writer.table("table_value", 3).unwrap();
+        writer.i64("bar", 2020).unwrap();
+        writer.string("baz", "hello").unwrap();
+        writer.bool("foo", false).unwrap();
+        writer.end().unwrap();
+
+        let data = writer.finish().unwrap();
+
+        // Parse the blob and use the config.
+
+        let config = BinConfig::new(data).unwrap();
+
+        assert!(!config.root().contains("missing_value"));
+
+        assert!(config.root().contains("array_value"));
+        let array_value = config.root().get_array("array_value").unwrap();
+
+        assert_eq!(array_value.len(), 3);
+        assert_eq!(array_value.get_i64(0).unwrap(), 54);
+        assert!(cmp_f64(array_value.get_f64(0).unwrap(), 54.0));
+        assert_eq!(array_value.get_i64(1).unwrap(), 12);
+        assert!(cmp_f64(array_value.get_f64(1).unwrap(), 12.0));
+        assert_eq!(array_value.get_i64(2).unwrap(), 78);
+        assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
+
+        assert!(config.root().contains("bool_value"));
+        assert_eq!(config.root().get_bool("bool_value").unwrap(), true);
+
+        assert!(config.root().contains("float_value"));
+        assert!(cmp_f64(config.root().get_f64("float_value").unwrap(), 3.14));
+
+        assert!(config.root().contains("int_value"));
+        assert_eq!(config.root().get_i64("int_value").unwrap(), 7);
+
+        assert!(config.root().contains("string_value"));
+        assert_eq!(config.root().get_string("string_value").unwrap(), "foo");
+
+        assert!(config.root().contains("table_value"));
+        let table_value = config.root().get_table("table_value").unwrap();
+
+        assert_eq!(table_value.len(), 3);
+        assert!(table_value.contains("bar"));
+        assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
+        assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
+        assert!(table_value.contains("baz"));
+        assert_eq!(table_value.get_string("baz").unwrap(), "hello");
+        assert!(table_value.contains("foo"));
+        assert_eq!(table_value.get_bool("foo").unwrap(), false);
+        assert!(!table_value.contains("bob"));
     }
 }

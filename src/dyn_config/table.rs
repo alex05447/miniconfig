@@ -1,23 +1,24 @@
-use std::collections::{hash_map::Iter as HashMapIter, HashMap};
-use std::fmt::{Display, Formatter};
-use std::iter::Iterator;
-use std::ops::{Deref, DerefMut};
-
-#[cfg(feature = "ini")]
-use std::fmt::Write;
-
-use crate::{
-    util::{write_lua_key, DisplayLua},
-    DynArray, DynArrayMut, DynArrayRef, DynConfigValue, DynConfigValueMut, DynConfigValueRef,
-    DynTableGetError, DynTableGetPathError, DynTableSetError, Value,
+use {
+    crate::{
+        util::{write_lua_key, DisplayLua},
+        ConfigKey, DynArray, DynConfigValue, DynConfigValueMut, DynConfigValueRef, GetPathError,
+        TableError, Value, ValueType,
+    },
+    std::{
+        borrow::Borrow,
+        collections::{hash_map::Iter as HashMapIter, HashMap},
+        fmt::{Display, Formatter},
+        iter::{IntoIterator, Iterator},
+    },
 };
 
 #[cfg(feature = "ini")]
-use crate::{
-    write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions, ValueType,
+use {
+    crate::{write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions},
+    std::fmt::Write,
 };
 
-/// Represents a mutable hashmap of [`Value`]'s with string keys.
+/// Represents a mutable hashmap of [`Value`]'s with (non-empty) string keys.
 ///
 /// [`Value`]: enum.Value.html
 #[derive(Clone)]
@@ -52,313 +53,289 @@ impl DynTable {
         self.0.clear()
     }
 
-    /// Returns `true` if the [`table`] contains a [`value`] with the string `key`.
+    /// Returns `true` if the [`table`] contains a [`value`] with the (non-empty) string `key`.
     ///
     /// [`table`]: struct.DynTable.html
     /// [`value`]: type.DynConfigValueRef.html
     pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
+        use TableError::*;
+
         match self.get(key) {
             Ok(_) => true,
             Err(err) => match err {
-                DynTableGetError::KeyDoesNotExist => false,
-                DynTableGetError::IncorrectValueType(_) => unreachable!(),
+                EmptyKey | KeyDoesNotExist => false,
+                IncorrectValueType(_) => unreachable!(),
             },
         }
     }
 
-    /// Tries to get an immutable reference to a [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an immutable reference to a [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key`.
+    /// Returns an [`error`] if the `key` is empty or if the [`table`] does not contain the `key`.
     ///
     /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'_>, TableError> {
         self.get_impl(key.as_ref())
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
     /// The last key may correspond to a value of any [`type`].
     ///
-    /// Returns the table itself if the `path` is empty.
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// or if any of the non-terminating `path` elements is not a [`table`].
+    /// Returns the [`table`] itself if the `path` is empty.
     ///
     /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
     /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        mut path: P,
-    ) -> Result<DynConfigValueRef<'_>, DynTableGetPathError> {
-        let mut _path = Vec::new();
-        let table = DynTableRef::new(self);
-
-        if let Some(key) = path.next() {
-            let key = key.as_ref();
-
-            _path.push(key.into());
-            let mut value = Self::get_table_value(table, key, _path.clone())?;
-
-            while let Some(key) = path.next() {
-                let key = key.as_ref();
-
-                match value {
-                    Value::Table(table) => {
-                        _path.push(key.into());
-                        value = Self::get_table_value(table, key, _path.clone())?;
-                    }
-                    value => {
-                        return Err(DynTableGetPathError::ValueNotATable {
-                            path: _path,
-                            value_type: value.get_type(),
-                        })
-                    }
-                }
-            }
-
-            Ok(value)
-        } else {
-            Ok(Value::Table(table))
-        }
+    pub fn get_path<'a, K, P>(&self, path: P) -> Result<DynConfigValueRef<'_>, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
+        DynConfigValueRef::Table(self)
+            .get_path(path.into_iter())
+            .map_err(GetPathError::reverse)
     }
 
-    /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`bool`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`bool`].
     ///
     /// [`bool`]: enum.Value.html#variant.Bool
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, TableError> {
         let val = self.get(key)?;
         val.bool()
-            .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not a [`bool`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to a [`bool`] [`value`].
     ///
     /// [`bool`]: enum.Value.html#variant.Bool
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_bool_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<bool, DynTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
+    pub fn get_bool_path<'a, K, P>(&self, path: P) -> Result<bool, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         val.bool()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val.get_type()))
+            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an [`i64`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
     ///
+    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, TableError> {
         let val = self.get(key)?;
         val.i64()
-            .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(TableError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a [`i64`] [`value`] in the [`table`] at `path`.
+    /// Tries to get an [`i64`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not an [`i64`].
-    ///
+    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_i64_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<i64, DynTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
+    pub fn get_i64_path<'a, K, P>(&self, path: P) -> Result<i64, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         val.i64()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val.get_type()))
+            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an [`f64`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
     ///
-    /// [`f64`]: enum.Value.html#variant.I64
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, TableError> {
         let val = self.get(key)?;
         val.f64()
-            .ok_or(DynTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not an [`f64`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
+    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_f64_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<f64, DynTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: struct.DynArray.html
+    pub fn get_f64_path<'a, K, P>(&self, path: P) -> Result<f64, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         val.f64()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val.get_type()))
+            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a [`string`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`string`].
     ///
     /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<&str, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<&str, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.string()
-            .ok_or(DynTableGetError::IncorrectValueType(val_type))
+        val.string().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not a [`string`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to a [`string`] [`value`].
     ///
     /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_string_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<&str, DynTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
+    pub fn get_string_path<'a, K, P>(&self, path: P) -> Result<&str, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`array`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<DynArrayRef<'_>, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<&DynArray, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.array()
-            .ok_or(DynTableGetError::IncorrectValueType(val_type))
+        val.array().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not an [`array`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to an [`array`] [`value`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_array_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<DynArrayRef<'_>, DynTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    pub fn get_array_path<'a, K, P>(&self, path: P) -> Result<&DynArray, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
     ///
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<DynTableRef<'_>, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<&DynTable, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.table()
-            .ok_or(DynTableGetError::IncorrectValueType(val_type))
+        val.table().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to a [`table`](enum.Value.html#variant.Table) [`value`].
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not a [`table`](enum.Value.html#variant.Table).
-    ///
-    /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_table_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<DynTableRef<'_>, DynTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
+    pub fn get_table_path<'a, K, P>(&self, path: P) -> Result<&DynTable, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an iterator over (`key`, [`value`]) pairs of the [`table`], in unspecified order.
@@ -369,200 +346,201 @@ impl DynTable {
         DynTableIter(self.0.iter())
     }
 
-    /// Tries to get a mutable reference to a [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a mutable reference to a [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key`.
+    /// Returns an [`error`] if the `key` is empty or if the [`table`] does not contain the `key`.
     ///
     /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
     /// Use [`set`] to mutate other value types in the [`table`].
     ///
     /// [`value`]: type.DynConfigValueMut.html
     /// [`table`]: struct.DynTable.html
+    /// [`error`]: enum.TableError.html
     /// [`arrays`]: enum.Value.html#variant.Array
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_mut<K: AsRef<str>>(
-        &mut self,
-        key: K,
-    ) -> Result<DynConfigValueMut<'_>, DynTableGetError> {
+    pub fn get_mut<K: AsRef<str>>(&mut self, key: K) -> Result<DynConfigValueMut<'_>, TableError> {
         self.get_mut_impl(key.as_ref())
     }
 
     /// Tries to get a mutable reference to a [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`] or an [`array`] value.
     /// The last key may correspond to a value of any [`type`].
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// or if any of the non-terminating `path` elements is not a [`table`].
+    /// Returns the [`table`] itself if the `path` is empty.
+    ///
+    /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
+    /// Use [`set`] to mutate other value types in the [`table`].
     ///
     /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: struct.DynArray.html
     /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_mut_path<K: AsRef<str>, P: Iterator<Item = K>>(
+    /// [`arrays`]: enum.Value.html#variant.Array
+    /// [`tables`]: enum.Value.html#variant.Table
+    /// [`set`]: #method.set
+    pub fn get_mut_path<'a, K, P>(
         &mut self,
-        mut path: P,
-    ) -> Result<DynConfigValueMut<'_>, DynTableGetPathError> {
-        let mut _path = Vec::new();
-        let table = DynTableMut::new(self);
-
-        if let Some(key) = path.next() {
-            let key = key.as_ref();
-
-            _path.push(key.into());
-            let mut value = Self::get_table_value_mut(table, key, _path.clone())?;
-
-            while let Some(key) = path.next() {
-                let key = key.as_ref();
-
-                match value {
-                    Value::Table(table) => {
-                        _path.push(key.into());
-                        value = Self::get_table_value_mut(table, key, _path.clone())?;
-                    }
-                    value => {
-                        return Err(DynTableGetPathError::ValueNotATable {
-                            path: _path,
-                            value_type: value.get_type(),
-                        })
-                    }
-                }
-            }
-
-            Ok(value)
-        } else {
-            Ok(Value::Table(table))
-        }
+        path: P,
+    ) -> Result<DynConfigValueMut<'_>, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
+        DynConfigValueMut::Table(self)
+            .get_path(path.into_iter())
+            .map_err(GetPathError::reverse)
     }
 
-    /// Tries to get a mutable reference to an [`array`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a mutable reference to an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`array`].
+    ///
+    /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
+    /// Use [`set`] to mutate other value types in the [`table`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_array_mut<K: AsRef<str>>(
-        &mut self,
-        key: K,
-    ) -> Result<DynArrayMut<'_>, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    /// [`arrays`]: enum.Value.html#variant.Array
+    /// [`tables`]: enum.Value.html#variant.Table
+    /// [`set`]: #method.set
+    pub fn get_array_mut<K: AsRef<str>>(&mut self, key: K) -> Result<&mut DynArray, TableError> {
         let val = self.get_mut(key)?;
         let val_type = val.get_type();
-        val.array()
-            .ok_or(DynTableGetError::IncorrectValueType(val_type))
+        val.array().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a mutable reference to an [`array`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to an [`array`] [`value`].
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not an [`array`].
+    /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
+    /// Use [`set`] to mutate other value types in the [`table`].
     ///
-    /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_array_mut_path<K: AsRef<str>, P: Iterator<Item = K>>(
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`arrays`]: enum.Value.html#variant.Array
+    /// [`tables`]: enum.Value.html#variant.Table
+    /// [`set`]: #method.set
+    pub fn get_array_mut_path<'a, K, P>(
         &mut self,
         path: P,
-    ) -> Result<DynArrayMut<'_>, DynTableGetPathError> {
+    ) -> Result<&mut DynArray, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_mut_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a mutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    ///
+    /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
+    /// Use [`set`] to mutate other value types in the [`table`].
     ///
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`error`]: struct.DynTableGetError.html
-    pub fn get_table_mut<K: AsRef<str>>(
-        &mut self,
-        key: K,
-    ) -> Result<DynTableMut<'_>, DynTableGetError> {
+    /// [`error`]: enum.TableError.html
+    /// [`arrays`]: enum.Value.html#variant.Array
+    /// [`tables`]: enum.Value.html#variant.Table
+    /// [`set`]: #method.set
+    pub fn get_table_mut<K: AsRef<str>>(&mut self, key: K) -> Result<&mut DynTable, TableError> {
         let val = self.get_mut(key)?;
         let val_type = val.get_type();
-        val.table()
-            .ok_or(DynTableGetError::IncorrectValueType(val_type))
+        val.table().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a mutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`] or an [`array`] value.
+    /// The last key must correspond to a [`table`](enum.Value.html#variant.Table) [`value`].
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not a [`table`](enum.Value.html#variant.Table).
-    ///
-    /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.DynTableGetPathError.html
-    pub fn get_table_mut_path<K: AsRef<str>, P: Iterator<Item = K>>(
+    /// [`array`]: struct.DynArray.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    pub fn get_table_mut_path<'a, K, P>(
         &mut self,
         path: P,
-    ) -> Result<DynTableMut<'_>, DynTableGetPathError> {
+    ) -> Result<&mut DynTable, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_mut_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(DynTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
-    /// If [`value`] is `Some`, inserts or changes the value at `key`.
+    /// If [`value`] is `Some`, inserts or changes the value at (non-empty) string `key`.
+    ///
     /// If [`value`] is `None`, tries to remove the value at `key`.
     /// Returns an [`error`] if the `key` does not exist in this case.
     ///
     /// [`value`]: type.DynConfigValue.html
-    /// [`error`]: struct.DynTableSetError.html
-    pub fn set<'s, V>(&mut self, key: &str, value: V) -> Result<(), DynTableSetError>
+    /// [`error`]: enum.TableError.html
+    pub fn set<K, V>(&mut self, key: K, value: V) -> Result<(), TableError>
     where
+        K: AsRef<str>,
         V: Into<Option<DynConfigValue>>,
     {
-        self.set_impl(key, value.into())
+        self.set_impl(key.as_ref(), value.into())
     }
 
     fn len_impl(&self) -> u32 {
         self.0.len() as u32
     }
 
-    fn get_impl(&self, key: &str) -> Result<DynConfigValueRef<'_>, DynTableGetError> {
+    fn get_impl(&self, key: &str) -> Result<DynConfigValueRef<'_>, TableError> {
+        use TableError::*;
+
+        if key.is_empty() {
+            return Err(EmptyKey);
+        }
+
         if let Some(value) = self.0.get(key) {
             let value = match value {
                 Value::Bool(value) => Value::Bool(*value),
                 Value::I64(value) => Value::I64(*value),
                 Value::F64(value) => Value::F64(*value),
                 Value::String(value) => Value::String(value.as_str()),
-                Value::Array(value) => Value::Array(DynArrayRef::new(value)),
-                Value::Table(value) => Value::Table(DynTableRef::new(value)),
+                Value::Array(value) => Value::Array(value),
+                Value::Table(value) => Value::Table(value),
             };
 
             Ok(value)
         } else {
-            Err(DynTableGetError::KeyDoesNotExist)
+            Err(KeyDoesNotExist)
         }
     }
 
-    fn set_impl(
-        &mut self,
-        key: &str,
-        value: Option<DynConfigValue>,
-    ) -> Result<(), DynTableSetError> {
-        use DynTableSetError::*;
+    fn set_impl(&mut self, key: &str, value: Option<DynConfigValue>) -> Result<(), TableError> {
+        use TableError::*;
 
         if key.is_empty() {
             return Err(EmptyKey);
@@ -597,43 +575,27 @@ impl DynTable {
         Ok(())
     }
 
-    fn get_mut_impl(&mut self, key: &str) -> Result<DynConfigValueMut<'_>, DynTableGetError> {
+    fn get_mut_impl(&mut self, key: &str) -> Result<DynConfigValueMut<'_>, TableError> {
+        use TableError::*;
+
+        if key.is_empty() {
+            return Err(EmptyKey);
+        }
+
         if let Some(value) = self.0.get_mut(key) {
             let value = match value {
                 Value::Bool(value) => Value::Bool(*value),
                 Value::I64(value) => Value::I64(*value),
                 Value::F64(value) => Value::F64(*value),
                 Value::String(value) => Value::String(value.as_str()),
-                Value::Array(value) => Value::Array(DynArrayMut::new(value)),
-                Value::Table(value) => Value::Table(DynTableMut::new(value)),
+                Value::Array(value) => Value::Array(value),
+                Value::Table(value) => Value::Table(value),
             };
 
             Ok(value)
         } else {
-            Err(DynTableGetError::KeyDoesNotExist)
+            Err(KeyDoesNotExist)
         }
-    }
-
-    fn get_table_value<'t>(
-        table: DynTableRef<'t>,
-        key: &str,
-        path: Vec<String>,
-    ) -> Result<DynConfigValueRef<'t>, DynTableGetPathError> {
-        table.get(key).map_err(|err| match err {
-            DynTableGetError::KeyDoesNotExist => DynTableGetPathError::PathDoesNotExist(path),
-            DynTableGetError::IncorrectValueType(_) => unreachable!(),
-        })
-    }
-
-    fn get_table_value_mut<'t>(
-        table: DynTableMut<'t>,
-        key: &str,
-        path: Vec<String>,
-    ) -> Result<DynConfigValueMut<'t>, DynTableGetPathError> {
-        table.get_mut(key).map_err(|err| match err {
-            DynTableGetError::KeyDoesNotExist => DynTableGetPathError::PathDoesNotExist(path),
-            DynTableGetError::IncorrectValueType(_) => unreachable!(),
-        })
     }
 
     fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
@@ -642,7 +604,7 @@ impl DynTable {
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
 
-        // Sort the keys.
+        // Sort the keys in alphabetical order.
         keys.sort_by(|l, r| l.cmp(r));
 
         // Iterate the table using the sorted keys.
@@ -650,19 +612,16 @@ impl DynTable {
             <Self as DisplayLua>::do_indent(f, indent + 1)?;
 
             write_lua_key(f, key)?;
-            write!(f, " = ")?;
+            " = ".fmt(f)?;
 
             // Must succeed.
             let value = self.get(key).unwrap();
 
-            let is_array_or_table = match value {
-                Value::Table(_) | Value::Array(_) => true,
-                _ => false,
-            };
+            let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
             value.fmt_lua(f, indent + 1)?;
 
-            write!(f, ",")?;
+            ",".fmt(f)?;
 
             if is_array_or_table {
                 write!(f, " -- {}", key)?;
@@ -784,133 +743,11 @@ impl DynTable {
     }
 }
 
-/// Represents an immutable reference to a [`table`].
-///
-/// [`table`]: struct.DynTable.html
-pub struct DynTableRef<'t>(&'t DynTable);
-
-impl<'t> DynTableRef<'t> {
-    pub(super) fn new(inner: &'t DynTable) -> Self {
-        Self(inner)
-    }
-
-    // Needed to return a value with `'t` lifetime
-    // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'t>, DynTableGetError> {
-        self.0.get(key)
-    }
-
-    // Needed to return a value with `'t` lifetime
-    // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<DynConfigValueRef<'t>, DynTableGetPathError> {
-        self.0.get_path(path)
-    }
-
-    // Needed to return a table with `'t` lifetime
-    // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<DynTableRef<'t>, DynTableGetError> {
-        self.0.get_table(key)
-    }
-
-    // Needed to return a table with `'t` lifetime
-    // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_table_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<DynTableRef<'t>, DynTableGetPathError> {
-        self.0.get_table_path(path)
-    }
-
-    // Needed to return an array with `'t` lifetime
-    // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<DynArrayRef<'t>, DynTableGetError> {
-        self.0.get_array(key)
-    }
-
-    // Needed to return an array with `'t` lifetime
-    // instead of that with `self` lifetime if deferred to `Deref`.
-    pub fn get_array_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<DynArrayRef<'t>, DynTableGetPathError> {
-        self.0.get_array_path(path)
-    }
-}
-
-impl<'t> Deref for DynTableRef<'t> {
-    type Target = DynTable;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-/// Represents a mutable reference to a [`table`].
-///
-/// [`table`]: struct.DynTable.html
-pub struct DynTableMut<'t>(&'t mut DynTable);
-
-impl<'t> DynTableMut<'t> {
-    pub(crate) fn new(inner: &'t mut DynTable) -> Self {
-        Self(inner)
-    }
-
-    pub fn get_mut<K: AsRef<str>>(self, key: K) -> Result<DynConfigValueMut<'t>, DynTableGetError> {
-        self.0.get_mut(key)
-    }
-
-    pub fn get_mut_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        self,
-        path: P,
-    ) -> Result<DynConfigValueMut<'t>, DynTableGetPathError> {
-        self.0.get_mut_path(path)
-    }
-
-    pub fn get_array_mut<K: AsRef<str>>(self, key: K) -> Result<DynArrayMut<'t>, DynTableGetError> {
-        self.0.get_array_mut(key)
-    }
-
-    pub fn get_array_mut_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        self,
-        path: P,
-    ) -> Result<DynArrayMut<'t>, DynTableGetPathError> {
-        self.0.get_array_mut_path(path)
-    }
-
-    pub fn get_table_mut<K: AsRef<str>>(self, key: K) -> Result<DynTableMut<'t>, DynTableGetError> {
-        self.0.get_table_mut(key)
-    }
-
-    pub fn get_table_mut_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        self,
-        path: P,
-    ) -> Result<DynTableMut<'t>, DynTableGetPathError> {
-        self.0.get_table_mut_path(path)
-    }
-}
-
-impl<'t> Deref for DynTableMut<'t> {
-    type Target = DynTable;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl<'t> DerefMut for DynTableMut<'t> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0
-    }
-}
-
 /// Iterator over (`key`, [`value`]) tuples of the [`table`], in unspecified order.
 ///
-/// [`value`]: enum.Value.html
+/// [`value`]: type.DynConfigValue.html
 /// [`table`]: struct.DynTable.html
-struct DynTableIter<'t>(HashMapIter<'t, String, Value<String, DynArray, DynTable>>);
+struct DynTableIter<'t>(HashMapIter<'t, String, DynConfigValue>);
 
 impl<'t> Iterator for DynTableIter<'t> {
     type Item = (&'t str, DynConfigValueRef<'t>);
@@ -922,8 +759,8 @@ impl<'t> Iterator for DynTableIter<'t> {
                 Value::I64(value) => Value::I64(*value),
                 Value::F64(value) => Value::F64(*value),
                 Value::String(value) => Value::String(value.as_str()),
-                Value::Array(value) => Value::Array(DynArrayRef::new(value)),
-                Value::Table(value) => Value::Table(DynTableRef::new(value)),
+                Value::Array(value) => Value::Array(value),
+                Value::Table(value) => Value::Table(value),
             };
 
             Some((key.as_str(), value))
@@ -939,21 +776,15 @@ impl DisplayLua for DynTable {
     }
 }
 
-impl<'t> DisplayLua for DynTableRef<'t> {
+impl<'t> DisplayLua for &'t DynTable {
     fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
         self.fmt_lua_impl(f, indent)
     }
 }
 
-impl<'t> DisplayLua for DynTableMut<'t> {
+impl<'t> DisplayLua for &'t mut DynTable {
     fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
         self.fmt_lua_impl(f, indent)
-    }
-}
-
-impl Display for DynTable {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_lua_impl(f, 0)
     }
 }
 
@@ -971,7 +802,7 @@ impl DisplayIni for DynTable {
 }
 
 #[cfg(feature = "ini")]
-impl<'t> DisplayIni for DynTableRef<'t> {
+impl<'t> DisplayIni for &'t DynTable {
     fn fmt_ini<W: Write>(
         &self,
         w: &mut W,
@@ -983,15 +814,360 @@ impl<'t> DisplayIni for DynTableRef<'t> {
     }
 }
 
-#[cfg(feature = "ini")]
-impl<'t> DisplayIni for DynTableMut<'t> {
-    fn fmt_ini<W: Write>(
-        &self,
-        w: &mut W,
-        level: u32,
-        array: bool,
-        options: ToIniStringOptions,
-    ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, array, options)
+impl Display for DynTable {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        self.fmt_lua_impl(f, 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(non_snake_case)]
+
+    use crate::*;
+
+    #[test]
+    fn len_empty_clear() {
+        let mut table = DynTable::new();
+
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+
+        table.set("foo", Some(true.into())).unwrap();
+
+        assert_eq!(table.len(), 1);
+        assert!(!table.is_empty());
+
+        table.set("bar", Some(7.into())).unwrap();
+
+        assert_eq!(table.len(), 2);
+        assert!(!table.is_empty());
+
+        table.clear();
+
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn contains() {
+        let mut table = DynTable::new();
+
+        assert!(!table.contains("foo"));
+
+        table.set("foo", Some(true.into())).unwrap();
+
+        assert!(table.contains("foo"));
+
+        table.clear();
+
+        assert!(!table.contains("foo"));
+    }
+
+    #[test]
+    fn DynTableError_EmptyKey() {
+        let mut table = DynTable::new();
+
+        assert_eq!(table.get("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_bool("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_i64("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_f64("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_string("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_table("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_array("").err().unwrap(), TableError::EmptyKey);
+
+        assert_eq!(table.get_mut("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_table_mut("").err().unwrap(), TableError::EmptyKey);
+        assert_eq!(table.get_array_mut("").err().unwrap(), TableError::EmptyKey);
+
+        assert_eq!(
+            table.set("", Some(true.into())).err().unwrap(),
+            TableError::EmptyKey
+        );
+    }
+
+    #[test]
+    fn DynTableError_KeyDoesNotExist() {
+        let mut table = DynTable::new();
+
+        assert_eq!(table.get("foo").err().unwrap(), TableError::KeyDoesNotExist);
+        assert_eq!(
+            table.get_bool("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+        assert_eq!(
+            table.get_i64("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+        assert_eq!(
+            table.get_f64("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+        assert_eq!(
+            table.get_string("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+        assert_eq!(
+            table.get_table("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+        assert_eq!(
+            table.get_array("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+
+        assert_eq!(
+            table.get_mut("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+        assert_eq!(
+            table.get_table_mut("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+        assert_eq!(
+            table.get_array_mut("foo").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+
+        assert_eq!(
+            table.set("foo", None).err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+
+        // But this works.
+
+        table.set("foo", Some(true.into())).unwrap();
+
+        assert_eq!(table.get("foo").unwrap().bool().unwrap(), true);
+    }
+
+    #[test]
+    fn DynTableError_IncorrectValueType() {
+        let mut table = DynTable::new();
+
+        table.set("foo", Some(true.into())).unwrap();
+
+        assert_eq!(
+            table.get_i64("foo").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            table.get_f64("foo").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            table.get_string("foo").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            table.get_table("foo").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            table.get_array("foo").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::Bool)
+        );
+
+        assert_eq!(
+            table.get_table_mut("foo").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            table.get_array_mut("foo").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::Bool)
+        );
+
+        // But this works.
+
+        table.set("bar", Some(3.14.into())).unwrap();
+
+        assert_eq!(table.get_i64("bar").unwrap(), 3);
+        assert!(cmp_f64(table.get_f64("bar").unwrap(), 3.14));
+
+        table.set("baz", Some((-7).into())).unwrap();
+
+        assert_eq!(table.get_i64("baz").unwrap(), -7);
+        assert!(cmp_f64(table.get_f64("baz").unwrap(), -7.0));
+    }
+
+    #[test]
+    fn basic() {
+        // Create an empty table.
+        let mut table = DynTable::new();
+        assert_eq!(table.len(), 0);
+        assert!(table.is_empty());
+
+        // Add a value.
+        assert!(!table.contains("bool"));
+        table.set("bool", Some(true.into())).unwrap();
+        assert_eq!(table.len(), 1);
+        assert!(!table.is_empty());
+        assert!(table.contains("bool"));
+        assert_eq!(table.get_bool("bool").unwrap(), true);
+
+        // Add a couple more.
+        assert!(!table.contains("i64"));
+        table.set("i64", Some(7.into())).unwrap();
+        assert_eq!(table.len(), 2);
+        assert!(!table.is_empty());
+        assert!(table.contains("i64"));
+        assert_eq!(table.get_i64("i64").unwrap(), 7);
+
+        assert!(!table.contains("string"));
+        table.set("string", Some("foo".into())).unwrap();
+        assert_eq!(table.len(), 3);
+        assert!(!table.is_empty());
+        assert!(table.contains("string"));
+        assert_eq!(table.get_string("string").unwrap(), "foo");
+
+        // Change a value.
+        table.set("string", Some("bar".into())).unwrap();
+        assert_eq!(table.len(), 3);
+        assert!(!table.is_empty());
+        assert!(table.contains("string"));
+        assert_eq!(table.get_string("string").unwrap(), "bar");
+
+        // Remove a value.
+        table.set("bool", None).unwrap();
+        assert_eq!(table.len(), 2);
+        assert!(!table.is_empty());
+        assert!(!table.contains("bool"));
+
+        // Add a nested table with some values.
+        let mut nested_table = DynTable::new();
+        assert_eq!(nested_table.len(), 0);
+        assert!(nested_table.is_empty());
+
+        assert!(!nested_table.contains("nested_bool"));
+        nested_table.set("nested_bool", Some(false.into())).unwrap();
+        assert!(nested_table.contains("nested_bool"));
+
+        assert!(!nested_table.contains("nested_int"));
+        nested_table.set("nested_int", Some((-9).into())).unwrap();
+        assert!(nested_table.contains("nested_int"));
+
+        assert_eq!(nested_table.len(), 2);
+        assert!(!nested_table.is_empty());
+
+        assert!(!table.contains("table"));
+        table.set("table", Some(nested_table.into())).unwrap();
+        assert_eq!(table.len(), 3);
+        assert!(!table.is_empty());
+        assert!(table.contains("table"));
+
+        assert_eq!(
+            table
+                .get_path(&["table".into(), "nested_bool".into()])
+                .unwrap()
+                .bool()
+                .unwrap(),
+            false
+        );
+        assert_eq!(
+            table
+                .get_bool_path(&["table".into(), "nested_bool".into()])
+                .unwrap(),
+            false
+        );
+        assert_eq!(
+            table
+                .get_path(&["table".into(), "nested_int".into()])
+                .unwrap()
+                .i64()
+                .unwrap(),
+            -9
+        );
+        assert_eq!(
+            table
+                .get_i64_path(&["table".into(), "nested_int".into()])
+                .unwrap(),
+            -9
+        );
+        assert!(cmp_f64(
+            table
+                .get_path(&["table".into(), "nested_int".into()])
+                .unwrap()
+                .f64()
+                .unwrap(),
+            -9.0
+        ));
+        assert!(cmp_f64(
+            table
+                .get_f64_path(&["table".into(), "nested_int".into()])
+                .unwrap(),
+            -9.0
+        ));
+
+        // Add a nested array with some values.
+        let mut nested_array = DynArray::new();
+        assert_eq!(nested_array.len(), 0);
+        assert!(nested_array.is_empty());
+
+        nested_array.push(3.14.into()).unwrap();
+        nested_array.push(42.0.into()).unwrap();
+        nested_array.push((-17.235).into()).unwrap();
+        assert_eq!(nested_array.len(), 3);
+        assert!(!nested_array.is_empty());
+
+        assert!(!table.contains("array"));
+        table.set("array", Value::Array(nested_array)).unwrap();
+        assert_eq!(table.len(), 4);
+        assert!(!table.is_empty());
+        assert!(table.contains("array"));
+
+        assert_eq!(table.get_i64_path(&["array".into(), 0.into()]).unwrap(), 3);
+        assert!(cmp_f64(
+            table.get_f64_path(&["array".into(), 0.into()]).unwrap(),
+            3.14
+        ));
+
+        assert_eq!(table.get_i64_path(&["array".into(), 1.into()]).unwrap(), 42);
+        assert!(cmp_f64(
+            table.get_f64_path(&["array".into(), 1.into()]).unwrap(),
+            42.0
+        ));
+
+        assert_eq!(
+            table.get_i64_path(&["array".into(), 2.into()]).unwrap(),
+            -17
+        );
+        assert!(cmp_f64(
+            table.get_f64_path(&["array".into(), 2.into()]).unwrap(),
+            -17.235
+        ));
+
+        // Iterate the table.
+        for (key, value) in table.iter() {
+            match key {
+                "i64" => assert_eq!(value.i64().unwrap(), 7),
+                "string" => assert_eq!(value.string().unwrap(), "bar"),
+                "table" => {
+                    // Iterate the nested table.
+                    let nested_table = value.table().unwrap();
+
+                    for (key, value) in nested_table.iter() {
+                        match key {
+                            "nested_bool" => assert_eq!(value.bool().unwrap(), false),
+                            "nested_int" => assert_eq!(value.i64().unwrap(), -9),
+                            _ => panic!("Invalid key."),
+                        }
+                    }
+                }
+                "array" => {
+                    // Iterate the nested array.
+                    let nested_array = value.array().unwrap();
+
+                    for (index, value) in nested_array.iter().enumerate() {
+                        match index {
+                            0 => assert!(cmp_f64(value.f64().unwrap(), 3.14)),
+                            1 => assert!(cmp_f64(value.f64().unwrap(), 42.0)),
+                            2 => assert!(cmp_f64(value.f64().unwrap(), -17.235)),
+                            _ => panic!("Invalid index."),
+                        }
+                    }
+                }
+                _ => panic!("Invalid key."),
+            }
+        }
     }
 }

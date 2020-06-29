@@ -42,20 +42,28 @@ baz = "hello"
 foo = false
 áéíóú = "42""#;
 
+    // Load the Lua config and serialize it to the binary config blob.
     let data = lua.context(|lua| {
         // Load from Lua script.
         let lua_config = LuaConfig::from_script(lua, lua_script).unwrap();
 
         // Use the Lua config.
-        let array_value = lua_config.root().get_array("array_value").unwrap();
 
+        let array_value = lua_config.root().get_array("array_value").unwrap();
         assert_eq!(array_value.len(), 3);
-        assert_eq!(array_value.get_i64(0).unwrap(), 54);
-        assert!(cmp_f64(array_value.get_f64(0).unwrap(), 54.0));
-        assert_eq!(array_value.get_i64(1).unwrap(), 12);
-        assert!(cmp_f64(array_value.get_f64(1).unwrap(), 12.0));
+
+        // Access the number values as ints / floats.
         assert_eq!(array_value.get_i64(2).unwrap(), 78);
         assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
+
+        // Access array elements by path.
+        assert_eq!(
+            lua_config
+                .root()
+                .get_i64_path(&["array_value".into(), 0.into()])
+                .unwrap(),
+            54
+        );
 
         assert_eq!(lua_config.root().get_bool("bool_value").unwrap(), true);
 
@@ -63,8 +71,13 @@ foo = false
             lua_config.root().get_f64("float_value").unwrap(),
             3.14
         ));
+        assert_eq!(lua_config.root().get_i64("float_value").unwrap(), 3);
 
         assert_eq!(lua_config.root().get_i64("int_value").unwrap(), 7);
+        assert!(cmp_f64(
+            lua_config.root().get_f64("int_value").unwrap(),
+            7.0
+        ));
 
         assert_eq!(
             lua_config
@@ -83,6 +96,15 @@ foo = false
         assert_eq!(table_value.get_string("baz").unwrap().as_ref(), "hello");
         assert_eq!(table_value.get_bool("foo").unwrap(), false);
         assert_eq!(table_value.get_string("áéíóú").unwrap().as_ref(), "42");
+
+        // Access table elements by path.
+        assert_eq!(
+            lua_config
+                .root()
+                .get_bool_path(&["table_value".into(), "foo".into()])
+                .unwrap(),
+            false
+        );
 
         // Serialize to (Lua) string.
         assert_eq!(
@@ -109,25 +131,32 @@ foo = false
             "Serialized `.ini` config mismatch."
         );
 
-        // Serialize to binary config.
+        // Serialize to binary config and return the data blob.
         lua_config.to_bin_config().unwrap()
     });
 
     // Binary config.
     {
-        // Load the binary config.
+        // Load the binary config from the data blob, created above.
         let bin_config = BinConfig::new(data).unwrap();
 
-        // Use the binary config.
-        let array_value = bin_config.root().get_array("array_value").unwrap();
+        // Use the binary config. Same interface as the Lua config above.
 
+        let array_value = bin_config.root().get_array("array_value").unwrap();
         assert_eq!(array_value.len(), 3);
-        assert_eq!(array_value.get_i64(0).unwrap(), 54);
-        assert!(cmp_f64(array_value.get_f64(0).unwrap(), 54.0));
-        assert_eq!(array_value.get_i64(1).unwrap(), 12);
-        assert!(cmp_f64(array_value.get_f64(1).unwrap(), 12.0));
+
+        // Access the number values as ints / floats.
         assert_eq!(array_value.get_i64(2).unwrap(), 78);
         assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
+
+        // Access array elements by path.
+        assert_eq!(
+            bin_config
+                .root()
+                .get_i64_path(&["array_value".into(), 0.into()])
+                .unwrap(),
+            54
+        );
 
         assert_eq!(bin_config.root().get_bool("bool_value").unwrap(), true);
 
@@ -135,8 +164,13 @@ foo = false
             bin_config.root().get_f64("float_value").unwrap(),
             3.14
         ));
+        assert_eq!(bin_config.root().get_i64("float_value").unwrap(), 3);
 
         assert_eq!(bin_config.root().get_i64("int_value").unwrap(), 7);
+        assert!(cmp_f64(
+            bin_config.root().get_f64("int_value").unwrap(),
+            7.0
+        ));
 
         assert_eq!(bin_config.root().get_string("string_value").unwrap(), "foo");
 
@@ -149,7 +183,15 @@ foo = false
         assert_eq!(table_value.get_bool("foo").unwrap(), false);
         assert_eq!(table_value.get_string("áéíóú").unwrap(), "42");
 
-        // Serialize to Lua string.
+        // Access table elements by path.
+        assert_eq!(
+            table_value
+                .get_bool_path(&["table_value".into(), "foo".into()])
+                .unwrap(),
+            false
+        );
+
+        // Serialize to (Lua) string.
         assert_eq!(
             lua_script,
             bin_config.to_string(),
@@ -175,11 +217,12 @@ foo = false
         );
     }
 
+    // Dynamic config.
     {
-        // Load from `.ini`.
+        // Load from `.ini` string, with array support.
         let ini_config = DynConfig::from_ini(IniParser::new(ini_script).arrays(true)).unwrap();
 
-        // Serialize to `.ini`.
+        // Serialize back to `.ini` string.
         assert_eq!(
             ini_config
                 .to_ini_string_opts(ToIniStringOptions {

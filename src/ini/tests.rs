@@ -2,11 +2,21 @@
 
 use crate::*;
 
+fn dyn_config(string: &str) -> DynConfig {
+    DynConfig::from_ini(IniParser::new(string)).expect("expected no error")
+}
+
+fn dyn_config_error(string: &str) -> IniError {
+    DynConfig::from_ini(IniParser::new(string))
+        .err()
+        .expect("expected an error")
+}
+
 #[test]
 fn InvalidCharacterAtLineStart() {
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("'")).err().unwrap(),
+        dyn_config_error("'"),
         IniError {
             line: 1,
             column: 1,
@@ -15,7 +25,7 @@ fn InvalidCharacterAtLineStart() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new(":")).err().unwrap(),
+        dyn_config_error(":"),
         IniError {
             line: 1,
             column: 1,
@@ -24,7 +34,7 @@ fn InvalidCharacterAtLineStart() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new(" #")).err().unwrap(),
+        dyn_config_error(" #"),
         IniError {
             line: 1,
             column: 2,
@@ -34,20 +44,20 @@ fn InvalidCharacterAtLineStart() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("\"a\"=")).unwrap(); // Quoted key, empty value.
+    let ini = dyn_config("\"a\"="); // Quoted key, empty value.
     assert_eq!(ini.root().get_string("a").unwrap(), "");
 
     let ini =
         DynConfig::from_ini(IniParser::new("' a'=").string_quotes(IniStringQuote::Single)).unwrap(); // Quoted key, empty value.
     assert_eq!(ini.root().get_string(" a").unwrap(), "");
 
-    let ini = DynConfig::from_ini(IniParser::new("\\==")).unwrap(); // Escaped special character in key, empty value.
+    let ini = dyn_config("\\=="); // Escaped special character in key, empty value.
     assert_eq!(ini.root().get_string("=").unwrap(), "");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=")).unwrap(); // Valid key, empty value.
+    let ini = dyn_config("a="); // Valid key, empty value.
     assert_eq!(ini.root().get_string("a").unwrap(), "");
 
-    let ini = DynConfig::from_ini(IniParser::new("`~@$%^&*()_-+,<.>/? =")).unwrap(); // Weird key.
+    let ini = dyn_config("`~@$%^&*()_-+,<.>/? ="); // Weird key.
     assert_eq!(ini.root().get_string("`~@$%^&*()_-+,<.>/?").unwrap(), "");
 
     let ini =
@@ -55,10 +65,10 @@ fn InvalidCharacterAtLineStart() {
             .unwrap(); // Valid key, empty value.
     assert_eq!(ini.root().get_string("a").unwrap(), "");
 
-    let ini = DynConfig::from_ini(IniParser::new("[a]")).unwrap(); // Section
+    let ini = dyn_config("[a]"); // Section
     assert_eq!(ini.root().get_table("a").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new(";")).unwrap(); // Comment
+    let ini = dyn_config(";"); // Comment
     assert_eq!(ini.root().len(), 0);
 
     let ini =
@@ -70,7 +80,7 @@ fn InvalidCharacterAtLineStart() {
 fn InvalidCharacterInSectionName() {
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[=")).err().unwrap(),
+        dyn_config_error("[="),
         IniError {
             line: 1,
             column: 2,
@@ -90,7 +100,7 @@ fn InvalidCharacterInSectionName() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a#")).err().unwrap(),
+        dyn_config_error("[a#"),
         IniError {
             line: 1,
             column: 3,
@@ -111,30 +121,30 @@ fn InvalidCharacterInSectionName() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("[ \ta]")).unwrap(); // Skipped whitespace before section name.
+    let ini = dyn_config("[ \ta]"); // Skipped whitespace before section name.
     assert_eq!(ini.root().get_table("a").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[a \t]")).unwrap(); // Skipped whitespace after section name.
+    let ini = dyn_config("[a \t]"); // Skipped whitespace after section name.
     assert_eq!(ini.root().get_table("a").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\=]")).unwrap(); // Special character in section.
+    let ini = dyn_config("[\\=]"); // Special character in section.
     assert_eq!(ini.root().get_table("=").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\:]")).unwrap(); // Special character in section.
+    let ini = dyn_config("[\\:]"); // Special character in section.
     assert_eq!(ini.root().get_table(":").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[a]")).unwrap(); // Normal section.
+    let ini = dyn_config("[a]"); // Normal section.
     assert_eq!(ini.root().get_table("a").unwrap().len(), 0);
 
-    DynConfig::from_ini(IniParser::new("[`~@$%^&*()_-+,<.>/?]")).unwrap(); // Weird section.
+    dyn_config("[`~@$%^&*()_-+,<.>/?]"); // Weird section.
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\t\\ \\n]")).unwrap(); // Escaped whitespace in section.
+    let ini = dyn_config("[\\t\\ \\n]"); // Escaped whitespace in section.
     assert_eq!(ini.root().get_table("\t \n").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\x0066\\x006f\\x006f]")).unwrap(); // Unicode in section ("foo").
+    let ini = dyn_config("[\\x0066\\x006f\\x006f]"); // Unicode in section ("foo").
     assert_eq!(ini.root().get_table("foo").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\t\"a \" ]")).unwrap(); // Whitespace in quoted section name.
+    let ini = dyn_config("[\t\"a \" ]"); // Whitespace in quoted section name.
     assert_eq!(ini.root().get_table("a ").unwrap().len(), 0);
 
     let ini = DynConfig::from_ini(
@@ -161,7 +171,7 @@ fn InvalidCharacterInSectionName() {
 fn InvalidCharacterAfterSectionName() {
     // Any character after whitespace after section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a b]")).err().unwrap(),
+        dyn_config_error("[a b]"),
         IniError {
             line: 1,
             column: 4,
@@ -183,10 +193,10 @@ fn InvalidCharacterAfterSectionName() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("[\ta\\ b ]")).unwrap(); // Escaped whitespace in unquoted section name.
+    let ini = dyn_config("[\ta\\ b ]"); // Escaped whitespace in unquoted section name.
     assert_eq!(ini.root().get_table("a b").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\t\"a b\" ]")).unwrap(); // Unescaped whitespace in quoted section name.
+    let ini = dyn_config("[\t\"a b\" ]"); // Unescaped whitespace in quoted section name.
     assert_eq!(ini.root().get_table("a b").unwrap().len(), 0);
 }
 
@@ -194,7 +204,7 @@ fn InvalidCharacterAfterSectionName() {
 fn UnexpectedNewLineInSectionName() {
     // Unescaped new line at section name start.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\n")).err().unwrap(),
+        dyn_config_error("[\n"),
         IniError {
             line: 1,
             column: 1,
@@ -203,7 +213,7 @@ fn UnexpectedNewLineInSectionName() {
     );
     // Unescaped new line in section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a\n")).err().unwrap(),
+        dyn_config_error("[a\n"),
         IniError {
             line: 1,
             column: 2,
@@ -212,7 +222,7 @@ fn UnexpectedNewLineInSectionName() {
     );
     // Unescaped new line in quoted section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\"a\n")).err().unwrap(),
+        dyn_config_error("[\"a\n"),
         IniError {
             line: 1,
             column: 3,
@@ -222,20 +232,20 @@ fn UnexpectedNewLineInSectionName() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\n]")).unwrap(); // Escaped new line at section name start.
+    let ini = dyn_config("[\\n]"); // Escaped new line at section name start.
     assert_eq!(ini.root().get_table("\n").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[a\\n]")).unwrap(); // Escaped new line in section name.
+    let ini = dyn_config("[a\\n]"); // Escaped new line in section name.
     assert_eq!(ini.root().get_table("a\n").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[ \"a\\n\" ]")).unwrap(); // Escaped new line in quoted section name.
+    let ini = dyn_config("[ \"a\\n\" ]"); // Escaped new line in quoted section name.
     assert_eq!(ini.root().get_table("a\n").unwrap().len(), 0);
 }
 
 #[test]
 fn UnexpectedEndOfFileInSectionName() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a")).err().unwrap(),
+        dyn_config_error("[a"),
         IniError {
             line: 1,
             column: 2,
@@ -243,7 +253,7 @@ fn UnexpectedEndOfFileInSectionName() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\"a")).err().unwrap(),
+        dyn_config_error("[\"a"),
         IniError {
             line: 1,
             column: 3,
@@ -251,7 +261,7 @@ fn UnexpectedEndOfFileInSectionName() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\"a\"")).err().unwrap(),
+        dyn_config_error("[\"a\""),
         IniError {
             line: 1,
             column: 4,
@@ -263,7 +273,7 @@ fn UnexpectedEndOfFileInSectionName() {
 #[test]
 fn EmptySectionName() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[]")).err().unwrap(),
+        dyn_config_error("[]"),
         IniError {
             line: 1,
             column: 2,
@@ -271,7 +281,7 @@ fn EmptySectionName() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\"\"]")).err().unwrap(),
+        dyn_config_error("[\"\"]"),
         IniError {
             line: 1,
             column: 3,
@@ -281,16 +291,16 @@ fn EmptySectionName() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\ ]")).unwrap(); // Whitespace in section.
+    let ini = dyn_config("[\\ ]"); // Whitespace in section.
     assert_eq!(ini.root().get_table(" ").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\t]")).unwrap(); // Whitespace in section.
+    let ini = dyn_config("[\\t]"); // Whitespace in section.
     assert_eq!(ini.root().get_table("\t").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\n]")).unwrap(); // Whitespace in section.
+    let ini = dyn_config("[\\n]"); // Whitespace in section.
     assert_eq!(ini.root().get_table("\n").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\t\" \" ]")).unwrap(); // Whitespace in quoted section.
+    let ini = dyn_config("[\t\" \" ]"); // Whitespace in quoted section.
     assert_eq!(ini.root().get_table(" ").unwrap().len(), 0);
 }
 
@@ -368,7 +378,7 @@ fn DuplicateSection() {
 fn InvalidCharacterAtLineEnd() {
     // After section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a] b")).err().unwrap(),
+        dyn_config_error("[a] b"),
         IniError {
             line: 1,
             column: 5,
@@ -377,7 +387,7 @@ fn InvalidCharacterAtLineEnd() {
     );
     // After value.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=7 b")).err().unwrap(),
+        dyn_config_error("a=7 b"),
         IniError {
             line: 1,
             column: 5,
@@ -386,7 +396,7 @@ fn InvalidCharacterAtLineEnd() {
     );
     // Inline comments not supported.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a] ;")).err().unwrap(),
+        dyn_config_error("[a] ;"),
         IniError {
             line: 1,
             column: 5,
@@ -412,7 +422,7 @@ fn InvalidCharacterAtLineEnd() {
 fn InvalidCharacterInKey() {
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a[")).err().unwrap(),
+        dyn_config_error("a["),
         IniError {
             line: 1,
             column: 2,
@@ -421,7 +431,7 @@ fn InvalidCharacterInKey() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new(" a'")).err().unwrap(),
+        dyn_config_error(" a'"),
         IniError {
             line: 1,
             column: 3,
@@ -431,10 +441,10 @@ fn InvalidCharacterInKey() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a=true")).unwrap(); // Normal key.
+    let ini = dyn_config("a=true"); // Normal key.
     assert_eq!(ini.root().get_bool("a").unwrap(), true);
 
-    let ini = DynConfig::from_ini(IniParser::new("\"a\"=true")).unwrap(); // Quoted key.
+    let ini = dyn_config("\"a\"=true"); // Quoted key.
     assert_eq!(ini.root().get_bool("a").unwrap(), true);
 
     let ini =
@@ -442,13 +452,13 @@ fn InvalidCharacterInKey() {
             .unwrap(); // Quoted key.
     assert_eq!(ini.root().get_bool(" a ").unwrap(), false);
 
-    let ini = DynConfig::from_ini(IniParser::new("a\\[=7")).unwrap(); // Special character in key.
+    let ini = dyn_config("a\\[=7"); // Special character in key.
     assert_eq!(ini.root().get_i64("a[").unwrap(), 7);
 
-    let ini = DynConfig::from_ini(IniParser::new("a\\t=3.14")).unwrap(); // Escaped whitespace in key.
+    let ini = dyn_config("a\\t=3.14"); // Escaped whitespace in key.
     assert!(cmp_f64(ini.root().get_f64("a\t").unwrap(), 3.14));
 
-    let ini = DynConfig::from_ini(IniParser::new("\\x0066\\x006f\\x006f=\"bar\"")).unwrap(); // Unicode in key ("foo").
+    let ini = dyn_config("\\x0066\\x006f\\x006f=\"bar\""); // Unicode in key ("foo").
     assert_eq!(ini.root().get_string("foo").unwrap(), "bar");
 }
 
@@ -456,7 +466,7 @@ fn InvalidCharacterInKey() {
 fn UnexpectedNewLineInKey() {
     // New line in key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a\n")).err().unwrap(),
+        dyn_config_error("a\n"),
         IniError {
             line: 1,
             column: 1,
@@ -477,10 +487,10 @@ fn UnexpectedNewLineInKey() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a\\n=7")).unwrap(); // Escaped new line in key.
+    let ini = dyn_config("a\\n=7"); // Escaped new line in key.
     assert_eq!(ini.root().get_i64("a\n").unwrap(), 7);
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\n")).unwrap(); // Empty value.
+    let ini = dyn_config("a=\n"); // Empty value.
     assert_eq!(ini.root().get_string("a").unwrap(), "");
 }
 
@@ -488,7 +498,7 @@ fn UnexpectedNewLineInKey() {
 fn EmptyKey() {
     // Empty unquoted key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new(" = 7")).err().unwrap(),
+        dyn_config_error(" = 7"),
         IniError {
             line: 1,
             column: 1,
@@ -537,10 +547,10 @@ fn EmptyKey() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a = 7")).unwrap();
+    let ini = dyn_config("a = 7");
     assert_eq!(ini.root().get_i64("a").unwrap(), 7);
 
-    let ini = DynConfig::from_ini(IniParser::new("[a]\n\" \" = 7")).unwrap();
+    let ini = dyn_config("[a]\n\" \" = 7");
     assert_eq!(ini.root().get_table("a").unwrap().get_i64(" ").unwrap(), 7);
 }
 
@@ -641,7 +651,7 @@ fn DuplicateKey() {
 fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
     // Unquoted key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a")).err().unwrap(),
+        dyn_config_error("a"),
         IniError {
             line: 1,
             column: 1,
@@ -650,7 +660,7 @@ fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
     );
     // Quoted key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("\"a \"")).err().unwrap(),
+        dyn_config_error("\"a \""),
         IniError {
             line: 1,
             column: 4,
@@ -660,7 +670,7 @@ fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
 
     // But this succeeds (empty value).
 
-    let ini = DynConfig::from_ini(IniParser::new("a=")).unwrap();
+    let ini = dyn_config("a=");
     assert_eq!(ini.root().get_string("a").unwrap(), "");
 
     let ini = DynConfig::from_ini(
@@ -676,7 +686,7 @@ fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
 #[test]
 fn InvalidKeyValueSeparator() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a !")).err().unwrap(),
+        dyn_config_error("a !"),
         IniError {
             line: 1,
             column: 3,
@@ -684,7 +694,7 @@ fn InvalidKeyValueSeparator() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a :")).err().unwrap(),
+        dyn_config_error("a :"),
         IniError {
             line: 1,
             column: 3,
@@ -716,7 +726,7 @@ fn InvalidKeyValueSeparator() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a = 7")).unwrap();
+    let ini = dyn_config("a = 7");
     assert_eq!(ini.root().get_i64("a").unwrap(), 7);
 
     let ini = DynConfig::from_ini(
@@ -730,7 +740,7 @@ fn InvalidKeyValueSeparator() {
 fn InvalidCharacterInValue() {
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a==")).err().unwrap(),
+        dyn_config_error("a=="),
         IniError {
             line: 1,
             column: 3,
@@ -739,7 +749,7 @@ fn InvalidCharacterInValue() {
     );
     // Unescaped special character.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=:")).err().unwrap(),
+        dyn_config_error("a=:"),
         IniError {
             line: 1,
             column: 3,
@@ -771,7 +781,7 @@ fn InvalidCharacterInValue() {
     );
     // Inline comments not supported.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=a;")).err().unwrap(),
+        dyn_config_error("a=a;"),
         IniError {
             line: 1,
             column: 4,
@@ -781,7 +791,7 @@ fn InvalidCharacterInValue() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\=")).unwrap(); // Escaped special character in value.
+    let ini = dyn_config("a=\\="); // Escaped special character in value.
     assert_eq!(ini.root().get_string("a").unwrap(), "=");
 
     let ini = DynConfig::from_ini(
@@ -790,13 +800,13 @@ fn InvalidCharacterInValue() {
     .unwrap(); // Escaped special character in value.
     assert_eq!(ini.root().get_string("a").unwrap(), "=");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"\\=\"")).unwrap(); // Escaped special character in quoted value.
+    let ini = dyn_config("a=\"\\=\""); // Escaped special character in quoted value.
     assert_eq!(ini.root().get_string("a").unwrap(), "=");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"=\"")).unwrap(); // Unescaped special character in quoted value.
+    let ini = dyn_config("a=\"=\""); // Unescaped special character in quoted value.
     assert_eq!(ini.root().get_string("a").unwrap(), "=");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"'\"")).unwrap(); // Unmatched quote in quoted value.
+    let ini = dyn_config("a=\"'\""); // Unmatched quote in quoted value.
     assert_eq!(ini.root().get_string("a").unwrap(), "'");
 
     let ini = DynConfig::from_ini(IniParser::new("a='\"'").string_quotes(IniStringQuote::Single))
@@ -814,10 +824,10 @@ fn InvalidCharacterInValue() {
     .unwrap(); // Supported inline comments.
     assert_eq!(ini.root().get_string("a").unwrap(), "a");
 
-    let ini = DynConfig::from_ini(IniParser::new("foo=\\x0066\\x006f\\x006f")).unwrap(); // Unicode in value ("foo").
+    let ini = dyn_config("foo=\\x0066\\x006f\\x006f"); // Unicode in value ("foo").
     assert_eq!(ini.root().get_string("foo").unwrap(), "foo");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\" \"")).unwrap(); // Unescaped whitespace in quoted value.
+    let ini = dyn_config("a=\" \""); // Unescaped whitespace in quoted value.
     assert_eq!(ini.root().get_string("a").unwrap(), " ");
 }
 
@@ -825,7 +835,7 @@ fn InvalidCharacterInValue() {
 fn UnexpectedEndOfFileInEscapeSequence() {
     // In section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\\")).err().unwrap(),
+        dyn_config_error("[\\"),
         IniError {
             line: 1,
             column: 2,
@@ -834,7 +844,7 @@ fn UnexpectedEndOfFileInEscapeSequence() {
     );
     // In quoted section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\"\\")).err().unwrap(),
+        dyn_config_error("[\"\\"),
         IniError {
             line: 1,
             column: 3,
@@ -843,7 +853,7 @@ fn UnexpectedEndOfFileInEscapeSequence() {
     );
     // In key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("\\")).err().unwrap(),
+        dyn_config_error("\\"),
         IniError {
             line: 1,
             column: 1,
@@ -852,7 +862,7 @@ fn UnexpectedEndOfFileInEscapeSequence() {
     );
     // In quoted key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("\"\\")).err().unwrap(),
+        dyn_config_error("\"\\"),
         IniError {
             line: 1,
             column: 2,
@@ -861,7 +871,7 @@ fn UnexpectedEndOfFileInEscapeSequence() {
     );
     // In unquoted value.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\\")).err().unwrap(),
+        dyn_config_error("a=\\"),
         IniError {
             line: 1,
             column: 3,
@@ -870,7 +880,7 @@ fn UnexpectedEndOfFileInEscapeSequence() {
     );
     // In quoted value.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\"\\")).err().unwrap(),
+        dyn_config_error("a=\"\\"),
         IniError {
             line: 1,
             column: 4,
@@ -880,22 +890,22 @@ fn UnexpectedEndOfFileInEscapeSequence() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("[\\ ]")).unwrap(); // Escaped space in section.
+    let ini = dyn_config("[\\ ]"); // Escaped space in section.
     assert_eq!(ini.root().get_table(" ").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[ \"\\ \" ]")).unwrap(); // Escaped space in quoted section.
+    let ini = dyn_config("[ \"\\ \" ]"); // Escaped space in quoted section.
     assert_eq!(ini.root().get_table(" ").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("\\ =")).unwrap(); // Escaped space in key.
+    let ini = dyn_config("\\ ="); // Escaped space in key.
     assert_eq!(ini.root().get_string(" ").unwrap(), "");
 
-    let ini = DynConfig::from_ini(IniParser::new("\"\\ \" =")).unwrap(); // Escaped space in quoted key.
+    let ini = dyn_config("\"\\ \" ="); // Escaped space in quoted key.
     assert_eq!(ini.root().get_string(" ").unwrap(), "");
 
-    let ini = DynConfig::from_ini(IniParser::new("a = \\ ")).unwrap(); // Escaped space in unquoted value.
+    let ini = dyn_config("a = \\ "); // Escaped space in unquoted value.
     assert_eq!(ini.root().get_string("a").unwrap(), " ");
 
-    let ini = DynConfig::from_ini(IniParser::new("a = \"\\ \"")).unwrap(); // Escaped space in quoted value.
+    let ini = dyn_config("a = \"\\ \""); // Escaped space in quoted value.
     assert_eq!(ini.root().get_string("a").unwrap(), " ");
 }
 
@@ -903,7 +913,7 @@ fn UnexpectedEndOfFileInEscapeSequence() {
 fn UnexpectedNewLineInEscapeSequence() {
     // Unsupported line continuation in section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[\\\n")).err().unwrap(),
+        dyn_config_error("[\\\n"),
         IniError {
             line: 1,
             column: 2,
@@ -912,7 +922,7 @@ fn UnexpectedNewLineInEscapeSequence() {
     );
     // Unsupported line continuation in key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a\\\n")).err().unwrap(),
+        dyn_config_error("a\\\n"),
         IniError {
             line: 1,
             column: 2,
@@ -921,7 +931,7 @@ fn UnexpectedNewLineInEscapeSequence() {
     );
     // Unsupported line continuation in value.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\\\n")).err().unwrap(),
+        dyn_config_error("a=\\\n"),
         IniError {
             line: 1,
             column: 3,
@@ -947,7 +957,7 @@ fn UnexpectedNewLineInEscapeSequence() {
 #[test]
 fn InvalidEscapeCharacter() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\\z")).err().unwrap(),
+        dyn_config_error("a=\\z"),
         IniError {
             line: 1,
             column: 4,
@@ -957,79 +967,79 @@ fn InvalidEscapeCharacter() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\ ")).unwrap();
+    let ini = dyn_config("a=\\ ");
     assert_eq!(ini.root().get_string("a").unwrap(), " ");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\" \"")).unwrap();
+    let ini = dyn_config("a=\" \"");
     assert_eq!(ini.root().get_string("a").unwrap(), " ");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\0")).unwrap();
+    let ini = dyn_config("a=\\0");
     assert_eq!(ini.root().get_string("a").unwrap(), "\0");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\a")).unwrap();
+    let ini = dyn_config("a=\\a");
     assert_eq!(ini.root().get_string("a").unwrap(), "\x07"); // '\a'
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\b")).unwrap();
+    let ini = dyn_config("a=\\b");
     assert_eq!(ini.root().get_string("a").unwrap(), "\x08"); // '\a'
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\t")).unwrap();
+    let ini = dyn_config("a=\\t");
     assert_eq!(ini.root().get_string("a").unwrap(), "\t");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\n")).unwrap();
+    let ini = dyn_config("a=\\n");
     assert_eq!(ini.root().get_string("a").unwrap(), "\n");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\r")).unwrap();
+    let ini = dyn_config("a=\\r");
     assert_eq!(ini.root().get_string("a").unwrap(), "\r");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\v")).unwrap();
+    let ini = dyn_config("a=\\v");
     assert_eq!(ini.root().get_string("a").unwrap(), "\x0b"); // '\v'
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\f")).unwrap();
+    let ini = dyn_config("a=\\f");
     assert_eq!(ini.root().get_string("a").unwrap(), "\x0c"); // '\f'
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\\\")).unwrap();
+    let ini = dyn_config("a=\\\\");
     assert_eq!(ini.root().get_string("a").unwrap(), "\\");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\[")).unwrap();
+    let ini = dyn_config("a=\\[");
     assert_eq!(ini.root().get_string("a").unwrap(), "[");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"[\"")).unwrap();
+    let ini = dyn_config("a=\"[\"");
     assert_eq!(ini.root().get_string("a").unwrap(), "[");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\]")).unwrap();
+    let ini = dyn_config("a=\\]");
     assert_eq!(ini.root().get_string("a").unwrap(), "]");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"]\"")).unwrap();
+    let ini = dyn_config("a=\"]\"");
     assert_eq!(ini.root().get_string("a").unwrap(), "]");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\;")).unwrap();
+    let ini = dyn_config("a=\\;");
     assert_eq!(ini.root().get_string("a").unwrap(), ";");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\";\"")).unwrap();
+    let ini = dyn_config("a=\";\"");
     assert_eq!(ini.root().get_string("a").unwrap(), ";");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\#")).unwrap();
+    let ini = dyn_config("a=\\#");
     assert_eq!(ini.root().get_string("a").unwrap(), "#");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"#\"")).unwrap();
+    let ini = dyn_config("a=\"#\"");
     assert_eq!(ini.root().get_string("a").unwrap(), "#");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\=")).unwrap();
+    let ini = dyn_config("a=\\=");
     assert_eq!(ini.root().get_string("a").unwrap(), "=");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"=\"")).unwrap();
+    let ini = dyn_config("a=\"=\"");
     assert_eq!(ini.root().get_string("a").unwrap(), "=");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\:")).unwrap();
+    let ini = dyn_config("a=\\:");
     assert_eq!(ini.root().get_string("a").unwrap(), ":");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\":\"")).unwrap();
+    let ini = dyn_config("a=\":\"");
     assert_eq!(ini.root().get_string("a").unwrap(), ":");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\\x00e4")).unwrap(); // ä
+    let ini = dyn_config("a=\\x00e4"); // ä
     assert_eq!(ini.root().get_string("a").unwrap(), "ä");
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"\\x00e4\"")).unwrap(); // ä
+    let ini = dyn_config("a=\"\\x00e4\""); // ä
     assert_eq!(ini.root().get_string("a").unwrap(), "ä");
 }
 
@@ -1079,7 +1089,7 @@ fn InvalidUnicodeEscapeSequence() {
 fn UnexpectedNewLineInQuotedValue() {
     // Unescaped newline.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\"\n")).err().unwrap(),
+        dyn_config_error("a=\"\n"),
         IniError {
             line: 1,
             column: 3,
@@ -1090,11 +1100,11 @@ fn UnexpectedNewLineInQuotedValue() {
     // But this succeeds.
 
     // Escaped newline.
-    let ini = DynConfig::from_ini(IniParser::new("a=\\n")).unwrap();
+    let ini = dyn_config("a=\\n");
     assert_eq!(ini.root().get_string("a").unwrap(), "\n");
 
     // Escaped newline in quoted string.
-    let ini = DynConfig::from_ini(IniParser::new("a=\"\\n\"")).unwrap();
+    let ini = dyn_config("a=\"\\n\"");
     assert_eq!(ini.root().get_string("a").unwrap(), "\n");
 
     // Line continuation.
@@ -1109,7 +1119,7 @@ fn UnexpectedNewLineInQuotedValue() {
 #[test]
 fn UnexpectedEndOfFileInQuotedString() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\"")).err().unwrap(),
+        dyn_config_error("a=\""),
         IniError {
             line: 1,
             column: 3,
@@ -1119,7 +1129,7 @@ fn UnexpectedEndOfFileInQuotedString() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a=\"\"")).unwrap();
+    let ini = dyn_config("a=\"\"");
     assert_eq!(ini.root().get_string("a").unwrap(), "");
 
     let ini =
@@ -1142,7 +1152,7 @@ fn UnquotedString() {
 
     // But this succeeds.
 
-    let ini = DynConfig::from_ini(IniParser::new("a=a")).unwrap();
+    let ini = dyn_config("a=a");
     assert_eq!(ini.root().get_string("a").unwrap(), "a");
 }
 
@@ -1150,7 +1160,7 @@ fn UnquotedString() {
 fn UnexpectedNewLineInArray() {
     // Arrays not supported.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=[\n")).err().unwrap(),
+        dyn_config_error("a=[\n"),
         IniError {
             line: 1,
             column: 3,
@@ -1395,10 +1405,6 @@ fn UnexpectedEndOfFileInQuotedArrayValue() {
     );
 }
 
-fn cmp_f64(l: f64, r: f64) -> bool {
-    (l - r).abs() < 0.000_001
-}
-
 #[test]
 fn basic() {
     let ini = r#"bool = true
@@ -1524,7 +1530,7 @@ fn NestedTablesNotSupported() {
         .root_mut()
         .set("table", Value::Table(DynTable::new()))
         .unwrap();
-    let mut table = config.root_mut().get_table_mut("table").unwrap();
+    let table = config.root_mut().get_table_mut("table").unwrap();
     table
         .set("nested_table", Value::Table(DynTable::new()))
         .unwrap();
@@ -1588,7 +1594,7 @@ fn escape() {
     );
 
     // Attempt to serialize an escaped character with support for escaped characters disabled.
-    let ini = DynConfig::from_ini(IniParser::new("a\\t = 7")).unwrap();
+    let ini = dyn_config("a\\t = 7");
 
     assert_eq!(
         ini.to_ini_string_opts(ToIniStringOptions {

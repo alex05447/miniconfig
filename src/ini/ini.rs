@@ -1,8 +1,9 @@
-use std::str::Chars;
-
-use crate::{
-    IniCommentDelimiter, IniDuplicateKeys, IniDuplicateSections, IniError, IniErrorKind,
-    IniKeyValueSeparator, IniOptions, IniStringQuote, ValueType,
+use {
+    crate::{
+        IniCommentDelimiter, IniDuplicateKeys, IniDuplicateSections, IniError, IniErrorKind,
+        IniKeyValueSeparator, IniOptions, IniStringQuote, ValueType,
+    },
+    std::str::Chars,
 };
 
 /// `.ini` parser FSM states.

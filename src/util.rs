@@ -1,11 +1,14 @@
 #[cfg(any(feature = "bin", feature = "dyn", feature = "ini", feature = "lua"))]
 use std::fmt::Write;
 
-#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-use std::fmt::Formatter;
+#[cfg(feature = "lua")]
+use std::convert::From;
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-use crate::Value;
+use std::{
+    borrow::Cow,
+    fmt::{Display, Formatter},
+};
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "ini", feature = "lua"))]
 pub(crate) enum WriteCharError {
@@ -110,36 +113,17 @@ pub(crate) trait DisplayLua {
 
     fn do_indent(f: &mut Formatter, indent: u32) -> std::fmt::Result {
         for _ in 0..indent {
-            write!(f, "\t")?;
+            "\t".fmt(f)?;
         }
 
         Ok(())
     }
 }
 
-#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-impl<S, A, T> DisplayLua for Value<S, A, T>
-where
-    S: AsRef<str>,
-    A: DisplayLua,
-    T: DisplayLua,
-{
-    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
-        match self {
-            Value::Bool(value) => write!(f, "{}", if *value { "true" } else { "false" }),
-            Value::I64(value) => write!(f, "{}", value),
-            Value::F64(value) => write!(f, "{}", value),
-            Value::String(value) => write_lua_string(f, value.as_ref()),
-            Value::Array(value) => value.fmt_lua(f, indent),
-            Value::Table(value) => value.fmt_lua(f, indent),
-        }
-    }
-}
-
 /// Writes the `string` to the writer `w`, enclosing it in quotes and escaping special characters
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f') and double quotes ('"').
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
+pub(crate) fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::Result {
     write!(w, "\"")?;
 
     for c in string.chars() {
@@ -195,4 +179,102 @@ fn is_lua_identifier_key(key: &str) -> bool {
     }
 
     true
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+/// Key (in the [`table`]) or index (in the [`array`]) of a config element.
+///
+/// [`table`]: enum.Value.html#variant.Table
+/// [`array`]: enum.Value.html#variant.Array
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ConfigKey<'a> {
+    /// A (non-empty) string [`table`] key.
+    ///
+    /// [`table`]: enum.Value.html#variant.Table
+    Table(Cow<'a, str>),
+    /// A (`0`-based) [`array`] index.
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    Array(u32),
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> From<&'a str> for ConfigKey<'a> {
+    fn from(key: &'a str) -> Self {
+        ConfigKey::Table(key.into())
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> From<String> for ConfigKey<'a> {
+    fn from(key: String) -> Self {
+        ConfigKey::Table(key.into())
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> From<u32> for ConfigKey<'a> {
+    fn from(index: u32) -> Self {
+        ConfigKey::Array(index)
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> Display for ConfigKey<'a> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            ConfigKey::Table(key) => write!(f, "\"{}\"", key),
+            ConfigKey::Array(key) => write!(f, "{}", key),
+        }
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+/// Describes the full path to a config element.
+/// Empty path means the root element.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ConfigPath<'a>(pub Vec<ConfigKey<'a>>);
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> ConfigPath<'a> {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub(crate) fn from_key(key: ConfigKey<'a>) -> Self {
+        Self(vec![key])
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> From<Vec<ConfigKey<'a>>> for ConfigPath<'a> {
+    fn from(path: Vec<ConfigKey<'a>>) -> Self {
+        Self(path)
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> Display for ConfigPath<'a> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        if self.0.is_empty() {
+            "<root>".fmt(f)
+        } else {
+            for (key_index, key) in self.0.iter().enumerate() {
+                let last = key_index == (self.0.len() - 1);
+
+                key.fmt(f)?;
+
+                if !last {
+                    ".".fmt(f)?;
+                }
+            }
+
+            Ok(())
+        }
+    }
+}
+
+#[cfg(all(test, any(feature = "bin", feature = "dyn", feature = "lua")))]
+pub(crate) fn cmp_f64(l: f64, r: f64) -> bool {
+    (l - r).abs() < 0.000_001
 }

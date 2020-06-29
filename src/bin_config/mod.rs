@@ -7,9 +7,6 @@ mod util;
 mod value;
 mod writer;
 
-#[cfg(test)]
-mod tests;
-
 pub use array::BinArray;
 pub use config::BinConfig;
 pub use error::*;

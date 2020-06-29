@@ -1,7 +1,8 @@
-#![allow(clippy::module_inception)]
-
 mod error;
+
+#[allow(clippy::module_inception)]
 mod ini;
+
 mod options;
 mod util;
 

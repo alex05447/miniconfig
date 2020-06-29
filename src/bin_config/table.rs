@@ -1,24 +1,25 @@
-use std::fmt::{Display, Formatter};
-use std::iter::Iterator;
-
-#[cfg(feature = "ini")]
-use std::fmt::Write;
-
-use crate::{
-    util::{write_lua_key, DisplayLua},
-    BinArray, BinConfigValue, BinTableGetError, Value, BinTableGetPathError,
+use {
+    super::{
+        array_or_table::BinArrayOrTable, util::string_hash_fnv1a, value::BinConfigUnpackedValue,
+    },
+    crate::{
+        util::{write_lua_key, DisplayLua},
+        BinArray, BinConfigValue, ConfigKey, GetPathError, TableError, Value, ValueType,
+    },
+    std::{
+        borrow::Borrow,
+        fmt::{Display, Formatter},
+        iter::Iterator,
+    },
 };
 
 #[cfg(feature = "ini")]
-use crate::{
-    write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions, ValueType,
+use {
+    crate::{write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions},
+    std::fmt::Write,
 };
 
-use super::array_or_table::BinArrayOrTable;
-use super::util::string_hash_fnv1a;
-use super::value::BinConfigUnpackedValue;
-
-/// Represents an immutable map of [`Value`]'s with string keys.
+/// Represents an immutable map of [`Value`]'s with (non-empty) string keys.
 ///
 /// [`Value`]: enum.Value.html
 pub struct BinTable<'t>(pub(super) BinArrayOrTable<'t>);
@@ -31,317 +32,296 @@ impl<'t> BinTable<'t> {
         self.0.len
     }
 
-    /// Returns `true` if the [`table`] contains a [`value`] with the string `key`.
+    /// Returns `true` if the [`table`] is empty.
+    ///
+    /// [`table`]: struct.BinTable.html
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns `true` if the [`table`] contains a [`value`] with the (non-empty) string `key`.
     ///
     /// [`table`]: struct.BinTable.html
     /// [`value`]: type.BinConfigValue.html
     pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
+        use TableError::*;
+
         match self.get(key) {
             Ok(_) => true,
             Err(err) => match err {
-                BinTableGetError::KeyDoesNotExist => false,
-                BinTableGetError::IncorrectValueType(_) => unreachable!(),
+                EmptyKey | KeyDoesNotExist => false,
+                IncorrectValueType(_) => unreachable!(),
             },
         }
     }
 
-    /// Tries to get a reference to a [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a reference to a [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key`.
+    /// Returns an [`error`] if the `key` is empty or if the [`table`] does not contain the `key`.
     ///
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get<K: AsRef<str>>(&self, key: K) -> Result<BinConfigValue<'t>, BinTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get<K: AsRef<str>>(&self, key: K) -> Result<BinConfigValue<'t>, TableError> {
         self.get_impl(key.as_ref())
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
     /// The last key may correspond to a value of any [`type`].
     ///
-    /// Returns the table itself if the `path` is empty.
+    /// Returns the [`table`] itself if the `path` is empty.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// or if any of the non-terminating `path` elements is not a [`table`].
-    ///
-    /// [`value`]: type.BinConfigValueRef.html
-    /// [`table`]: struct.BinTable.html
+    /// [`value`]: type.DynConfigValueRef.html
+    /// [`table`]: struct.DynTable.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
     /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        mut path: P,
-    ) -> Result<BinConfigValue<'_>, BinTableGetPathError> {
-        let mut _path = Vec::new();
-        let table = BinTable::new(BinArrayOrTable::new(
-            self.0.base,
-            self.0.offset,
-            self.0.len,
-        ));
-
-        if let Some(key) = path.next() {
-            let key = key.as_ref();
-
-            _path.push(key.into());
-            let mut value = Self::get_table_value(&table, key, _path.clone())?;
-
-            while let Some(key) = path.next() {
-                let key = key.as_ref();
-
-                match value {
-                    Value::Table(table) => {
-                        _path.push(key.into());
-                        value = Self::get_table_value(&table, key, _path.clone())?;
-                    }
-                    value => {
-                        return Err(BinTableGetPathError::ValueNotATable {
-                            path: _path,
-                            value_type: value.get_type(),
-                        })
-                    }
-                }
-            }
-
-            Ok(value)
-        } else {
-            Ok(Value::Table(table))
-        }
+    pub fn get_path<'a, K, P>(&self, path: P) -> Result<BinConfigValue<'t>, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
+        BinConfigValue::Table(BinTable(self.0.clone()))
+            .get_path(path.into_iter())
+            .map_err(GetPathError::reverse)
     }
 
-    /// Tries to get a [`bool`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`bool`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`bool`].
     ///
     /// [`bool`]: enum.Value.html#variant.Bool
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, BinTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, TableError> {
         let val = self.get(key)?;
         val.bool()
-            .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not a [`bool`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to a [`bool`] [`value`].
     ///
     /// [`bool`]: enum.Value.html#variant.Bool
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.BinTableGetPathError.html
-    pub fn get_bool_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<bool, BinTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: struct.BinArray.html
+    pub fn get_bool_path<'a, K, P>(&self, path: P) -> Result<bool, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         val.bool()
-            .ok_or(BinTableGetPathError::IncorrectValueType(val.get_type()))
+            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get an [`i64`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`].
-    ///
-    /// [`i64`]: enum.Value.html#variant.I64
-    /// [`value`]: type.BinConfigValue.html
-    /// [`table`]: struct.BinTable.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, BinTableGetError> {
-        let val = self.get(key)?;
-        val.i64()
-            .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
-    }
-
-    /// Tries to get a [`i64`] [`value`] in the [`table`] at `path`.
-    ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not an [`i64`].
-    ///
-    /// [`i64`]: enum.Value.html#variant.I64
-    /// [`value`]: type.BinConfigValue.html
-    /// [`table`]: struct.BinTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.BinTableGetPathError.html
-    pub fn get_i64_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<i64, BinTableGetPathError> {
-        let val = self.get_path(path)?;
-        val.i64()
-            .ok_or(BinTableGetPathError::IncorrectValueType(val.get_type()))
-    }
-
-    /// Tries to get an [`f64`] [`value`] in the [`table`] with the string `key`.
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
+    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, BinTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, TableError> {
+        let val = self.get(key)?;
+        val.i64()
+            .ok_or(TableError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get an [`i64`] [`value`] in the [`table`] at `path`.
+    ///
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.BinConfigValue.html
+    /// [`table`]: struct.BinTable.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: struct.BinArray.html
+    pub fn get_i64_path<'a, K, P>(&self, path: P) -> Result<i64, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
+        let val = self.get_path(path)?;
+        val.i64()
+            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+    }
+
+    /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
+    ///
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
+    ///
+    /// [`f64`]: enum.Value.html#variant.F64
+    /// [`i64`]: enum.Value.html#variant.I64
+    /// [`value`]: type.BinConfigValue.html
+    /// [`table`]: struct.BinTable.html
+    /// [`error`]: enum.TableError.html
+    pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, TableError> {
         let val = self.get(key)?;
         val.f64()
-            .ok_or(BinTableGetError::IncorrectValueType(val.get_type()))
+            .ok_or(TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not an [`f64`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
+    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.BinTableGetPathError.html
-    pub fn get_f64_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<f64, BinTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: struct.BinArray.html
+    pub fn get_f64_path<'a, K, P>(&self, path: P) -> Result<f64, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         val.f64()
-            .ok_or(BinTableGetPathError::IncorrectValueType(val.get_type()))
+            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
     }
 
-    /// Tries to get a [`string`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`string`].
     ///
     /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<&'t str, BinTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<&'t str, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.string()
-            .ok_or(BinTableGetError::IncorrectValueType(val_type))
+        val.string().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to a [`string`] [`value`].
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not a [`string`].
-    ///
-    /// [`string`]: enum.Value.html#variant.String
+    /// [`string`]: enum.Value.html#variant.I64
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.BinTableGetPathError.html
-    pub fn get_string_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<&str, BinTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
+    pub fn get_string_path<'a, K, P>(&self, path: P) -> Result<&str, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(BinTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get an [`array`] [`value`] in the [`table`] with the string `key`.
+    /// Tries to get an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`array`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<BinArray<'t>, BinTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<BinArray<'t>, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.array()
-            .ok_or(BinTableGetError::IncorrectValueType(val_type))
+        val.array().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
-    ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not an [`array`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to an [`array`] [`value`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
-    /// [`value`]: type.BinConfigValue.html
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.BinTableGetPathError.html
-    pub fn get_array_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<BinArray<'_>, BinTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    pub fn get_array_path<'a, K, P>(&self, path: P) -> Result<BinArray<'t>, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(BinTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
-    /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the string `key`.
+    /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
     ///
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`error`]: struct.BinTableGetError.html
-    pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<BinTable<'t>, BinTableGetError> {
+    /// [`error`]: enum.TableError.html
+    pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<BinTable<'t>, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.table()
-            .ok_or(BinTableGetError::IncorrectValueType(val_type))
+        val.table().ok_or(TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] at `path`.
     ///
-    /// `path` is an iterator over consecutively nested table keys.
-    /// All keys except the last one must correspond to a [`table`] value.
-    /// The last key may correspond to a value of any [`type`].
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key must correspond to a [`table`](enum.Value.html#variant.Table) [`value`].
     ///
-    /// Returns an [`error`] if the [`table`] does not contain the full `path`,
-    /// if any of the non-terminating `path` elements is not a [`table`],
-    /// or if value is not a [`table`](enum.Value.html#variant.Table).
-    ///
-    /// [`array`]: enum.Value.html#variant.Array
-    /// [`value`]: type.BinConfigValue.html
+    /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.BinTable.html
-    /// [`type`]: enum.ValueType.html
-    /// [`error`]: struct.BinTableGetPathError.html
-    pub fn get_table_path<K: AsRef<str>, P: Iterator<Item = K>>(
-        &self,
-        path: P,
-    ) -> Result<BinTable<'_>, BinTableGetPathError> {
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
+    pub fn get_table_path<'a, K, P>(&self, path: P) -> Result<BinTable<'t>, GetPathError<'a>>
+    where
+        K: Borrow<ConfigKey<'a>>,
+        P: IntoIterator<Item = K>,
+    {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(BinTableGetPathError::IncorrectValueType(val_type))
+            .ok_or(GetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an iterator over (`key`, [`value`]) pairs of the [`table`], in unspecified order.
@@ -356,8 +336,12 @@ impl<'t> BinTable<'t> {
         Self(table)
     }
 
-    fn get_impl(&self, key: &str) -> Result<BinConfigValue<'t>, BinTableGetError> {
-        use BinTableGetError::*;
+    fn get_impl(&self, key: &str) -> Result<BinConfigValue<'t>, TableError> {
+        use TableError::*;
+
+        if key.is_empty() {
+            return Err(EmptyKey);
+        }
 
         // Hash the key string to compare against table keys.
         let key_hash = string_hash_fnv1a(key);
@@ -403,24 +387,13 @@ impl<'t> BinTable<'t> {
         }
     }
 
-    fn get_table_value(
-        table: &BinTable<'t>,
-        key: &str,
-        path: Vec<String>,
-    ) -> Result<BinConfigValue<'t>, BinTableGetPathError> {
-        table.get(key).map_err(|err| match err {
-            BinTableGetError::KeyDoesNotExist => BinTableGetPathError::PathDoesNotExist(path),
-            BinTableGetError::IncorrectValueType(_) => unreachable!(),
-        })
-    }
-
     fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
         writeln!(f, "{{")?;
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
 
-        // Sort the keys.
+        // Sort the keys in alphabetical order.
         keys.sort_by(|l, r| l.cmp(r));
 
         // Iterate the table using the sorted keys.
@@ -428,19 +401,16 @@ impl<'t> BinTable<'t> {
             <Self as DisplayLua>::do_indent(f, indent + 1)?;
 
             write_lua_key(f, key)?;
-            write!(f, " = ")?;
+            " = ".fmt(f)?;
 
             // Must succeed.
             let value = self.get(key).unwrap();
 
-            let is_array_or_table = match value {
-                Value::Table(_) | Value::Array(_) => true,
-                _ => false,
-            };
+            let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
             value.fmt_lua(f, indent + 1)?;
 
-            write!(f, ",")?;
+            ",".fmt(f)?;
 
             if is_array_or_table {
                 write!(f, " -- {}", key)?;
@@ -607,12 +577,6 @@ impl<'t> DisplayLua for BinTable<'t> {
     }
 }
 
-impl<'t> Display for BinTable<'t> {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        self.fmt_lua_impl(f, 0)
-    }
-}
-
 #[cfg(feature = "ini")]
 impl<'t> DisplayIni for BinTable<'t> {
     fn fmt_ini<W: Write>(
@@ -623,5 +587,70 @@ impl<'t> DisplayIni for BinTable<'t> {
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
         self.fmt_ini_impl(w, level, array, options)
+    }
+}
+
+impl<'t> Display for BinTable<'t> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        self.fmt_lua_impl(f, 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(non_snake_case)]
+
+    use crate::*;
+
+    #[test]
+    fn BinTableError_EmptyKey() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.bool("bool", true).unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config.root().get_bool("").err().unwrap(),
+            TableError::EmptyKey
+        );
+
+        // But this works.
+
+        assert_eq!(config.root().get_bool("bool").unwrap(), true);
+    }
+
+    #[test]
+    fn BinTableError_KeyDoesNotExist() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.bool("bool", true).unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config.root().get_bool("missing").err().unwrap(),
+            TableError::KeyDoesNotExist
+        );
+
+        // But this works.
+
+        assert_eq!(config.root().get_bool("bool").unwrap(), true);
+    }
+
+    #[test]
+    fn BinTableError_IncorrectValueType() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+        writer.f64("f64", 3.14).unwrap();
+        let data = writer.finish().unwrap();
+        let config = BinConfig::new(data).unwrap();
+
+        assert_eq!(
+            config.root().get_bool("f64").err().unwrap(),
+            TableError::IncorrectValueType(ValueType::F64)
+        );
+
+        // But this works.
+
+        assert!(cmp_f64(config.root().get_f64("f64").unwrap(), 3.14));
+        assert_eq!(config.root().get_i64("f64").unwrap(), 3);
     }
 }

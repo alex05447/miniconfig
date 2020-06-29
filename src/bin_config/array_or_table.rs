@@ -1,9 +1,10 @@
-use std::marker::PhantomData;
-use std::mem::size_of;
-
-use super::value::{BinConfigPackedValue, BinConfigUnpackedValue, BinTableKey};
+use {
+    super::value::{BinConfigPackedValue, BinConfigUnpackedValue, BinTableKey},
+    std::{marker::PhantomData, mem::size_of},
+};
 
 /// Represents a binary array/table, as unpacked from the binary config data blob.
+#[derive(Clone)]
 pub(super) struct BinArrayOrTable<'at> {
     /// Base address of the binary config data blob on the heap w.r.t. which all values specify their offsets.
     pub(super) base: *const u8,
