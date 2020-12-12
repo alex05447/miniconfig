@@ -1659,7 +1659,7 @@ pub trait IniConfig {
     ///
     /// NOTE - `section` name, if `Some`, and `key` are not empty.
     ///
-    /// NOTE - [`add_section`](#method.add_section) was called with this same `section` before at least once.
+    /// NOTE - if `section` is `Some`, [`add_section`](#method.add_section) was called with this same `section` before at least once.
     fn add_value(
         &mut self,
         section: Option<&str>,
@@ -1678,7 +1678,7 @@ pub trait IniConfig {
     ///
     /// NOTE - `section` name, if `Some`, and `key` are not empty.
     ///
-    /// NOTE - [`add_section`](#method.add_section) was called with this same `section` before at least once.
+    /// NOTE - if `section` is `Some`, [`add_section`](#method.add_section) was called with this same `section` before at least once.
     fn add_array(
         &mut self,
         section: Option<&str>,

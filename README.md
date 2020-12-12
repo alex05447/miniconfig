@@ -161,7 +161,7 @@ bar : 3.14
 ; Array values are enclosed in brackets (`[` \ `]`)
 ; and are delimited by commas `,`.
 ; Trailing commas are allowed.
-; Arrays may only contain boolean/integer/float/string **values;**
+; Arrays may only contain boolean/integer/float/string **values**
 ; and only values of the same type (except ints and floats, which may be mixed).
 ; This array contains two ints and a float, which may be interpreted as both types.
 ; If you query them as ints, you'll get `[3, 4, 7]`.
@@ -173,7 +173,7 @@ bar : 3.14
 ["some_section"]
 
 ; Line continuations (backslash `\` followed by a new line)
-; are optionally supported in section names, keys and values.
+; are optionally supported in section names, keys and values (including numeric values for what it's worth).
 ; This value is a string `a multiline string`.
 ; Section `some_section` now contains 3 keys - `foo`, `bar` and `baz`.
 baz = a\
