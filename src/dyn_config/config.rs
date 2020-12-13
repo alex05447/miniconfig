@@ -8,7 +8,7 @@ use crate::{BinConfigWriter, BinConfigWriterError, DynConfigValueRef};
 
 #[cfg(feature = "ini")]
 use crate::{
-    DisplayIni, IniConfig, IniError, IniParser, IniValue, ToIniStringError, ToIniStringOptions,
+    DisplayIni, IniConfig, IniError, IniParser, IniValue, ToIniStringError, ToIniStringOptions, NonEmptyStr
 };
 
 #[cfg(any(feature = "bin", feature = "ini"))]
@@ -130,44 +130,32 @@ impl Display for DynConfig {
 
 #[cfg(feature = "ini")]
 impl IniConfig for DynConfig {
-    fn contains_section(&self, section: &str) -> bool {
-        debug_assert!(!section.is_empty());
-
+    fn contains_section<'s>(&self, section: NonEmptyStr<'s>) -> bool {
         self.root().get_table(section).is_ok()
     }
 
-    fn add_section(&mut self, section: &str, _overwrite: bool) {
-        debug_assert!(!section.is_empty());
-
+    fn add_section<'s>(&mut self, section: NonEmptyStr<'s>, _overwrite: bool) {
         self.root_mut()
             .set(section, Value::Table(DynTable::new()))
             .unwrap();
     }
 
-    fn contains_key(&self, section: Option<&str>, key: &str) -> bool {
-        debug_assert!(!key.is_empty());
-
+    fn contains_key<'s, 'k>(&self, section: Option<NonEmptyStr<'s>>, key: NonEmptyStr<'k>) -> bool {
         if let Some(section) = section {
-            debug_assert!(!section.is_empty());
-
             self.root().get_table(section).unwrap().contains(key)
         } else {
             self.root().contains(key)
         }
     }
 
-    fn add_value(
+    fn add_value<'s, 'k>(
         &mut self,
-        section: Option<&str>,
-        key: &str,
+        section: Option<NonEmptyStr<'s>>,
+        key: NonEmptyStr<'k>,
         value: IniValue<&str>,
         _overwrite: bool,
     ) {
-        debug_assert!(!key.is_empty());
-
         let table = if let Some(section) = section {
-            debug_assert!(!section.is_empty());
-
             self.root_mut().get_table_mut(section).unwrap()
         } else {
             self.root_mut()
@@ -182,18 +170,14 @@ impl IniConfig for DynConfig {
         .unwrap();
     }
 
-    fn add_array(
+    fn add_array<'s, 'k>(
         &mut self,
-        section: Option<&str>,
-        key: &str,
+        section: Option<NonEmptyStr<'s>>,
+        key: NonEmptyStr<'k>,
         mut array: Vec<IniValue<String>>,
         _overwrite: bool,
     ) {
-        debug_assert!(!key.is_empty());
-
         let table = if let Some(section) = section {
-            debug_assert!(!section.is_empty());
-
             self.root_mut().get_table_mut(section).unwrap()
         } else {
             self.root_mut()
