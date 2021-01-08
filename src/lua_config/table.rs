@@ -531,11 +531,11 @@ impl<'lua> LuaTable<'lua> {
             match value {
                 Value::Array(value) => {
                     if options.arrays {
-                        let len = value.len() as usize;
-
                         write_ini_key(w, key, options.escape)?;
 
                         write!(w, " = [").map_err(|_| WriteError)?;
+
+                        let len = value.len() as usize;
 
                         for (array_index, array_value) in value.iter().enumerate() {
                             let last = array_index == len - 1;

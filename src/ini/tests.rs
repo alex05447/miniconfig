@@ -954,7 +954,8 @@ fn UnexpectedNewLineInEscapeSequence() {
     assert_eq!(ini.root().get_i64("a").unwrap(), 79);
 
     // Line continuation in quoted string.
-    let ini = DynConfig::from_ini(IniParser::new("a = \"foo\\\nbar\"").line_continuation(true)).unwrap();
+    let ini =
+        DynConfig::from_ini(IniParser::new("a = \"foo\\\nbar\"").line_continuation(true)).unwrap();
     assert_eq!(ini.root().get_string("a").unwrap(), "foobar");
 }
 

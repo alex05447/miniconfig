@@ -196,7 +196,7 @@ pub(super) fn config_key_from_lua_value<'a>(key: LuaValue<'_>) -> ConfigKey<'a> 
     match key {
         LuaValue::String(key) => ConfigKey::Table(
             key.to_str()
-                .expect("Expected a valid string Lua table / array key.")
+                .expect("expected a valid string Lua table / array key")
                 .to_owned()
                 .into(),
         ),
@@ -204,6 +204,6 @@ pub(super) fn config_key_from_lua_value<'a>(key: LuaValue<'_>) -> ConfigKey<'a> 
             debug_assert!(key > 0);
             ConfigKey::Array((key - 1) as u32)
         }
-        _ => panic!("Expected a string or integer Lua table / array key."),
+        _ => panic!("expected a string or integer Lua table / array key"),
     }
 }

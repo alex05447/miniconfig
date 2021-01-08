@@ -416,7 +416,8 @@ impl<'s> IniParser<'s> {
                         buffer.clear();
 
                         // Empty section names not allowed.
-                        let section = NonEmptyStr::new(&section).map_err(|_| self.error(EmptySectionName))?;
+                        let section =
+                            NonEmptyStr::new(&section).map_err(|_| self.error(EmptySectionName))?;
 
                         // Try to add the section to the config.
                         skip_section = self.add_section(config, section)?;
@@ -430,7 +431,10 @@ impl<'s> IniParser<'s> {
                         buffer.clear();
 
                         // Try to add the section to the config.
-                        skip_section = self.add_section(config, NonEmptyStr::new(&section).expect("empty section name"))?;
+                        skip_section = self.add_section(
+                            config,
+                            NonEmptyStr::new(&section).expect("empty section name"),
+                        )?;
 
                         self.state = IniParserState::AfterSection;
 
@@ -454,7 +458,8 @@ impl<'s> IniParser<'s> {
                         buffer.clear();
 
                         // Empty section names not allowed.
-                        let section = NonEmptyStr::new(&section).map_err(|_| self.error(EmptySectionName))?;
+                        let section =
+                            NonEmptyStr::new(&section).map_err(|_| self.error(EmptySectionName))?;
 
                         // Try to add the section to the config.
                         skip_section = self.add_section(config, section)?;
@@ -771,7 +776,7 @@ impl<'s> IniParser<'s> {
 
                     // Inline comment (if supported) - finish the value, skip the rest of the line.
                     } else if self.is_inline_comment_char(c) {
-                       self.add_value_to_config(
+                        self.add_value_to_config(
                             config,
                             &section,
                             NonEmptyStr::new(&key).expect("empty key"),
@@ -887,7 +892,10 @@ impl<'s> IniParser<'s> {
                         let array = array.as_ref().expect("no current array");
 
                         // Make sure array is empty or contains strings (is not mixed).
-                        if array.iter().any(|el| !el.get_type().is_compatible(ValueType::String)) {
+                        if array
+                            .iter()
+                            .any(|el| !el.get_type().is_compatible(ValueType::String))
+                        {
                             return Err(self.error(IniErrorKind::MixedArray));
                         }
 
@@ -1330,7 +1338,11 @@ impl<'s> IniParser<'s> {
 
     /// Returns `Ok(true)` if we need to skip the current section;
     /// else returns `Ok(false)`.
-    fn add_section<'sec, C: IniConfig>(&self, config: &mut C, section: NonEmptyStr<'sec>) -> Result<bool, IniError> {
+    fn add_section<'sec, C: IniConfig>(
+        &self,
+        config: &mut C,
+        section: NonEmptyStr<'sec>,
+    ) -> Result<bool, IniError> {
         // Section does not exist in the config - add it.
         if !config.contains_section(section) {
             config.add_section(section, false);
@@ -1341,7 +1353,9 @@ impl<'s> IniParser<'s> {
             match self.options.duplicate_sections {
                 // We don't support duplicate sections - error.
                 IniDuplicateSections::Forbid => {
-                    return Err(self.error(IniErrorKind::DuplicateSection(section.as_ref().to_string())))
+                    return Err(
+                        self.error(IniErrorKind::DuplicateSection(section.as_ref().to_string()))
+                    )
                 }
                 // Skip this section.
                 IniDuplicateSections::First => Ok(true),
@@ -1376,12 +1390,7 @@ impl<'s> IniParser<'s> {
 
         let value = self.parse_value_string(value, quoted)?;
 
-        config.add_value(
-            NonEmptyStr::new(section).ok(),
-            key,
-            value,
-            !is_key_unique,
-        );
+        config.add_value(NonEmptyStr::new(section).ok(), key, value, !is_key_unique);
 
         Ok(())
     }
@@ -1438,12 +1447,7 @@ impl<'s> IniParser<'s> {
             return;
         }
 
-        config.add_array(
-            NonEmptyStr::new(section).ok(),
-            key,
-            array,
-            is_key_unique,
-        );
+        config.add_array(NonEmptyStr::new(section).ok(), key, array, is_key_unique);
     }
 
     /// Parses a string `value`.
@@ -1509,10 +1513,7 @@ impl<'s> IniParser<'s> {
             return Ok(());
         }
 
-        let is_unique = !config.contains_key(
-            NonEmptyStr::new(section).ok(),
-            key,
-        );
+        let is_unique = !config.contains_key(NonEmptyStr::new(section).ok(), key);
 
         match self.options.duplicate_keys {
             IniDuplicateKeys::Forbid => {
