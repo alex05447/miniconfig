@@ -41,9 +41,10 @@ impl<'lua> LuaConfig<'lua> {
 
         let root = lua.create_table().unwrap();
 
-        let script = format!("root = {}", script);
+        let script =
+            std::iter::once(b"root = " as &[u8]).chain(std::iter::once(script).map(str::as_bytes));
 
-        lua.load(&script)
+        lua.load_ex(script)
             .set_environment(root.clone())
             .unwrap()
             .exec()

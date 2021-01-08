@@ -15,7 +15,7 @@ lua = ["rlua", "rlua_ext"]
 ini = ["bitflags"]
 
 [dependencies]
-rlua = { version = "0.17", optional = true }
+rlua = { path = "../rlua", optional = true }
 rlua_ext = { path = "../rlua_ext", optional = true }
 bitflags = { version = "1.2.1", optional = true }
 ministrhash = { path = "../ministrhash", optional = true }
