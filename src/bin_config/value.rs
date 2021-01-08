@@ -112,7 +112,7 @@ impl BinConfigPackedValue {
 
         result.set_value_type(ValueType::F64);
         result.set_key(key);
-        result.set_value_or_offset_and_len(unsafe { std::mem::transmute(value) });
+        result.set_value_or_offset_and_len(value.to_bits());
 
         result
     }
