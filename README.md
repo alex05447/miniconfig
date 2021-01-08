@@ -1,6 +1,6 @@
 # miniconfig
 
-A minimalistic config file crate written in Rust.
+A minimalistic config file library written in Rust.
 
 ## **Overview**
 
@@ -16,15 +16,16 @@ Primitive values may be contained in
 - tables / hash maps / objects etc., with (non-empty, UTF-8) string keys,
 - arrays / lists / etc. (with elements of homogenous type, with `0`-based contiguous integer indices).
 
-Tables and arrays may contain nested tables and arrays.
+Tables and arrays may contain nested tables and arrays
+(except `.ini` configs (requires `"ini"` feature) which only support arrays of primitive types and do not support nested tables).
 
-Each config has a `root` table.
+Each config has a (possibly empty) `root` table.
 
 ### **(Table, incl. root table) keys**
 
 Any valid UTF-8 string, with special characters escaped.
 
-These are the special characters which must be escaped:
+These are the special characters which must always be escaped:
 
 - `\`
 - `\0`
@@ -42,28 +43,28 @@ In Lua configs (requires `"lua"` feature), keys work according to Lua rules: key
 
 #### **INI**
 
-In `.ini` configs (requires `"ini"` feature), additionally, special `.ini` characters and space (`' '`) must be escaped in section names and keys. These are the special `.ini` characters:
+In `.ini` configs (requires `"ini"` feature), additionally, special `.ini` characters and spaces (`' '`) must be escaped in section names and keys.
 
-- `[` (section start delimiter, array start delimiter)
-- `]` (section end delimiter, array end delimiter)
+These are the special `.ini` characters:
+
+- `[` (section start delimiter, optional array start delimiter)
+- `]` (section end delimiter, optional array end delimiter)
 - `;` (default comment delimiter)
 - `#` (optional comment delimiter)
 - `=` (default key-value separator)
 - `:` (optional key-value separator)
 
-Section names, keys and string values may be enclosed in (matching) single (`'`) or (`"`) double quotes. In this case space (`' '`), non-matching double (`"`) or single (`'`) quotes and special `.ini` characters do not have to be (but may be) escaped.
+Section names, keys and string values may be enclosed in (matching) single (`'`) or double (`"`) quotes. In this case spaces (`' '`), non-matching double (`"`) or single (`'`) quotes and special `.ini` characters do not have to be (but may be) escaped.
 
 ### **Values**
 
-Strings `"true"` and `"false"` (case-sensitive) are the only valid boolean value representations.
-
-In Lua configs (requires `"lua"` feature), integer and float values work according to Lua rules.
-
-In `.ini` configs (requires `"ini"` feature), integer and float values work according to Rust integer / float parsing rules.
-
 For string values the rules are the same as for keys.
 
-In Lua configs (requires `"lua"` feature), string values are always quoted in (matching) single (`'`) or (`"`) double quotes.
+Strings `"true"` and `"false"` (case-sensitive) are the only valid boolean value representations (i.e. not `"on"` / `"off"`, `"yes"` / `"no"`, `"TRUE"` / `"FALSE"`, `"0"` / `"1"`).
+
+In Lua configs (requires `"lua"` feature), integer and float values work according to Lua rules. String values are always quoted in (matching) single (`'`) or (`"`) double quotes.
+
+In `.ini` configs (requires `"ini"` feature), integer and float values work according to Rust integer / float parsing rules. Quoted values are always parsed as strings; otherwise values are first parsed as booleans, than as integers and lastly as floats.
 
 ## **Lua configs** (requires `"lua"` feature).
 
@@ -71,13 +72,13 @@ Main format for human-readable config files with nested array/table support.
 
 Piggybacks on the Lua interpreter both as a parser and as runtime data representation.
 
-May be used directly as a Lua representation within an [`rlua Context`](http://docs.rs/rlua/*/rlua/struct.Context.html), or be serialized for dynamic or read-only use to decouple itself from the Lua state.
+May be used directly as a Lua representation within an [`rlua Context`](http://docs.rs/rlua/*/rlua/struct.Context.html), or be serialized for dynamic (requires `"dyn"` feature) or read-only (requires `"bin"` feature) use to decouple itself from the Lua state.
 
 **Data**: text file representing a(n incomplete) Lua script, declaring a root config table with string keys, including nested config arrays/tables represented by Lua tables. Only a subset of Lua types / features are supported.
 
 **Runtime**: internally represented by a root Lua table reference. Provides a mutable config interface. Can add/modify/remove values.
 
-**Serialization**: to string Lua script, to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support nested tables), to "dynamic" config (requires `"dyn"` feature).
+**Serialization**: to string Lua script, to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays and nested tables), to "dynamic" config (requires `"dyn"` feature).
 
 **Example**:
 
@@ -104,11 +105,11 @@ Based on Rust hash maps and arrays.
 
 Main format for runtime representation of dynamic configs, or an intermediate representation for Lua configs (after deserialization) / binary configs (before serialization).
 
-**Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections - nested tables. Unquoted values, if allowed, are parsed as booleans / integers / floats / strings, in order. Quoted values, if enabled, are always treated as strings. Homogenous arrays of booleans / integers / floats / strings are supported.
+**Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections a.k.a tables. Does not support non-primitive arrays and nested tables.
 
 **Runtime**: internally represented by a root Rust hash map with string keys; arrays are Rust vectors. Provides a mutable config interface. Can add/modify/remove values.
 
-**Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support nested tables).
+**Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays and nested tables).
 
 **Example**:
 
@@ -194,11 +195,15 @@ baz = "an overridden value"
 
 Main format for on-disk / runtime representation of read-only configs with nested array/table support.
 
-**Data**: raw byte blob. Generated by serializing a Lua config (requires `"lua"` feature), dynamic config (requires `"dyn"` feature), or by using the provided writer API.
+**Data**: raw byte blob. Generated by serializing a Lua config (requires `"lua"` feature), dynamic config (requires `"dyn"` feature), or by using the provided writer API directly.
+
+In current implementation the data representation is slightly suboptimal in terms of size (e.g. arrays of primitive types are not stored optimally as there's some overhead per-element), but the benefits are implementation simplicity and the ability to distinguish between integers and floats even at array element granularity.
+
+Strings (both keys and values) are deduplicated and stored separately in a contiguous blob. Stored strings are null-terminated.
 
 **Runtime**: wrapper over the raw byte blob. Provides a read-only config interface. Cannot add/modify/remove values.
 
-**Serialization**: to string Lua script (requires `"lua"` feature), to string `.ini` config (requires `"ini"` feature, does not support nested tables).
+**Serialization**: to string Lua script (requires `"lua"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays and nested tables).
 
 **Use cases**: use for read-only data of arbitrary complexity which must not be user-visible, or for caching of data which does not need to change frequently at runtime for loading / access performance.
 
@@ -223,7 +228,7 @@ The crate by itself with no features enabled exposes no functionality. Enable on
 
 - If `"lua"` feature is enabled (it is by default), [`rlua`](https://crates.io/crates/rlua) and [`rlua_ext`](https://github.com/alex05447/rlua_ext) as a path dependency (TODO - github dependency?).
 
-- If `"ini"` feature is enabled, [`bitflags`](https://crates.io/crates/bitflags) for `.ini` parser options.
+- If `"ini"` feature is enabled, [`bitflags`](https://crates.io/crates/bitflags) for `.ini` parser options, and [`static_assertions`](https://crates.io/crates/static_assertions).
 
 ## **Problems / missing features**
 
