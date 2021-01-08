@@ -117,7 +117,7 @@ pub enum BinConfigWriterError {
     /// [`table`]: struct.BinConfigWriter.html#method.table
     EndCallMismatch,
     /// One or more unfinished [`arrays`]/[`tables`] remain in the call to [`finish`].
-    /// Contains the number of unfinished [`arrays`]/[`tables`].
+    /// Contains the number of unfinished [`arrays`] / [`tables`].
     ///
     /// [`arrays`]: struct.BinArray.html
     /// [`tables`]: struct.BinTable.html

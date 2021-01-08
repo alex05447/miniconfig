@@ -10,6 +10,9 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+#[cfg(feature = "bin")]
+use super::bin_config::string_hash_fnv1a;
+
 #[cfg(any(feature = "bin", feature = "dyn", feature = "ini", feature = "lua"))]
 pub(crate) enum WriteCharError {
     /// General write error (out of memory?).
@@ -181,6 +184,113 @@ fn is_lua_identifier_key(key: &str) -> bool {
     true
 }
 
+/// A string literal and its compile-time hash (created via `ministrhash::str_hash_fnv1a!`).
+/// Used as an optimization for binary config tables to avoid runtime string hashing.
+/// Requires "bin" and "str_hash" features.
+#[cfg(all(feature = "bin", feature = "str_hash"))]
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct StringAndHash {
+    pub string: &'static str,
+    pub hash: u32,
+}
+
+#[cfg(all(feature = "bin", feature = "str_hash"))]
+impl StringAndHash {
+    pub fn new(string: &'static str, hash: u32) -> Self {
+        Self { string, hash }
+    }
+}
+
+#[cfg(all(feature = "bin", feature = "str_hash"))]
+impl Display for StringAndHash {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "\"{}\"", self.string)
+    }
+}
+
+/// Creates a binary config [`table`] key and its hash from a string literal.
+/// This is slightly more optimal then using a string key
+/// as this avoids runtime string hashing, used internally by the binary config [`table`] accessor.
+///
+/// [`table`]: struct.BinTable.html
+#[cfg(all(feature = "bin", feature = "str_hash"))]
+#[macro_export]
+macro_rules! key {
+    ($string:literal) => {
+        $crate::TableKey::StringAndHash($crate::StringAndHash::new(
+            $string,
+            ministrhash::str_hash_fnv1a!($string),
+        ))
+    };
+}
+
+/// A (non-empty) config [`table`] string key.
+/// Borrowed, owned, or a compile-time hashed string literal
+/// (created via `key!` macro for a binary config table, requires "bin" and "str_hash" features).
+///
+/// [`table`]: enum.Value.html#variant.Table
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum TableKey<'a> {
+    /// A normal table string key, borrowed or owned.
+    String(Cow<'a, str>),
+    /// A string literal + its compile time hash created via `key!` macro.
+    #[cfg(all(feature = "bin", feature = "str_hash"))]
+    StringAndHash(StringAndHash),
+}
+
+#[cfg(feature = "bin")]
+impl<'a> TableKey<'a> {
+    /// Returns the string key hash.
+    /// Used by binary config tables (requires "bin" feature).
+    /// Computed on the fly for string keys, or just returns the compile-time hash for
+    /// keys created by `key!` macro from a string literal (requires "str_hash" feature).
+    pub(crate) fn key_hash(&self) -> u32 {
+        match self {
+            TableKey::String(string) => string_hash_fnv1a(string),
+
+            #[cfg(feature = "str_hash")]
+            TableKey::StringAndHash(StringAndHash { hash, .. }) => *hash,
+        }
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> AsRef<str> for TableKey<'a> {
+    fn as_ref(&self) -> &str {
+        match self {
+            TableKey::String(string) => string.as_ref(),
+            #[cfg(all(feature = "bin", feature = "str_hash"))]
+            TableKey::StringAndHash(StringAndHash { string, .. }) => *string,
+        }
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> Display for TableKey<'a> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            TableKey::String(string) => write!(f, "\"{}\"", string),
+            #[cfg(all(feature = "bin", feature = "str_hash"))]
+            TableKey::StringAndHash(string_and_hash) => string_and_hash.fmt(f),
+        }
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> From<&'a str> for TableKey<'a> {
+    fn from(other: &'a str) -> Self {
+        Self::String(other.into())
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> From<String> for TableKey<'a> {
+    fn from(other: String) -> Self {
+        Self::String(other.into())
+    }
+}
+
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 /// Key (in the [`table`]) or index (in the [`array`]) of a config element.
 ///
@@ -191,7 +301,7 @@ pub enum ConfigKey<'a> {
     /// A (non-empty) string [`table`] key.
     ///
     /// [`table`]: enum.Value.html#variant.Table
-    Table(Cow<'a, str>),
+    Table(TableKey<'a>),
     /// A (`0`-based) [`array`] index.
     ///
     /// [`array`]: enum.Value.html#variant.Array
@@ -213,6 +323,13 @@ impl<'a> From<String> for ConfigKey<'a> {
 }
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
+impl<'a> From<TableKey<'a>> for ConfigKey<'a> {
+    fn from(key: TableKey<'a>) -> Self {
+        ConfigKey::Table(key.into())
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 impl<'a> From<u32> for ConfigKey<'a> {
     fn from(index: u32) -> Self {
         ConfigKey::Array(index)
@@ -223,8 +340,8 @@ impl<'a> From<u32> for ConfigKey<'a> {
 impl<'a> Display for ConfigKey<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            ConfigKey::Table(key) => write!(f, "\"{}\"", key),
-            ConfigKey::Array(key) => write!(f, "{}", key),
+            ConfigKey::Table(key) => key.fmt(f),
+            ConfigKey::Array(key) => key.fmt(f),
         }
     }
 }

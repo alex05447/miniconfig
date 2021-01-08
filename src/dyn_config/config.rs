@@ -8,7 +8,8 @@ use crate::{BinConfigWriter, BinConfigWriterError, DynConfigValueRef};
 
 #[cfg(feature = "ini")]
 use crate::{
-    DisplayIni, IniConfig, IniError, IniParser, IniValue, ToIniStringError, ToIniStringOptions, NonEmptyStr
+    DisplayIni, IniConfig, IniError, IniParser, IniValue, NonEmptyStr, ToIniStringError,
+    ToIniStringOptions,
 };
 
 #[cfg(any(feature = "bin", feature = "ini"))]
@@ -547,7 +548,7 @@ mod tests {
         // Load the binary config.
         let config = BinConfig::new(data).unwrap();
 
-        let array_value = config.root().get_array("array_value").unwrap();
+        let array_value = config.root().get_array("array_value".into()).unwrap();
 
         assert_eq!(array_value.len(), 3);
         assert_eq!(array_value.get_i64(0).unwrap(), 54);
@@ -557,21 +558,27 @@ mod tests {
         assert_eq!(array_value.get_i64(2).unwrap(), 78);
         assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
 
-        assert_eq!(config.root().get_bool("bool_value").unwrap(), true);
+        assert_eq!(config.root().get_bool("bool_value".into()).unwrap(), true);
 
-        assert!(cmp_f64(config.root().get_f64("float_value").unwrap(), 3.14));
+        assert!(cmp_f64(
+            config.root().get_f64("float_value".into()).unwrap(),
+            3.14
+        ));
 
-        assert_eq!(config.root().get_i64("int_value").unwrap(), 7);
+        assert_eq!(config.root().get_i64("int_value".into()).unwrap(), 7);
 
-        assert_eq!(config.root().get_string("string_value").unwrap(), "foo");
+        assert_eq!(
+            config.root().get_string("string_value".into()).unwrap(),
+            "foo"
+        );
 
-        let table_value = config.root().get_table("table_value").unwrap();
+        let table_value = config.root().get_table("table_value".into()).unwrap();
 
         assert_eq!(table_value.len(), 3);
-        assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
-        assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
-        assert_eq!(table_value.get_string("baz").unwrap(), "hello");
-        assert_eq!(table_value.get_bool("foo").unwrap(), false);
+        assert_eq!(table_value.get_i64("bar".into()).unwrap(), 2020);
+        assert!(cmp_f64(table_value.get_f64("bar".into()).unwrap(), 2020.0));
+        assert_eq!(table_value.get_string("baz".into()).unwrap(), "hello");
+        assert_eq!(table_value.get_bool("foo".into()).unwrap(), false);
     }
 
     #[cfg(feature = "ini")]

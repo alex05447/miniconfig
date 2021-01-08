@@ -13,3 +13,5 @@ pub use error::*;
 pub use table::BinTable;
 pub use value::BinConfigValue;
 pub use writer::BinConfigWriter;
+
+pub(crate) use util::string_hash_fnv1a;

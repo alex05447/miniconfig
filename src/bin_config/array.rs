@@ -437,7 +437,30 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_array("array")
+                .get_array("array".into())
+                .unwrap()
+                .get(1)
+                .err()
+                .unwrap(),
+            BinArrayError::IndexOutOfBounds(1)
+        );
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config
+                    .root()
+                    .get_array(key!("array"))
+                    .unwrap()
+                    .get(1)
+                    .err()
+                    .unwrap(),
+                BinArrayError::IndexOutOfBounds(1)
+            );
+        }
+        assert_eq!(
+            config
+                .root()
+                .get_array_str("array")
                 .unwrap()
                 .get(1)
                 .err()
@@ -450,7 +473,28 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_array("array")
+                .get_array("array".into())
+                .unwrap()
+                .get_bool(0)
+                .unwrap(),
+            true
+        );
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config
+                    .root()
+                    .get_array(key!("array"))
+                    .unwrap()
+                    .get_bool(0)
+                    .unwrap(),
+                true
+            );
+        }
+        assert_eq!(
+            config
+                .root()
+                .get_array_str("array")
                 .unwrap()
                 .get_bool(0)
                 .unwrap(),
@@ -470,7 +514,30 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_array("array")
+                .get_array("array".into())
+                .unwrap()
+                .get_bool(0)
+                .err()
+                .unwrap(),
+            BinArrayError::IncorrectValueType(ValueType::F64)
+        );
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config
+                    .root()
+                    .get_array(key!("array"))
+                    .unwrap()
+                    .get_bool(0)
+                    .err()
+                    .unwrap(),
+                BinArrayError::IncorrectValueType(ValueType::F64)
+            );
+        }
+        assert_eq!(
+            config
+                .root()
+                .get_array_str("array")
                 .unwrap()
                 .get_bool(0)
                 .err()
@@ -483,7 +550,28 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_array("array")
+                .get_array("array".into())
+                .unwrap()
+                .get_i64(0)
+                .unwrap(),
+            3
+        );
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config
+                    .root()
+                    .get_array(key!("array"))
+                    .unwrap()
+                    .get_i64(0)
+                    .unwrap(),
+                3
+            );
+        }
+        assert_eq!(
+            config
+                .root()
+                .get_array_str("array")
                 .unwrap()
                 .get_i64(0)
                 .unwrap(),
@@ -492,7 +580,28 @@ mod tests {
         assert!(cmp_f64(
             config
                 .root()
-                .get_array("array")
+                .get_array("array".into())
+                .unwrap()
+                .get_f64(0)
+                .unwrap(),
+            3.14
+        ));
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config
+                    .root()
+                    .get_array(key!("array"))
+                    .unwrap()
+                    .get_f64(0)
+                    .unwrap(),
+                3.14
+            );
+        }
+        assert!(cmp_f64(
+            config
+                .root()
+                .get_array_str("array")
                 .unwrap()
                 .get_f64(0)
                 .unwrap(),

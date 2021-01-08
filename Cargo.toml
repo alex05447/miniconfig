@@ -10,6 +10,7 @@ edition = "2018"
 default = []
 dyn = []
 bin = ["static_assertions"]
+str_hash = ["ministrhash"]
 lua = ["rlua", "rlua_ext"]
 ini = ["bitflags"]
 
@@ -17,8 +18,9 @@ ini = ["bitflags"]
 rlua = { version = "0.17", optional = true }
 rlua_ext = { path = "../rlua_ext", optional = true }
 bitflags = { version = "1.2.1", optional = true }
+ministrhash = { path = "../ministrhash", optional = true }
 static_assertions = { version = "1.1.0", optional = true }
 
 [[example]]
 name = "example"
-required-features = ["bin", "lua", "dyn", "ini"]
+required-features = ["bin", "str_hash", "lua", "dyn", "ini"]

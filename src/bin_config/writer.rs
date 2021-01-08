@@ -966,10 +966,21 @@ mod tests {
 
         let config = BinConfig::new(data).unwrap();
 
-        assert!(!config.root().contains("missing_value"));
+        assert!(!config.root().contains("missing_value".into()));
+        assert!(!config.root().contains_str("missing_value"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(!config.root().contains(key!("missing_value")));
+        }
 
-        assert!(config.root().contains("array_value"));
-        let array_value = config.root().get_array("array_value").unwrap();
+        assert!(config.root().contains("array_value".into()));
+        assert!(config.root().contains_str("array_value"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(config.root().contains(key!("array_value")));
+        }
+
+        let array_value = config.root().get_array("array_value".into()).unwrap();
 
         assert_eq!(array_value.len(), 3);
         assert_eq!(array_value.get_i64(0).unwrap(), 54);
@@ -979,29 +990,135 @@ mod tests {
         assert_eq!(array_value.get_i64(2).unwrap(), 78);
         assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
 
-        assert!(config.root().contains("bool_value"));
-        assert_eq!(config.root().get_bool("bool_value").unwrap(), true);
+        assert!(config.root().contains("bool_value".into()));
+        assert!(config.root().contains_str("bool_value"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(config.root().contains(key!("bool_value")));
+        }
+        assert_eq!(config.root().get_bool("bool_value".into()).unwrap(), true);
+        assert_eq!(config.root().get_bool_str("bool_value").unwrap(), true);
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config.root().get_bool_str(key!("bool_value")).unwrap(),
+                true
+            );
+        }
 
-        assert!(config.root().contains("float_value"));
-        assert!(cmp_f64(config.root().get_f64("float_value").unwrap(), 3.14));
+        assert!(config.root().contains("float_value".into()));
+        assert!(config.root().contains_str("float_value"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(config.root().contains(key!("float_value")));
+        }
+        assert!(cmp_f64(
+            config.root().get_f64("float_value".into()).unwrap(),
+            3.14
+        ));
+        assert!(cmp_f64(
+            config.root().get_f64_str("float_value").unwrap(),
+            3.14
+        ));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(cmp_f64(
+                config.root().get_f64(key!("float_value")).unwrap(),
+                3.14
+            ));
+        }
 
-        assert!(config.root().contains("int_value"));
-        assert_eq!(config.root().get_i64("int_value").unwrap(), 7);
+        assert!(config.root().contains("int_value".into()));
+        assert!(config.root().contains_str("int_value"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(config.root().contains_str(key!("int_value")));
+        }
 
-        assert!(config.root().contains("string_value"));
-        assert_eq!(config.root().get_string("string_value").unwrap(), "foo");
+        assert_eq!(config.root().get_i64("int_value".into()).unwrap(), 7);
+        assert_eq!(config.root().get_i64_str("int_value").unwrap(), 7);
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(config.root().get_i64(key!("int_value")).unwrap(), 7);
+        }
 
-        assert!(config.root().contains("table_value"));
-        let table_value = config.root().get_table("table_value").unwrap();
+        assert!(config.root().contains("string_value".into()));
+        assert!(config.root().contains_str("string_value"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(config.root().contains(key!("string_value")));
+        }
+
+        assert_eq!(
+            config.root().get_string("string_value".into()).unwrap(),
+            "foo"
+        );
+        assert_eq!(config.root().get_string_str("string_value").unwrap(), "foo");
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config.root().get_string(key!("string_value")).unwrap(),
+                "foo"
+            );
+        }
+
+        assert!(config.root().contains("table_value".into()));
+        assert!(config.root().contains_str("table_value"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(config.root().contains(key!("table_value")));
+        }
+
+        let table_value = config.root().get_table("table_value".into()).unwrap();
 
         assert_eq!(table_value.len(), 3);
-        assert!(table_value.contains("bar"));
-        assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
-        assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
-        assert!(table_value.contains("baz"));
-        assert_eq!(table_value.get_string("baz").unwrap(), "hello");
-        assert!(table_value.contains("foo"));
-        assert_eq!(table_value.get_bool("foo").unwrap(), false);
-        assert!(!table_value.contains("bob"));
+        assert!(table_value.contains("bar".into()));
+        assert!(table_value.contains_str("bar"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(table_value.contains(key!("bar")));
+        }
+        assert_eq!(table_value.get_i64("bar".into()).unwrap(), 2020);
+        assert_eq!(table_value.get_i64_str("bar").unwrap(), 2020);
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(table_value.get_i64(key!("bar")).unwrap(), 2020);
+        }
+        assert!(cmp_f64(table_value.get_f64("bar".into()).unwrap(), 2020.0));
+        assert!(cmp_f64(table_value.get_f64_str("bar").unwrap(), 2020.0));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(cmp_f64(table_value.get_f64(key!("bar")).unwrap(), 2020.0));
+        }
+        assert!(table_value.contains("baz".into()));
+        assert!(table_value.contains_str("baz"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(table_value.contains(key!("baz")));
+        }
+        assert_eq!(table_value.get_string("baz".into()).unwrap(), "hello");
+        assert_eq!(table_value.get_string_str("baz").unwrap(), "hello");
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(table_value.get_string(key!("baz")).unwrap(), "hello");
+        }
+        assert!(table_value.contains("foo".into()));
+        assert!(table_value.contains_str("foo"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(table_value.contains(key!("foo")));
+        }
+        assert_eq!(table_value.get_bool("foo".into()).unwrap(), false);
+        assert_eq!(table_value.get_bool_str("foo").unwrap(), false);
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(table_value.get_bool(key!("foo")).unwrap(), false);
+        }
+        assert!(!table_value.contains("bob".into()));
+        assert!(!table_value.contains_str("bob"));
+        #[cfg(feature = "str_hash")]
+        {
+            assert!(!table_value.contains(key!("bob")));
+        }
     }
 }

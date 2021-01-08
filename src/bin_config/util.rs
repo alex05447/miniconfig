@@ -1,4 +1,4 @@
-pub(super) fn string_hash_fnv1a(string: &str) -> u32 {
+pub(crate) fn string_hash_fnv1a(string: &str) -> u32 {
     const FNV1A_PRIME: u32 = 0x0100_0193;
     const FNV1A_SEED: u32 = 0x811C_9DC5;
 

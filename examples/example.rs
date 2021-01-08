@@ -142,7 +142,11 @@ foo = false
 
         // Use the binary config. Same interface as the Lua config above.
 
-        let array_value = bin_config.root().get_array("array_value").unwrap();
+        // If "str_hash" feature is enabled, binary config tables can be accessed using compile-time hashed string literals
+        // with the help of the `key!` macro.
+
+        let array_value = bin_config.root().get_array(key!("array_value")).unwrap();
+
         assert_eq!(array_value.len(), 3);
 
         // Access the number values as ints / floats.
@@ -153,40 +157,47 @@ foo = false
         assert_eq!(
             bin_config
                 .root()
-                .get_i64_path(&["array_value".into(), 0.into()])
+                .get_i64_path(&[key!("array_value").into(), 0.into()])
                 .unwrap(),
             54
         );
 
-        assert_eq!(bin_config.root().get_bool("bool_value").unwrap(), true);
+        assert_eq!(
+            bin_config.root().get_bool(key!("bool_value")).unwrap(),
+            true
+        );
 
         assert!(cmp_f64(
-            bin_config.root().get_f64("float_value").unwrap(),
+            bin_config.root().get_f64(key!("float_value")).unwrap(),
             3.14
         ));
-        assert_eq!(bin_config.root().get_i64("float_value").unwrap(), 3);
+        assert_eq!(bin_config.root().get_i64(key!("float_value")).unwrap(), 3);
 
-        assert_eq!(bin_config.root().get_i64("int_value").unwrap(), 7);
+        assert_eq!(bin_config.root().get_i64(key!("int_value")).unwrap(), 7);
         assert!(cmp_f64(
-            bin_config.root().get_f64("int_value").unwrap(),
+            bin_config.root().get_f64(key!("int_value")).unwrap(),
             7.0
         ));
 
-        assert_eq!(bin_config.root().get_string("string_value").unwrap(), "foo");
+        assert_eq!(
+            bin_config.root().get_string(key!("string_value")).unwrap(),
+            "foo"
+        );
 
-        let table_value = bin_config.root().get_table("table_value").unwrap();
+        let table_value = bin_config.root().get_table(key!("table_value")).unwrap();
 
         assert_eq!(table_value.len(), 4);
-        assert_eq!(table_value.get_i64("bar").unwrap(), 2020);
-        assert!(cmp_f64(table_value.get_f64("bar").unwrap(), 2020.0));
-        assert_eq!(table_value.get_string("baz").unwrap(), "hello");
-        assert_eq!(table_value.get_bool("foo").unwrap(), false);
-        assert_eq!(table_value.get_string("áéíóú").unwrap(), "42");
+        assert_eq!(table_value.get_i64(key!("bar")).unwrap(), 2020);
+        assert!(cmp_f64(table_value.get_f64(key!("bar")).unwrap(), 2020.0));
+        assert_eq!(table_value.get_string(key!("baz")).unwrap(), "hello");
+        assert_eq!(table_value.get_bool(key!("foo")).unwrap(), false);
+        assert_eq!(table_value.get_string(key!("áéíóú")).unwrap(), "42");
 
         // Access table elements by path.
         assert_eq!(
-            table_value
-                .get_bool_path(&["table_value".into(), "foo".into()])
+            bin_config
+                .root()
+                .get_bool_path(&[key!("table_value").into(), key!("foo").into()])
                 .unwrap(),
             false
         );

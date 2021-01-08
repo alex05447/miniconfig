@@ -15,7 +15,13 @@ mod lua_config;
 #[cfg(feature = "ini")]
 mod ini;
 
+#[cfg(not(all(feature = "bin", feature = "str_hash")))]
 mod util;
+
+#[cfg(all(feature = "bin", feature = "str_hash"))]
+#[macro_use]
+mod util;
+
 mod value;
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
@@ -40,3 +46,6 @@ pub use {error::*, util::*};
 
 #[cfg(feature = "ini")]
 pub use ini::*;
+
+#[cfg(all(feature = "bin", feature = "str_hash"))]
+pub use util::StringAndHash;

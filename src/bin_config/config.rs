@@ -765,8 +765,31 @@ mod tests {
 
         let config = BinConfig::new(data).unwrap();
 
-        assert_eq!(config.root().get_string("liquid").unwrap(), "macallums");
-        assert_eq!(config.root().get_string("costarring").unwrap(), "declinate");
+        assert_eq!(
+            config.root().get_string("liquid".into()).unwrap(),
+            "macallums"
+        );
+        assert_eq!(
+            config.root().get_string("costarring".into()).unwrap(),
+            "declinate"
+        );
+        assert_eq!(config.root().get_string_str("liquid").unwrap(), "macallums");
+        assert_eq!(
+            config.root().get_string_str("costarring").unwrap(),
+            "declinate"
+        );
+
+        #[cfg(feature = "str_hash")]
+        {
+            assert_eq!(
+                config.root().get_string(key!("liquid")).unwrap(),
+                "macallums"
+            );
+            assert_eq!(
+                config.root().get_string(key!("costarring")).unwrap(),
+                "declinate"
+            );
+        }
     }
 
     #[cfg(feature = "dyn")]

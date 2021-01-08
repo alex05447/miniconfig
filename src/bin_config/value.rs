@@ -430,15 +430,17 @@ impl<'at> BinConfigValue<'at> {
                         value_type: self.get_type(),
                     }),
                 },
-                ConfigKey::Table(ref table_key) => match self {
+                ConfigKey::Table(table_key) => match self {
                     Value::Table(table) => {
-                        let value = table.get(table_key).map_err(|err| match err {
-                            TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
-                            TableError::KeyDoesNotExist => {
-                                GetPathError::KeyDoesNotExist(ConfigPath::from_key(key.clone()))
-                            }
-                            TableError::IncorrectValueType(_) => unreachable!(),
-                        })?;
+                        let value = table
+                            .get_impl(table_key.as_ref(), table_key.key_hash())
+                            .map_err(|err| match err {
+                                TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
+                                TableError::KeyDoesNotExist => {
+                                    GetPathError::KeyDoesNotExist(ConfigPath::from_key(key.clone()))
+                                }
+                                TableError::IncorrectValueType(_) => unreachable!(),
+                            })?;
 
                         value.get_path(path).map_err(|err| err.push_key(key))
                     }
