@@ -344,6 +344,14 @@ impl BinConfigWriter {
                     return Err(TableKeyRequired);
                 }
 
+                // The key is too long.
+                let max_len = BinTableKey::max_len();
+                let key_len = key.len();
+
+                if key.len() > max_len as usize {
+                    return Err(TableKeyTooLong { max_len, key_len });
+                }
+
                 // Lookup / intern the key string, return its hash / offset / length.
                 let key = Self::intern_string(strings, string_writer, key);
 
@@ -694,6 +702,29 @@ mod tests {
         // But this works.
 
         writer.bool("bool", true).unwrap();
+    }
+
+    #[test]
+    fn TableKeyTooLong() {
+        let mut writer = BinConfigWriter::new(1).unwrap();
+
+        // Currently 28 bits.
+        let max_len = 0x0fff_ffffu32;
+
+        let key_len: usize = max_len as usize + 1;
+        let key = unsafe { String::from_utf8_unchecked(vec![b'a'; key_len]) };
+
+        assert_eq!(
+            writer.bool(Some(key.as_str()), true).err().unwrap(),
+            BinConfigWriterError::TableKeyTooLong { key_len, max_len }
+        );
+
+        // But this works.
+
+        let key_len: usize = max_len as usize;
+        let key = unsafe { String::from_utf8_unchecked(vec![b'a'; key_len]) };
+
+        writer.bool(Some(key.as_str()), true).unwrap();
     }
 
     #[test]

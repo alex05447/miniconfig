@@ -9,12 +9,56 @@ use {
         BinArrayError, ConfigKey, ConfigPath, DisplayLua, GetPathError, TableError, Value,
         ValueType,
     },
+    static_assertions::const_assert,
     std::{
         borrow::Borrow,
         fmt::{Display, Formatter},
         io::Write,
     },
 };
+
+// | value type |    key length, if any   |
+// |-- 4 bits --|-------- 28 bits --------|
+
+// Number of bits in `type_and_key_len` we use for table key length.
+const KEY_LEN_BITS: u32 = 28;
+
+const KEY_LEN_OFFSET: u32 = 0;
+
+// Read/write mask for key length bits in `type_and_key_len`.
+const KEY_LEN_MASK: u32 = ((1 << KEY_LEN_BITS) - 1) << KEY_LEN_OFFSET;
+
+// Maximum table key string length determined by the number of bits in `type_and_key_len` we use for it.
+const MAX_KEY_LEN: u32 = KEY_LEN_MASK >> KEY_LEN_OFFSET;
+
+// Number of bits in `type_and_key_len` we use for value type.
+const TYPE_BITS: u32 = 4;
+
+const TYPE_OFFSET: u32 = KEY_LEN_OFFSET + KEY_LEN_BITS;
+
+// Read/write mask for type bits in `type_and_key_len`.
+const TYPE_MASK: u32 = ((1 << TYPE_BITS) - 1) << TYPE_OFFSET;
+
+const_assert!(KEY_LEN_BITS + TYPE_BITS == (std::mem::size_of::<u32>() as u32) * 8);
+
+// |--   offset   --|--   length   --|
+// |--   32 bits  --|--   32 bits  --|
+
+// Number of bits in `value_or_offset_and_len` we use for value length.
+const VALUE_LEN_BITS: u64 = 32;
+
+const VALUE_LEN_OFFSET: u64 = 0;
+
+// Read/write mask for value length bits in `value_or_offset_and_len`.
+const VALUE_LEN_MASK: u64 = ((1 << VALUE_LEN_BITS) - 1) << VALUE_LEN_OFFSET;
+
+// Number of bits in `value_or_offset_and_len` we use for value offset.
+const VALUE_OFFSET_BITS: u64 = 32;
+
+const VALUE_OFFSET_OFFSET: u64 = VALUE_LEN_BITS;
+
+// Read/write mask for value offset bits in `value_or_offset_and_len`.
+const VALUE_OFFSET_MASK: u64 = ((1 << VALUE_OFFSET_BITS) - 1) << VALUE_OFFSET_OFFSET;
 
 /// Represents a single config value as stored in the binary config data blob.
 ///
@@ -40,9 +84,6 @@ pub(crate) struct BinConfigPackedValue {
 }
 
 impl BinConfigPackedValue {
-    // Maximum table key string length - 28 bits.
-    const MAX_KEY_LEN: u32 = 0x0fff_ffff;
-
     /// Create a new packed value representing a `bool`.
     pub(super) fn new_bool(key: BinTableKey, value: bool) -> Self {
         let mut result = Self::default();
@@ -138,15 +179,12 @@ impl BinConfigPackedValue {
     /// Packs the value's key hash, offset and length.
     /// NOTE - the caller ensures this value is a table element.
     pub(super) fn set_key(&mut self, key: BinTableKey) {
+        debug_assert!(key.len <= MAX_KEY_LEN);
+
         let mut type_and_key_len = self.type_and_key_len();
 
-        assert!(
-            key.len < Self::MAX_KEY_LEN,
-            "Maximum supported binary config key length exceeded."
-        );
-
-        // Keep the type.
-        type_and_key_len = (type_and_key_len & 0xf000_0000) | (key.len & Self::MAX_KEY_LEN);
+        // Keep the type, overwrite the key length.
+        type_and_key_len = (type_and_key_len & TYPE_MASK) | (key.len & KEY_LEN_MASK);
 
         self.set_type_and_key_len(type_and_key_len);
 
@@ -181,7 +219,7 @@ impl BinConfigPackedValue {
     /// Tries to unpack and load this value's type.
     /// Fails if it's not a valid value type.
     pub(super) fn try_value_type(&self) -> Option<ValueType> {
-        let value_type = (self.type_and_key_len() & 0xf000_0000) >> 28;
+        let value_type = (self.type_and_key_len() & TYPE_MASK) >> TYPE_OFFSET;
 
         value_type_from_u32(value_type)
     }
@@ -190,16 +228,16 @@ impl BinConfigPackedValue {
     /// NOTE - panics if it's not a valid value type.
     pub(super) fn value_type(&self) -> ValueType {
         self.try_value_type()
-            .expect("Invalid binary config value type.")
+            .expect("invalid binary config value type")
     }
 
     /// Packs the value type.
     fn set_value_type(&mut self, value_type: ValueType) {
         let mut type_and_key_len = self.type_and_key_len();
 
-        // Keep the key length.
-        type_and_key_len = ((value_type_to_u32(Some(value_type)) << 28) & 0xf000_0000)
-            | (type_and_key_len & Self::MAX_KEY_LEN);
+        // Keep the key length, overwrite the value type.
+        type_and_key_len = ((value_type_to_u32(Some(value_type)) << TYPE_OFFSET) & TYPE_MASK)
+            | (type_and_key_len & KEY_LEN_MASK);
 
         self.set_type_and_key_len(type_and_key_len);
     }
@@ -220,7 +258,7 @@ impl BinConfigPackedValue {
     /// NOTE - panics if value is not `0` or `1`.
     fn bool(&self) -> bool {
         self.try_bool()
-            .expect("Invalid binary config boolean value.")
+            .expect("invalid binary config boolean value")
     }
 
     /// Unpacks and interprets this value as an `i64`.
@@ -239,7 +277,7 @@ impl BinConfigPackedValue {
     /// String length is in bytes; array/table length is in elements.
     /// NOTE - the caller ensures this value is a string/array/table.
     pub(super) fn len(&self) -> u32 {
-        (self.value_or_offset_and_len() & 0x0000_0000_ffff_ffff) as u32
+        ((self.value_or_offset_and_len() & VALUE_LEN_MASK) >> VALUE_LEN_OFFSET) as u32
     }
 
     /// Packs the string/array/table value's length.
@@ -248,9 +286,9 @@ impl BinConfigPackedValue {
     fn set_len(&mut self, len: u32) {
         let mut value_or_offset_and_len = self.value_or_offset_and_len();
 
-        // Keep the offset.
-        value_or_offset_and_len = (value_or_offset_and_len & 0xffff_ffff_0000_0000)
-            | (len as u64 & 0x0000_0000_ffff_ffff);
+        // Keep the offset, overwrite the length.
+        value_or_offset_and_len =
+            (value_or_offset_and_len & VALUE_OFFSET_MASK) | (len as u64 & VALUE_LEN_MASK);
 
         self.set_value_or_offset_and_len(value_or_offset_and_len);
     }
@@ -259,7 +297,7 @@ impl BinConfigPackedValue {
     /// and returns the offset.
     /// NOTE - the caller ensures the value is a string / array / table.
     pub(super) fn offset(&self) -> u32 {
-        ((self.value_or_offset_and_len() & 0xffff_ffff_0000_0000) >> 32) as u32
+        ((self.value_or_offset_and_len() & VALUE_OFFSET_MASK) >> VALUE_OFFSET_OFFSET) as u32
     }
 
     /// Packs the offset to string / array / table data.
@@ -267,9 +305,9 @@ impl BinConfigPackedValue {
     pub(super) fn set_offset(&mut self, offset: u32) {
         let mut value_or_offset_and_len = self.value_or_offset_and_len();
 
-        // Keep the length.
-        value_or_offset_and_len = (((offset as u64) << 32) & 0xffff_ffff_0000_0000)
-            | (value_or_offset_and_len & 0x0000_0000_ffff_ffff);
+        // Keep the length, overwrite the offset.
+        value_or_offset_and_len = (((offset as u64) << VALUE_OFFSET_OFFSET) & VALUE_OFFSET_MASK)
+            | (value_or_offset_and_len & VALUE_LEN_MASK);
 
         self.set_value_or_offset_and_len(value_or_offset_and_len);
     }
@@ -306,7 +344,7 @@ impl BinConfigPackedValue {
 
     /// Unpacks the key length to `u32`.
     fn key_len(&self) -> u32 {
-        self.type_and_key_len() & 0x0fff_ffff
+        (self.type_and_key_len() & KEY_LEN_MASK) >> KEY_LEN_OFFSET
     }
 }
 
@@ -323,7 +361,13 @@ pub(super) struct BinTableKey {
 }
 
 impl BinTableKey {
+    pub(crate) fn max_len() -> u32 {
+        MAX_KEY_LEN
+    }
+
     pub(crate) fn new(hash: u32, offset: u32, len: u32) -> Self {
+        debug_assert!(len <= Self::max_len(),);
+
         Self { hash, offset, len }
     }
 }

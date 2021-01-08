@@ -71,6 +71,19 @@ pub enum BinConfigWriterError {
     ///
     /// [`table`]: struct.BinTable.html
     TableKeyRequired,
+    /// Maximum supported [`table`] element key length exceeded.
+    ///
+    /// [`table`]: struct.BinTable.html
+    TableKeyTooLong {
+        /// Maximum supported [`table`] key length.
+        ///
+        /// [`table`]: struct.BinTable.html
+        max_len: u32,
+        /// Found [`table`] key length.
+        ///
+        /// [`table`]: struct.BinTable.html
+        key_len: usize,
+    },
     /// A string key is not required for an [`array`] element.
     ///
     /// [`array`]: struct.BinArray.html
@@ -123,6 +136,7 @@ impl Display for BinConfigWriterError {
         match self {
             EmptyRootTable => "empty binary config root tables are not supported".fmt(f),
             TableKeyRequired => "a non-empty string key is required for a table element".fmt(f),
+            TableKeyTooLong { max_len, key_len } => write!(f, "maximum supported table element key length ({}) exceeded: found {}", max_len, key_len),
             ArrayKeyNotRequired => "a string key is not required for an array element".fmt(f),
             MixedArray { expected, found } => write!(f, "mixed (and non-convertible) type values in the array: expected \"{}\", found \"{}\"", expected, found),
             NonUniqueKey => "a non-unique string key was provided for a table element".fmt(f),
