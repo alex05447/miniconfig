@@ -553,22 +553,17 @@ impl BinConfigWriter {
         let base = data.as_mut_ptr() as *mut u8;
 
         let begin = unsafe { base.add(size_of::<BinConfigHeader>()) as *mut BinConfigPackedValue };
-        let end = unsafe { begin.offset(len as isize) };
+        let values = unsafe { std::slice::from_raw_parts_mut(begin, len as _) };
 
-        Self::fixup_string_offsets_impl(base, begin, end, string_offset);
+        Self::fixup_string_offsets_impl(base, values, string_offset);
     }
 
     fn fixup_string_offsets_impl(
         base: *mut u8,
-        begin: *mut BinConfigPackedValue,
-        end: *mut BinConfigPackedValue,
+        values: &mut [BinConfigPackedValue],
         string_offset: u32,
     ) {
-        let mut it = begin;
-
-        while it != end {
-            let value = unsafe { &mut *it };
-
+        for value in values.iter_mut() {
             // If the value has a key, fix it up.
             let mut key = value.key();
 
@@ -577,9 +572,7 @@ impl BinConfigWriter {
                 value.set_key(key);
             }
 
-            let value_type = value.value_type();
-
-            match value_type {
+            match value.value_type() {
                 // If the value is a string, fix it up.
                 ValueType::String => {
                     value.set_offset(value.offset() + string_offset);
@@ -589,14 +582,12 @@ impl BinConfigWriter {
                     let begin = unsafe {
                         base.offset(value.offset() as isize) as *mut BinConfigPackedValue
                     };
-                    let end = unsafe { begin.offset(value.len() as isize) };
+                    let values = unsafe { std::slice::from_raw_parts_mut(begin, value.len() as _) };
 
-                    Self::fixup_string_offsets_impl(base, begin, end, string_offset);
+                    Self::fixup_string_offsets_impl(base, values, string_offset);
                 }
                 _ => {}
             }
-
-            it = unsafe { it.offset(1) };
         }
     }
 
