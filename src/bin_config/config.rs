@@ -1,6 +1,6 @@
 use {
     super::{
-        array_or_table::BinArrayOrTable,
+        array_or_table::{BinArrayOrTable, InternedString},
         util::{string_hash_fnv1a, u32_from_bin, u32_to_bin_bytes},
         value::BinConfigPackedValue,
     },
@@ -9,6 +9,7 @@ use {
         fmt::{Display, Formatter},
         io::Write,
         mem::size_of,
+        slice::from_raw_parts,
     },
 };
 
@@ -24,23 +25,47 @@ use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
 /// Represents an immutable config with a root hashmap [`table`].
 ///
 /// [`table`]: struct.BinTable.html
-#[derive(Debug)]
 pub struct BinConfig(Box<[u8]>);
 
 impl BinConfig {
-    const MAX_SIZE: u32 = std::u32::MAX;
-    const MAX_ARRAY_OR_TABLE_LEN: u32 = (Self::MAX_SIZE - size_of::<BinConfigHeader>() as u32)
-        / size_of::<BinConfigPackedValue>() as u32;
-
-    /// Creates a new [`config`] from the `data` binary blob.
+    /// Tries to create a new [`config`] from the `data` binary blob.
+    ///
+    /// Attempts to validate the binary config `data` blob and returns an [`error`]
+    /// if the `data` is not a valid binary config data blob,
+    /// e.g. returned by the binary config [`writer`].
     ///
     /// [`config`]: struct.BinConfig.html
+    /// [`error`]: enum.BinConfigError.html
+    /// [`writer`]: struct.BinConfigWriter.html
     pub fn new(data: Box<[u8]>) -> Result<Self, BinConfigError> {
         // Try to validate the data.
         Self::validate_data(&data)?;
         // Seems to be fine?
 
         Ok(Self(data))
+    }
+
+    /// Attempts to validate the binary config `data` blob and returns an [`error`]
+    /// if the `data` is not a valid binary config data blob,
+    /// e.g. returned by the binary config [`writer`].
+    ///
+    /// [`config`]: struct.BinConfig.html
+    /// [`error`]: enum.BinConfigError.html
+    /// [`writer`]: struct.BinConfigWriter.html
+    pub fn validate(data: &Box<[u8]>) -> Result<(), BinConfigError> {
+        Self::validate_data(&data)
+    }
+
+    /// Like [`new`], but does not validate the `data` at all.
+    ///
+    /// # Safety
+    ///
+    /// It's up to the user to ensure that `data` is a valid binary config data blob,
+    /// e.g. returned by the binary config [`writer`].
+    ///
+    /// [`writer`]: struct.BinConfigWriter.html
+    pub unsafe fn new_unchecked(data: Box<[u8]>) -> Self {
+        Self(data)
     }
 
     /// Returns the immutable reference to the root [`table`] of the [`config`].
@@ -108,15 +133,22 @@ impl BinConfig {
         result
     }
 
-    // Returns the pointer to the start of the config data blob w.r.t. which
-    // all config inner ofsets are specified.
-    fn base(data: &[u8]) -> *const u8 {
-        data.as_ptr()
+    /// The caller ensures `key_table_offset` and `key_table_len` are valid and point to
+    /// the actual key table in the `data` blob.
+    unsafe fn key_table(
+        data: &[u8],
+        key_table_offset: u32,
+        key_table_len: u32,
+    ) -> &[InternedString] {
+        from_raw_parts(
+            data.as_ptr().offset(key_table_offset as _) as *const _,
+            key_table_len as _,
+        )
     }
 
     /// The caller ensures the data is at least large enough for the header.
     unsafe fn header(data: &[u8]) -> &BinConfigHeader {
-        &*(Self::base(data) as *const _)
+        &*(data.as_ptr() as *const _)
     }
 
     /// The caller ensures the data is at least large enough for the header.
@@ -127,23 +159,48 @@ impl BinConfig {
     /// Constructs the root table from the binary config blob data.
     /// NOTE - the caller ensures that data is a valid binary config header.
     unsafe fn root_raw_impl(data: &[u8]) -> BinArrayOrTable<'_> {
+        let header = Self::header(data);
+
         BinArrayOrTable::new(
-            Self::base(data),                    // Base address of the binary config.
+            data.as_ptr(), // Base address of the binary config.
+            Self::key_table(data, header.key_table_offset(), header.key_table_len()),
             size_of::<BinConfigHeader>() as u32, // Offset to the first value of the root table is the size of the header.
-            Self::header(data).len(), // Config root table length as read from the header.
+            header.len(), // Config root table length as read from the header.
         )
+    }
+
+    /// Header, one value, one key table entry and the shortest possible key.
+    const fn min_size() -> usize {
+        size_of::<BinConfigHeader>()
+            + size_of::<BinConfigPackedValue>()
+            + size_of::<InternedString>()
+            + Self::min_string_section_size()
+    }
+
+    const fn max_size() -> usize {
+        u32::MAX as _
+    }
+
+    /// Key table comes after the header and at least one value.
+    const fn min_key_table_offset() -> usize {
+        size_of::<BinConfigHeader>() + size_of::<BinConfigPackedValue>()
+    }
+
+    /// 1 byte + terminating null char.
+    const fn min_string_section_size() -> usize {
+        2
     }
 
     fn validate_data(data: &[u8]) -> Result<(), BinConfigError> {
         use BinConfigError::*;
 
-        // Make sure the data is large enough to contain at least the header and one value.
-        if data.len() < size_of::<BinConfigHeader>() + size_of::<BinConfigPackedValue>() {
+        // Make sure the data is large enough to contain at least the header, one value, one key table entry and the shortest possible key.
+        if data.len() < Self::min_size() {
             return Err(InvalidBinaryConfigData);
         }
 
         // Make sure the data is not too large.
-        if data.len() > Self::MAX_SIZE as usize {
+        if data.len() > Self::max_size() {
             return Err(InvalidBinaryConfigData);
         }
 
@@ -155,18 +212,36 @@ impl BinConfig {
             return Err(InvalidBinaryConfigData);
         }
 
+        // Check the key table - must contain at least one table key, as we don't allow empty root tables.
+        if header.key_table_len == 0 {
+            return Err(InvalidBinaryConfigData);
+        }
+
+        // |---------- header (16b) --------|-------- root table (16b) ------|- key table 0 (8b) -|2b|
+
+        // Make sure the key table lies within the config data blob.
+        Self::validate_range(
+            // Minus shortest string section length - one byte and a null terminator.
+            Self::min_key_table_offset() as u32
+                ..data.len() as u32 - Self::min_string_section_size() as u32,
+            header.key_table_range(),
+        )?;
+
         // Check the root table.
         if header.len() > 0 {
             let root = unsafe { Self::root_raw_impl(data) };
 
-            // Make sure the root table slice lies within the config data blob.
+            // Make sure the root table values lie within the config data blob.
             // Offset to the first value of the root table is the size of the header.
-            Self::validate_range(
-                (size_of::<BinConfigHeader>() as u32, data.len() as u32),
-                root.offset_range(),
-            )?;
+            // Last value of the root table may be just before the key table and the shortest string section.
+            let valid_range = size_of::<BinConfigHeader>() as u32
+                ..data.len() as u32
+                    - Self::min_string_section_size() as u32
+                    - header.key_table_size();
 
-            Self::validate_table(data, &root)
+            Self::validate_range(valid_range.clone(), root.offset_range())?;
+
+            Self::validate_table(data, header.key_table_offset, &root)
 
         // Empty binary config root tables are not supported.
         } else {
@@ -174,7 +249,11 @@ impl BinConfig {
         }
     }
 
-    fn validate_table(data: &[u8], table: &BinArrayOrTable<'_>) -> Result<(), BinConfigError> {
+    fn validate_table(
+        data: &[u8],
+        key_table_offset: u32,
+        table: &BinArrayOrTable<'_>,
+    ) -> Result<(), BinConfigError> {
         use BinConfigError::*;
 
         // Empty tables must have no data offset.
@@ -182,17 +261,18 @@ impl BinConfig {
             return Err(InvalidBinaryConfigData);
         }
 
-        if table.len > Self::MAX_ARRAY_OR_TABLE_LEN {
-            return Err(InvalidBinaryConfigData);
-        }
+        let key_table = unsafe { table.key_table() };
+        let key_table_size = table.key_table_size();
 
         if table.len > 0 {
-            // Valid data offset range for table values.
+            // Valid offset range for table values.
             // Minimum offset to string/array/table values in the table is just past the table's packed values.
-            let valid_range = (
-                table.offset + table.len * size_of::<BinConfigPackedValue>() as u32,
-                data.len() as u32,
-            );
+            // Maximum offset is just before the key table and the shortest string section.
+            let mut valid_range = table.offset_range().end
+                ..data.len() as u32 - Self::min_string_section_size() as u32 - key_table_size;
+
+            // Valid offset range for strings.
+            let valid_string_range = key_table_offset + key_table_size..data.len() as u32;
 
             // For each table element.
             for index in 0..table.len {
@@ -203,23 +283,33 @@ impl BinConfig {
 
                 // Validate the key.
                 //----------------------------------------------------------------------------------
+                // Key index must be in range.
+                if key.index as usize >= key_table.len() {
+                    return Err(InvalidBinaryConfigData);
+                }
+
+                let key_string = unsafe { key_table.get_unchecked(key.index as usize) };
+
                 // Key length must be positive.
-                if key.len == 0 {
+                if key_string.len == 0 {
                     return Err(InvalidBinaryConfigData);
                 }
 
                 // Make sure the key string and the null terminator lie within the config data blob (`+ 1`for null terminator).
-                Self::validate_range(valid_range, (key.offset, key.offset + key.len + 1))?;
+                Self::validate_range(
+                    valid_string_range.clone(),
+                    key_string.offset..key_string.offset + key_string.len + 1,
+                )?;
 
                 // Make sure the key string is null-terminated.
-                let null_terminator = unsafe { table.slice(key.offset + key.len, 1) };
+                let null_terminator = unsafe { table.slice(key_string.offset + key_string.len, 1) };
 
                 if null_terminator[0] != b'\0' {
                     return Err(InvalidBinaryConfigData);
                 }
 
                 // Make sure the key string is valid UTF-8.
-                let key_slice = unsafe { table.slice(key.offset, key.len) };
+                let key_slice = unsafe { table.slice(key_string.offset, key_string.len) };
 
                 let key_string =
                     std::str::from_utf8(key_slice).map_err(|_| InvalidBinaryConfigData)?;
@@ -232,7 +322,15 @@ impl BinConfig {
                 // The key seems to be OK.
 
                 // Validate the value.
-                Self::validate_value(data, table, valid_range, value)?;
+                Self::validate_value(
+                    data,
+                    key_table_offset,
+                    key_table,
+                    &mut valid_range,
+                    valid_string_range.clone(),
+                    table,
+                    value,
+                )?;
                 // The value seems to be OK.
             }
         }
@@ -240,7 +338,12 @@ impl BinConfig {
         Ok(())
     }
 
-    fn validate_array(data: &[u8], array: &BinArrayOrTable<'_>) -> Result<(), BinConfigError> {
+    fn validate_array(
+        data: &[u8],
+        key_table_offset: u32,
+        valid_range_end: u32,
+        array: &BinArrayOrTable<'_>,
+    ) -> Result<(), BinConfigError> {
         use BinConfigError::*;
 
         // Empty arrays must have no data offset.
@@ -248,44 +351,67 @@ impl BinConfig {
             return Err(InvalidBinaryConfigData);
         }
 
-        if array.len > Self::MAX_ARRAY_OR_TABLE_LEN {
-            return Err(InvalidBinaryConfigData);
-        }
+        let key_table = unsafe { array.key_table() };
+        let key_table_size = array.key_table_size();
 
-        // Valid data offset range for array values.
+        // Valid offset range for array values.
         // Minimum offset to string/array/table values in the array is just past the array's packed values.
-        let valid_range = (
-            array.offset + array.len * size_of::<BinConfigPackedValue>() as u32,
-            data.len() as u32,
-        );
+        // Maximum offset is just before the key table and the shortest string section.
+        let mut valid_range = array.offset_range().end..valid_range_end;
+
+        // Valid offset range for strings.
+        let valid_string_range = key_table_offset + key_table_size..data.len() as u32;
+
+        let mut array_type: Option<ValueType> = None;
 
         // For each array element.
         for index in 0..array.len {
             let value = unsafe { array.packed_value(index) };
 
+            let value_type = value.value_type();
+
+            if let Some(current_array_type) = array_type {
+                if !current_array_type.is_compatible(value_type) {
+                    return Err(InvalidBinaryConfigData);
+                } else {
+                    array_type.replace(value_type);
+                }
+            }
+
             // All values in the array must have no keys.
             let key = value.key();
 
-            if key.len != 0 || key.offset != 0 || key.hash != 0 {
+            if key.hash != 0 || key.index != 0 {
                 return Err(InvalidBinaryConfigData);
             }
 
             // Validate the value.
-            Self::validate_value(data, array, valid_range, value)?;
+            Self::validate_value(
+                data,
+                key_table_offset,
+                key_table,
+                &mut valid_range,
+                valid_string_range.clone(),
+                array,
+                value,
+            )?;
             // The value seems to be OK.
         }
 
         Ok(())
     }
 
-    fn validate_range(valid_range: (u32, u32), range: (u32, u32)) -> Result<(), BinConfigError> {
+    fn validate_range(
+        valid_range: std::ops::Range<u32>,
+        range: std::ops::Range<u32>,
+    ) -> Result<(), BinConfigError> {
         use BinConfigError::*;
 
-        if range.0 < valid_range.0 {
+        if range.start < valid_range.start {
             return Err(InvalidBinaryConfigData);
         }
 
-        if range.1 > valid_range.1 {
+        if range.end > valid_range.end {
             return Err(InvalidBinaryConfigData);
         }
 
@@ -294,8 +420,11 @@ impl BinConfig {
 
     fn validate_value(
         data: &[u8],
-        array_or_table: &BinArrayOrTable<'_>, // Validated value's parent array/table.
-        valid_range: (u32, u32), // Valid range of offsets within the binary data blob for this string/array/table value.
+        key_table_offset: u32,
+        key_table: &[InternedString],
+        valid_range: &mut std::ops::Range<u32>, // Valid range of offsets within the binary data blob for this array/table value.
+        valid_string_range: std::ops::Range<u32>, // Valid range of offsets within the binary data blob for strings.
+        array_or_table: &BinArrayOrTable<'_>,     // Validated value's parent array/table.
         value: &BinConfigPackedValue,
     ) -> Result<(), BinConfigError> {
         use BinConfigError::*;
@@ -314,8 +443,8 @@ impl BinConfig {
                 if value.len() > 0 {
                     // Make sure the string and the null terminator lie within the config data blob (`+ 1`for null terminator).
                     Self::validate_range(
-                        valid_range,
-                        (value.offset(), value.offset() + value.len() + 1),
+                        valid_string_range,
+                        value.offset()..value.offset() + value.len() + 1,
                     )?;
 
                     // Make sure the value string is null-terminated.
@@ -337,28 +466,31 @@ impl BinConfig {
                 }
             }
             ValueType::Array | ValueType::Table => {
-                if value.len() > Self::MAX_ARRAY_OR_TABLE_LEN {
-                    return Err(InvalidBinaryConfigData);
-                }
-
                 // Non-empty arrays/tables have a positive offset to data.
                 if value.len() > 0 {
                     let array_or_table =
-                        BinArrayOrTable::new(Self::base(data), value.offset(), value.len());
+                        BinArrayOrTable::new(data.as_ptr(), key_table, value.offset(), value.len());
 
                     // Make sure the array/table slice lies within the config data blob.
-                    Self::validate_range(valid_range, array_or_table.offset_range())?;
+                    Self::validate_range(valid_range.clone(), array_or_table.offset_range())?;
 
                     // Validate the array/table values.
                     match value_type {
                         ValueType::Array => {
-                            Self::validate_array(data, &array_or_table)?;
+                            Self::validate_array(
+                                data,
+                                key_table_offset,
+                                valid_range.end,
+                                &array_or_table,
+                            )?;
                         }
                         ValueType::Table => {
-                            Self::validate_table(data, &array_or_table)?;
+                            Self::validate_table(data, key_table_offset, &array_or_table)?;
                         }
                         _ => unreachable!(),
                     }
+
+                    valid_range.end += size_of::<BinConfigPackedValue>() as u32;
 
                 // Empty arrays/tables must have no offset.
                 } else if value.offset() != 0 {
@@ -458,18 +590,24 @@ impl Display for BinConfig {
     }
 }
 
+const BIN_CONFIG_HEADER_MAGIC: u32 = 0x67666362; // `bcfg`, little endian.
+
 /// Binary config data blob header.
 ///
 /// Fields are in whatever endianness we use; see `super::util::__to_bin_bytes(), _from_bin()`.
 #[repr(C, packed)]
 pub(super) struct BinConfigHeader {
-    // Arbitrary magic value for a quick sanity check.
+    /// Arbitrary magic value for a quick sanity check.
     magic: u32,
-    // Followed by the root table length.
+    /// Followed by the root table length.
     len: u32,
+    /// Offset in bytes to the start of the key string table.
+    /// Each element is an `InternedString` - a key string's offset and length
+    /// in the string section.
+    key_table_offset: u32,
+    /// Length of the key string table in elements.
+    key_table_len: u32,
 }
-
-const BIN_CONFIG_HEADER_MAGIC: u32 = 0x67666362; // `bcfg`, little endian.
 
 impl BinConfigHeader {
     fn check_magic(&self) -> bool {
@@ -480,20 +618,54 @@ impl BinConfigHeader {
         u32_from_bin(self.len)
     }
 
-    pub(super) fn write<W: Write>(writer: &mut W, len: u32) -> Result<(), BinConfigWriterError> {
+    pub(super) fn key_table_offset(&self) -> u32 {
+        u32_from_bin(self.key_table_offset)
+    }
+
+    pub(super) fn key_table_len(&self) -> u32 {
+        u32_from_bin(self.key_table_len)
+    }
+
+    pub(super) fn key_table_size(&self) -> u32 {
+        self.key_table_len() * size_of::<InternedString>() as u32
+    }
+
+    /// Returns the range of bytes within the binary config data blob
+    /// occupied by the key table.
+    pub(super) fn key_table_range(&self) -> std::ops::Range<u32> {
+        let offset = self.key_table_offset();
+        offset..offset + self.key_table_size()
+    }
+
+    pub(super) fn write<W: Write>(
+        writer: &mut W,
+        len: u32,
+        key_table_offset: u32,
+        key_table_len: u32,
+    ) -> Result<u32, BinConfigWriterError> {
         use BinConfigWriterError::*;
 
+        let mut written = 0;
+
         // Magic.
-        writer
+        written += writer
             .write(&u32_to_bin_bytes(BIN_CONFIG_HEADER_MAGIC))
             .map_err(|_| WriteError)?;
 
         // Root table length.
-        writer
+        written += writer
             .write(&u32_to_bin_bytes(len))
             .map_err(|_| WriteError)?;
 
-        Ok(())
+        written += writer
+            .write(&u32_to_bin_bytes(key_table_offset))
+            .map_err(|_| WriteError)?;
+
+        written += writer
+            .write(&u32_to_bin_bytes(key_table_len))
+            .map_err(|_| WriteError)?;
+
+        Ok(written as u32)
     }
 }
 

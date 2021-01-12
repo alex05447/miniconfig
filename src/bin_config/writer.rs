@@ -1,8 +1,9 @@
 use {
     super::{
+        array_or_table::InternedString,
         config::BinConfigHeader,
-        util::string_hash_fnv1a,
-        value::{BinConfigPackedValue, BinTableKey},
+        util::{string_hash_fnv1a, StringHash},
+        value::{BinConfigPackedValue, BinTableKey, StringIndex},
     },
     crate::{BinConfigWriterError, ValueType},
     std::{
@@ -13,25 +14,37 @@ use {
     },
 };
 
+/// Represents a UTF-8 string interned by the binary config writer.
+/// Looked up by its hash.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct BinConfigWriterString {
+    /// The string's offset and length in the string section.
+    offset_and_len: InternedString,
+    /// If the string was interned as a key string at least once, it has an entry in the key table
+    /// and this is its index in it.
+    /// `None` if the string was never used as a key.
+    index: Option<StringIndex>,
+}
+
 /// Provides an interface for recording of [`binary configs`].
 ///
 /// [`binary configs`]: struct.BinConfig.html
 pub struct BinConfigWriter {
-    // Offset in bytes to the string section of the binary config data blob.
+    /// Offset in bytes to the string section of the binary config data blob.
     data_offset: u32,
-    // Binary config data blob writer.
+    /// Binary config data blob writer.
     config_writer: Cursor<Vec<u8>>,
-
-    // Maps string hashes to their offsets and lengths in bytes
-    // (NOTE - offsets are w.r.t. the string section during recording,
-    // then fixed up to full offsets w.r.t. the data blob when the recording is finished).
-    strings: HashMap<u32, Vec<BinConfigString>>,
-    // Binary config string section writer.
-    // Contains UTF-8 strings.
-    // NOTE - null-terminated just in case.
+    /// Maps string hashes to their string section entries / indices in the key table.
+    strings: HashMap<StringHash, Vec<BinConfigWriterString>>,
+    /// Contains key string offsets and lengths in bytes for all interned key strings.
+    /// NOTE - offsets are w.r.t. the string section during recording,
+    /// then fixed up to full offsets w.r.t. the data blob when the recording is finished.
+    key_table: Vec<InternedString>,
+    /// Binary config string section writer.
+    /// Contains UTF-8 strings.
+    /// NOTE - strings are null-terminated just in case.
     string_writer: Vec<u8>,
-
-    // LIFO stack which contains the root table and any nested arrays/tables during recording.
+    /// LIFO stack which contains the root table and any nested arrays/tables during recording.
     stack: Vec<BinConfigArrayOrTable>,
 }
 
@@ -53,8 +66,8 @@ impl BinConfigWriter {
             data_offset: 0,
             config_writer: Cursor::new(Vec::new()),
             strings: HashMap::new(),
+            key_table: Vec::new(),
             string_writer: Vec::new(),
-
             stack: Vec::new(),
         };
 
@@ -66,7 +79,7 @@ impl BinConfigWriter {
 
     /// Writes a `bool` value to the current [`array`] / [`table`] (including the root [`table`]).
     ///
-    /// NOTE - a non-empty string `key` is required for a [`table`] element (including the root [`table`]).
+    /// NOTE - a non-empty UTF-8 string `key` is required for a [`table`] element (including the root [`table`]).
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
@@ -154,13 +167,18 @@ impl BinConfigWriter {
         let (key, value_offset) = self.key_and_value_offset(key.into(), ValueType::String)?;
 
         // Lookup or intern the string.
-        let string = Self::intern_string(&mut self.strings, &mut self.string_writer, value).string;
+        let (_, string) =
+            Self::intern_string(&mut self.strings, None, &mut self.string_writer, value);
 
         // Write the packed value.
         Self::write_value(
             &mut self.config_writer,
             &mut self.stack,
-            BinConfigPackedValue::new_string(key, string.offset, string.len),
+            BinConfigPackedValue::new_string(
+                key,
+                string.offset_and_len.offset,
+                string.offset_and_len.len,
+            ),
             value_offset,
         )?;
 
@@ -238,6 +256,8 @@ impl BinConfigWriter {
     pub fn finish(mut self) -> Result<Box<[u8]>, BinConfigWriterError> {
         use BinConfigWriterError::*;
 
+        std::mem::drop(self.strings);
+
         debug_assert_ne!(self.stack.len(), 0);
 
         // Must only have the root table on the stack.
@@ -255,16 +275,48 @@ impl BinConfigWriter {
             });
         };
 
-        // Append the strings to the end of the buffer.
+        // Fixup the header with correct key table offset and length.
+        let key_table_offset = self.data_offset;
+        let key_table_len = self.key_table.len() as u32;
+
+        self.config_writer.seek(SeekFrom::Start(0)).unwrap();
+
+        BinConfigHeader::write(
+            &mut self.config_writer,
+            root.len,
+            key_table_offset,
+            key_table_len,
+        )?;
+
+        // Fixup the key table offsets.
+        let key_table_size = key_table_len * size_of::<InternedString>() as u32;
+
+        let string_offset = self.data_offset + key_table_size as u32;
+
+        for entry in self.key_table.iter_mut() {
+            entry.offset += string_offset;
+        }
+
+        // Append the key table to the end of the buffer.
         let mut config_writer = self.config_writer.into_inner();
+
+        let key_table_bytes = unsafe {
+            std::slice::from_raw_parts(self.key_table.as_ptr() as *const u8, key_table_size as _)
+        };
+
+        config_writer.extend_from_slice(key_table_bytes);
+        std::mem::drop(self.key_table);
+
+        // Append the strings to the end of the buffer.
         config_writer.append(&mut self.string_writer);
         config_writer.shrink_to_fit();
+        std::mem::drop(self.string_writer);
 
         // Fixup the string offsets in all entries using them
         // via incrementing them by the now-known data offset.
         let mut data = config_writer.into_boxed_slice();
 
-        Self::fixup_string_offsets(&mut data, self.data_offset);
+        Self::fixup_string_offsets(&mut data, string_offset);
 
         Ok(data)
     }
@@ -276,9 +328,12 @@ impl BinConfigWriter {
         debug_assert_eq!(self.data_offset, 0);
 
         // Write the header.
-        BinConfigHeader::write(&mut self.config_writer, len)?;
-
-        self.data_offset += size_of::<BinConfigHeader>() as u32;
+        self.data_offset += BinConfigHeader::write(
+            &mut self.config_writer,
+            len,
+            0, // NOTE - fixed up when the recording is finished.
+            0, // NOTE - fixed up when the recording is finished.
+        )?;
 
         // Push the root table on the stack.
         self.stack
@@ -326,10 +381,11 @@ impl BinConfigWriter {
     }
 
     /// For tables, looks up/interns the required `key` string
-    /// and returns its hash / offset w.r.t. the string section / length.
+    /// and returns its hash / index in the key table.
     /// For arrays returns a default key.
     fn key(
-        strings: &mut HashMap<u32, Vec<BinConfigString>>,
+        strings: &mut HashMap<StringHash, Vec<BinConfigWriterString>>,
+        key_table: &mut Vec<InternedString>,
         string_writer: &mut Vec<u8>,
         parent_table: Option<&mut BinConfigArrayOrTable>,
         key: Option<&str>,
@@ -344,37 +400,36 @@ impl BinConfigWriter {
                     return Err(TableKeyRequired);
                 }
 
-                // The key is too long.
-                let max_len = BinTableKey::max_len();
-                let key_len = key.len();
+                // Lookup / intern the key string, return its hash and index in the string table.
+                let (hash, key) = Self::intern_string(strings, Some(key_table), string_writer, key);
 
-                if key.len() > max_len as usize {
-                    return Err(TableKeyTooLong { max_len, key_len });
+                // Must succeed.
+                let index = key.index.unwrap();
+
+                if index > BinTableKey::max_index() {
+                    return Err(TooManyKeys(BinTableKey::max_index()));
                 }
 
-                // Lookup / intern the key string, return its hash / offset / length.
-                let key = Self::intern_string(strings, string_writer, key);
-
-                let entry = parent_table.keys.entry(key.hash);
+                let entry = parent_table.keys.entry(hash);
 
                 match entry {
                     // Non-unique key (error) or hash collision.
                     Entry::Occupied(mut keys) => {
                         // Make sure the key is unique.
-                        if keys.get().contains(&key.string) {
+                        if keys.get().contains(&index) {
                             return Err(NonUniqueKey);
                         }
 
-                        // Add the new key with the same hash.
-                        keys.get_mut().push(key.string);
+                        // Add the new key index with the same hash.
+                        keys.get_mut().push(index);
                     }
-                    // New unique key - update the table keys.
+                    // New unique key - update the table key indices.
                     Entry::Vacant(_) => {
-                        entry.or_insert(vec![key.string]);
+                        entry.or_insert(vec![index]);
                     }
                 }
 
-                Ok(key.key())
+                Ok(BinTableKey::new(hash, index))
             } else {
                 Err(TableKeyRequired)
             }
@@ -389,59 +444,22 @@ impl BinConfigWriter {
 
     /// Looks up the `string` in the string section.
     /// If not found, interns the string.
-    /// Returns its hash and offset / length w.r.t. the string section.
+    /// Returns its hash, offset / length w.r.t. the string section and its (optional) index in the key table.
     fn intern_string(
-        strings: &mut HashMap<u32, Vec<BinConfigString>>,
+        strings: &mut HashMap<StringHash, Vec<BinConfigWriterString>>,
+        mut key_table: Option<&mut Vec<InternedString>>,
         string_writer: &mut Vec<u8>,
         string: &str,
-    ) -> BinConfigStringAndHash {
+    ) -> (StringHash, BinConfigWriterString) {
         // Hash the string.
         let hash = string_hash_fnv1a(string);
 
-        // Lookup the key string offset and length.
-        let string = if let Some(strings) = strings.get_mut(&hash) {
-            // Hashes match - now compare the strings.
-            let mut result = None;
-
-            fn lookup_string<'s>(string: &BinConfigString, strings: &'s mut Vec<u8>) -> &'s str {
-                unsafe {
-                    from_utf8_unchecked(strings.get_unchecked(
-                        string.offset as usize..(string.offset + string.len) as usize,
-                    ))
-                }
-            }
-
-            for interned_string in strings.iter() {
-                if lookup_string(interned_string, string_writer) == string {
-                    result.replace(*interned_string);
-                    break;
-                }
-            }
-
-            // If we found a matching string, return it('s offset and length).
-            if let Some(string) = result {
-                string
-
-            // Else there's a hash collision - write a new string and add its offset/length to the hashmap.
-            } else {
-                // Offset to the start of the string is the current length of the string writer.
-                let offset = string_writer.len() as u32;
-
-                // Write the unique string and the null terminator.
-                string_writer.write_all(string.as_bytes()).unwrap();
-                string_writer.write_all(&[b'\0']).unwrap();
-
-                let len = string.len() as u32;
-
-                let string = BinConfigString { offset, len };
-
-                strings.push(string);
-
-                string
-            }
-
-        // Or write a new string and add its offset/length to the hashmap.
-        } else {
+        /// Writes the string to the `string_writer` and adds it to the `key_table`, if `Some`.
+        fn intern_string_impl(
+            string_writer: &mut Vec<u8>,
+            key_table: Option<&mut Vec<InternedString>>,
+            string: &str,
+        ) -> BinConfigWriterString {
             // Offset to the start of the string is the current length of the string writer.
             let offset = string_writer.len() as u32;
 
@@ -451,14 +469,92 @@ impl BinConfigWriter {
 
             let len = string.len() as u32;
 
-            let string = BinConfigString { offset, len };
+            let offset_and_len = InternedString { offset, len };
 
-            strings.insert(hash, vec![string]);
+            let index = if let Some(key_table) = key_table {
+                // The new string's index is the current length of the string table.
+                let index = key_table.len() as StringIndex;
 
-            string
-        };
+                key_table.push(offset_and_len);
 
-        BinConfigStringAndHash { hash, string }
+                Some(index)
+            } else {
+                None
+            };
+
+            BinConfigWriterString {
+                offset_and_len,
+                index,
+            }
+        }
+
+        // Lookup the string in the hash map.
+        if let Some(strings) = strings.get_mut(&hash) {
+            // Hashes match - now compare the strings.
+            let mut result = None;
+
+            /// Looks up the string in the `string_writer` at `offset_and_len`.
+            fn lookup_string<'s>(
+                offset_and_len: InternedString,
+                string_writer: &'s Vec<u8>,
+            ) -> &'s str {
+                unsafe {
+                    from_utf8_unchecked(string_writer.get_unchecked(
+                        offset_and_len.offset as usize
+                            ..(offset_and_len.offset + offset_and_len.len) as usize,
+                    ))
+                }
+            }
+
+            for interned_string in strings.iter_mut() {
+                // Strings match - return this interned string.
+                if lookup_string(interned_string.offset_and_len, string_writer) == string {
+                    // If the string was previously interned as a string value, but is now being interned as a key,
+                    // add it to the key table and update the interned string's index.
+                    if let Some(key_table) = key_table.as_mut() {
+                        // The string already has a key table entry - do a debug sanity check,
+                        // make sure the hash map's and the key table's offsets/lengths match.
+                        if let Some(index) = interned_string.index {
+                            debug_assert!((index as usize) < key_table.len());
+                            let table_entry = unsafe { key_table.get_unchecked(index as usize) };
+                            debug_assert_eq!(*table_entry, interned_string.offset_and_len);
+                        // Otherwise add it to the key table and update the index.
+                        } else {
+                            // The new string's index is the current length of the string table.
+                            let index = key_table.len() as StringIndex;
+
+                            key_table.push(interned_string.offset_and_len);
+
+                            interned_string.index.replace(index);
+                        }
+                    }
+
+                    result.replace(*interned_string);
+                    break;
+                }
+            }
+
+            // If we found a matching string, return it and its hash.
+            if let Some(string) = result {
+                (hash, string)
+
+            // Else there's a hash collision - write a new string and add it to the hash map and to the key table, if `Some`.
+            } else {
+                let result = intern_string_impl(string_writer, key_table, string);
+
+                strings.push(result);
+
+                (hash, result)
+            }
+
+        // Or write a new string and add it to the hash map and to the key table, if `Some`.
+        } else {
+            let result = intern_string_impl(string_writer, key_table, string);
+
+            strings.insert(hash, vec![result]);
+
+            (hash, result)
+        }
     }
 
     /// Returns the packed binary config value key
@@ -491,6 +587,7 @@ impl BinConfigWriter {
         // If it's a parent table, a string key must be provided.
         let key = Self::key(
             &mut self.strings,
+            &mut self.key_table,
             &mut self.string_writer,
             if parent.table { Some(parent) } else { None },
             key,
@@ -564,14 +661,6 @@ impl BinConfigWriter {
         string_offset: u32,
     ) {
         for value in values.iter_mut() {
-            // If the value has a key, fix it up.
-            let mut key = value.key();
-
-            if key.len > 0 {
-                key.offset += string_offset;
-                value.set_key(key);
-            }
-
             match value.value_type() {
                 // If the value is a string, fix it up.
                 ValueType::String => {
@@ -611,29 +700,6 @@ impl BinConfigWriter {
     }
 }
 
-/// Represents an interned UTF-8 string in the string section of the binary config.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct BinConfigString {
-    // Offset in bytes to the string w.r.t. the string section.
-    offset: u32,
-    // String length in bytes.
-    len: u32,
-}
-
-/// Represents an interned UTF-8 string in the string section of the binary config and its hash.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct BinConfigStringAndHash {
-    // FNV-1A
-    hash: u32,
-    string: BinConfigString,
-}
-
-impl BinConfigStringAndHash {
-    fn key(self) -> BinTableKey {
-        BinTableKey::new(self.hash, self.string.offset, self.string.len)
-    }
-}
-
 /// Represents a binary array/table, currently recorded by the binary config writer.
 struct BinConfigArrayOrTable {
     // Is this an array or a table?
@@ -646,7 +712,7 @@ struct BinConfigArrayOrTable {
     // Offset in bytes to the current array/table element w.r.t. config data blob.
     value_offset: u32,
     // Must keep track of table keys to ensure key uniqueness.
-    keys: HashMap<u32, Vec<BinConfigString>>,
+    keys: HashMap<StringHash, Vec<StringIndex>>,
     // For arrays must keep track of value type to ensure no mixed arrays.
     array_type: Option<ValueType>,
 }
@@ -693,29 +759,6 @@ mod tests {
         // But this works.
 
         writer.bool("bool", true).unwrap();
-    }
-
-    #[test]
-    fn TableKeyTooLong() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
-
-        // Currently 28 bits.
-        let max_len = 0x0fff_ffffu32;
-
-        let key_len: usize = max_len as usize + 1;
-        let key = unsafe { String::from_utf8_unchecked(vec![b'a'; key_len]) };
-
-        assert_eq!(
-            writer.bool(Some(key.as_str()), true).err().unwrap(),
-            BinConfigWriterError::TableKeyTooLong { key_len, max_len }
-        );
-
-        // But this works.
-
-        let key_len: usize = max_len as usize;
-        let key = unsafe { String::from_utf8_unchecked(vec![b'a'; key_len]) };
-
-        writer.bool(Some(key.as_str()), true).unwrap();
     }
 
     #[test]

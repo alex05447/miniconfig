@@ -334,11 +334,13 @@ impl<'a> BinArray<'a> {
                 } // Safe to call - the string was validated.
                 Array { offset, len } => Value::Array(BinArray::new(BinArrayOrTable::new(
                     self.0.base,
+                    self.0.key_table,
                     offset,
                     len,
                 ))),
                 Table { offset, len } => Value::Table(BinTable::new(BinArrayOrTable::new(
                     self.0.base,
+                    self.0.key_table,
                     offset,
                     len,
                 ))),

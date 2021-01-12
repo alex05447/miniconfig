@@ -445,6 +445,10 @@ impl<'t> BinTable<'t> {
                 // Compare the hashes first.
                 if key.hash == hash {
                     // Hashes match - compare the strings.
+
+                    // Safe to call - the config was validated.
+                    let key = unsafe { self.0.key_ofset_and_len(key.index) };
+
                     // Safe to call - the key string was validated.
                     if string == unsafe { self.0.string(key.offset, key.len) } {
                         Some(self.get_value(value))
@@ -470,11 +474,13 @@ impl<'t> BinTable<'t> {
             } // Safe to call - the string was validated.
             Array { offset, len } => Value::Array(BinArray::new(BinArrayOrTable::new(
                 self.0.base,
+                self.0.key_table,
                 offset,
                 len,
             ))),
             Table { offset, len } => Value::Table(BinTable::new(BinArrayOrTable::new(
                 self.0.base,
+                self.0.key_table,
                 offset,
                 len,
             ))),
@@ -652,6 +658,9 @@ impl<'i, 't> Iterator for BinTableIter<'i, 't> {
 
             // Safe to call - the config was validated.
             let (key, value) = unsafe { self.table.0.key_and_value(index) };
+
+            // Safe to call - the config was validated.
+            let key = unsafe { self.table.0.key_ofset_and_len(key.index) };
 
             // Safe to call - the key string was validated.
             let key = unsafe { self.table.0.string(key.offset, key.len) };
