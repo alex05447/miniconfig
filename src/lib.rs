@@ -49,3 +49,6 @@ pub use ini::*;
 
 #[cfg(all(feature = "bin", feature = "str_hash"))]
 pub use util::StringAndHash;
+
+#[cfg(any(feature = "ini", feature = "dyn"))]
+pub use util::NonEmptyStr;

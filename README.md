@@ -222,13 +222,16 @@ The crate by itself with no features enabled exposes no functionality. Enable on
 - `"lua"` - adds support for Lua configs.
 - `"dyn"` - adds support for dynamic configs.
 - `"bin"` - adds support for binary configs, serialization of Lua/dynamic configs to binary configs.
+- `"str_hash"` (requires `"bin"` feature) - adds support for compile-time hashing of binary config table key string literals via the `key!` macro.
 - `"ini"` - adds support for parsing `.ini` config strings, deserialization to dynamic configs (requires `"dyn"` feature), serialization of Lua (requires `"lua"` feature) / dynamic (requires `"dyn"` feature) / binary (requires `"bin"` feature) configs to `.ini` config strings.
 
 ## **Dependencies**
 
-- If `"lua"` feature is enabled (it is by default), [`rlua`](https://crates.io/crates/rlua) and [`rlua_ext`](https://github.com/alex05447/rlua_ext) as a path dependency (TODO - github dependency?).
+- If `"lua"` feature is enabled (it is by default), `"rlua"` fork and `"rlua_ext"` as path dependencies (TODO - github dependencies?).
 
 - If `"ini"` feature is enabled, [`bitflags`](https://crates.io/crates/bitflags) for `.ini` parser options, and [`static_assertions`](https://crates.io/crates/static_assertions).
+
+- If `"bin"` and `"str_hash"` features are enabled, `"ministrhash"` for compile-time string hashing as a path dependency (TODO - github dependency?).
 
 ## **Problems / missing features**
 

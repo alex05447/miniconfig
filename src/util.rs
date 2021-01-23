@@ -184,6 +184,27 @@ fn is_lua_identifier_key(key: &str) -> bool {
     true
 }
 
+/// A non-empty string slice.
+/// Implements `AsRef<str>`.
+#[derive(Clone, Copy)]
+pub struct NonEmptyStr<'s>(&'s str);
+
+impl<'s> NonEmptyStr<'s> {
+    pub fn new(string: &'s str) -> Result<Self, ()> {
+        if string.is_empty() {
+            Err(())
+        } else {
+            Ok(Self(string))
+        }
+    }
+}
+
+impl<'s> AsRef<str> for NonEmptyStr<'s> {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
 /// A string literal and its compile-time hash (created via `ministrhash::str_hash_fnv1a!`).
 /// Used as an optimization for binary config tables to avoid runtime string hashing.
 /// Requires "bin" and "str_hash" features.

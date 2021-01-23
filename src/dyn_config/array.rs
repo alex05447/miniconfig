@@ -619,14 +619,7 @@ impl DynArray {
         // Validate the value type.
         self.validate_value_type(&value)?;
 
-        match value {
-            Value::Bool(value) => self.0.push(Value::Bool(value)),
-            Value::I64(value) => self.0.push(Value::I64(value)),
-            Value::F64(value) => self.0.push(Value::F64(value)),
-            Value::String(value) => self.0.push(Value::String(value)),
-            Value::Array(value) => self.0.push(Value::Array(value)),
-            Value::Table(value) => self.0.push(Value::Table(value)),
-        };
+        self.0.push(value);
 
         Ok(())
     }

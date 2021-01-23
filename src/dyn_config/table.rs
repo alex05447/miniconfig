@@ -2,7 +2,7 @@ use {
     crate::{
         util::{write_lua_key, DisplayLua},
         ConfigKey, DynArray, DynConfigValue, DynConfigValueMut, DynConfigValueRef, GetPathError,
-        TableError, Value, ValueType,
+        TableError, Value, ValueType, NonEmptyStr
     },
     std::{
         borrow::Borrow,
@@ -77,7 +77,7 @@ impl DynTable {
     /// [`table`]: struct.DynTable.html
     /// [`error`]: enum.TableError.html
     pub fn get<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'_>, TableError> {
-        self.get_impl(key.as_ref())
+        self.get_impl(NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)? )
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] at `path`.
@@ -516,14 +516,10 @@ impl DynTable {
         self.0.len() as u32
     }
 
-    fn get_impl(&self, key: &str) -> Result<DynConfigValueRef<'_>, TableError> {
+    fn get_impl<'k>(&self, key: NonEmptyStr<'k> ) -> Result<DynConfigValueRef<'_>, TableError> {
         use TableError::*;
 
-        if key.is_empty() {
-            return Err(EmptyKey);
-        }
-
-        if let Some(value) = self.0.get(key) {
+        if let Some(value) = self.0.get(key.as_ref()) {
             let value = match value {
                 Value::Bool(value) => Value::Bool(*value),
                 Value::I64(value) => Value::I64(*value),

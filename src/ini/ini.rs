@@ -1,7 +1,7 @@
 use {
     crate::{
         IniCommentDelimiter, IniDuplicateKeys, IniDuplicateSections, IniError, IniErrorKind,
-        IniKeyValueSeparator, IniOptions, IniStringQuote, ValueType,
+        IniKeyValueSeparator, IniOptions, IniStringQuote, ValueType, NonEmptyStr,
     },
     std::str::Chars,
 };
@@ -684,7 +684,7 @@ impl<'s> IniParser<'s> {
                         if self.is_new_line(c) {
                             self.add_value_to_config(
                                 config,
-                                &section,
+                                NonEmptyStr::new(&section).ok(),
                                 NonEmptyStr::new(&key).expect("empty key"),
                                 "",
                                 false,
@@ -700,7 +700,7 @@ impl<'s> IniParser<'s> {
                     } else if self.is_inline_comment_char(c) {
                         self.add_value_to_config(
                             config,
-                            &section,
+                            NonEmptyStr::new(&section).ok(),
                             NonEmptyStr::new(&key).expect("empty key"),
                             "",
                             false,
@@ -755,7 +755,7 @@ impl<'s> IniParser<'s> {
                     if c.is_whitespace() {
                         self.add_value_to_config(
                             config,
-                            &section,
+                            NonEmptyStr::new(&section).ok(),
                             NonEmptyStr::new(&key).expect("empty key"),
                             &buffer,
                             false,
@@ -778,7 +778,7 @@ impl<'s> IniParser<'s> {
                     } else if self.is_inline_comment_char(c) {
                         self.add_value_to_config(
                             config,
-                            &section,
+                            NonEmptyStr::new(&section).ok(),
                             NonEmptyStr::new(&key).expect("empty key"),
                             &buffer,
                             false,
@@ -823,7 +823,7 @@ impl<'s> IniParser<'s> {
                     } else if c == cur_quote {
                         self.add_value_to_config(
                             config,
-                            &section,
+                            NonEmptyStr::new(&section).ok(),
                             NonEmptyStr::new(&key).expect("empty key"),
                             &buffer,
                             true,
@@ -877,7 +877,7 @@ impl<'s> IniParser<'s> {
                     } else if self.is_array_end(c) {
                         Self::add_array_to_config(
                             config,
-                            &section,
+                            NonEmptyStr::new(&section).ok(),
                             NonEmptyStr::new(&key).expect("empty key"),
                             array.take().expect("no current array"),
                             skip_section | skip_value,
@@ -977,7 +977,7 @@ impl<'s> IniParser<'s> {
 
                         Self::add_array_to_config(
                             config,
-                            &section,
+                            NonEmptyStr::new(&section).ok(),
                             NonEmptyStr::new(&key).expect("empty key"),
                             array.take().unwrap(),
                             skip_section | skip_value,
@@ -1075,7 +1075,7 @@ impl<'s> IniParser<'s> {
                     } else if self.is_array_end(c) {
                         Self::add_array_to_config(
                             config,
-                            &section,
+                            NonEmptyStr::new(&section).ok(),
                             NonEmptyStr::new(&key).expect("empty key"),
                             array.take().unwrap(),
                             skip_section | skip_value,
@@ -1112,7 +1112,7 @@ impl<'s> IniParser<'s> {
 
                 self.add_value_to_config(
                     config,
-                    &section,
+                    NonEmptyStr::new(&section).ok(),
                     NonEmptyStr::new(&key).expect("empty key"),
                     &buffer,
                     quote.is_some(),
@@ -1377,7 +1377,7 @@ impl<'s> IniParser<'s> {
     fn add_value_to_config<'k, C: IniConfig>(
         &self,
         config: &mut C,
-        section: &str,
+        section: Option<NonEmptyStr<'k>>,
         key: NonEmptyStr<'k>,
         value: &str,
         quoted: bool,
@@ -1390,7 +1390,7 @@ impl<'s> IniParser<'s> {
 
         let value = self.parse_value_string(value, quoted)?;
 
-        config.add_value(NonEmptyStr::new(section).ok(), key, value, !is_key_unique);
+        config.add_value(section, key, value, !is_key_unique);
 
         Ok(())
     }
@@ -1413,13 +1413,8 @@ impl<'s> IniParser<'s> {
         let value = self.parse_value_string(value, quoted)?;
 
         // Make sure the array is not mixed.
-        if !array.is_empty() {
-            if !array
-                .get(0)
-                .unwrap()
-                .get_type()
-                .is_compatible(value.get_type())
-            {
+        if let Some(first_value) = array.get(0) {
+            if !first_value.get_type().is_compatible(value.get_type()) {
                 return Err(self.error_offset(IniErrorKind::MixedArray));
             }
         }
@@ -1437,7 +1432,7 @@ impl<'s> IniParser<'s> {
     /// Adds the `array` to the config `section` at `key`.
     fn add_array_to_config<'k, C: IniConfig>(
         config: &mut C,
-        section: &str,
+        section: Option<NonEmptyStr<'k>>,
         key: NonEmptyStr<'k>,
         array: Vec<IniValue<String>>,
         skip: bool,
@@ -1447,7 +1442,7 @@ impl<'s> IniParser<'s> {
             return;
         }
 
-        config.add_array(NonEmptyStr::new(section).ok(), key, array, is_key_unique);
+        config.add_array(section, key, array, is_key_unique);
     }
 
     /// Parses a string `value`.
@@ -1589,27 +1584,6 @@ impl<S> IniValue<S> {
             IniValue::F64(_) => ValueType::F64,
             IniValue::String(_) => ValueType::String,
         }
-    }
-}
-
-/// A non-empty string slice.
-/// Implements `AsRef<str>`.
-#[derive(Clone, Copy)]
-pub struct NonEmptyStr<'s>(&'s str);
-
-impl<'s> NonEmptyStr<'s> {
-    pub fn new(string: &'s str) -> Result<Self, ()> {
-        if string.is_empty() {
-            Err(())
-        } else {
-            Ok(Self(string))
-        }
-    }
-}
-
-impl<'s> AsRef<str> for NonEmptyStr<'s> {
-    fn as_ref(&self) -> &str {
-        self.0
     }
 }
 

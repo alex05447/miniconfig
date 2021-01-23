@@ -175,7 +175,7 @@ impl IniConfig for DynConfig {
         &mut self,
         section: Option<NonEmptyStr<'s>>,
         key: NonEmptyStr<'k>,
-        mut array: Vec<IniValue<String>>,
+        array: Vec<IniValue<String>>,
         _overwrite: bool,
     ) {
         let table = if let Some(section) = section {
@@ -186,7 +186,7 @@ impl IniConfig for DynConfig {
 
         let mut dyn_array = DynArray::new();
 
-        for value in array.drain(0..array.len()) {
+        for value in array.into_iter() {
             dyn_array
                 .push(match value {
                     IniValue::Bool(value) => Value::Bool(value),

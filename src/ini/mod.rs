@@ -13,5 +13,5 @@ mod tests;
 pub(crate) use util::{write_ini_key, write_ini_section, DisplayIni};
 
 pub use error::*;
-pub use ini::{IniConfig, IniParser, IniValue, NonEmptyStr};
+pub use ini::{IniConfig, IniParser, IniValue};
 pub use options::*;
