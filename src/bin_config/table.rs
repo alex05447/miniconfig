@@ -2,7 +2,8 @@ use {
     super::{array_or_table::BinArrayOrTable, value::BinConfigUnpackedValue},
     crate::{
         util::{write_lua_key, DisplayLua},
-        BinArray, BinConfigValue, ConfigKey, GetPathError, TableError, TableKey, Value, ValueType,
+        BinArray, BinConfigValue, ConfigKey, GetPathError, NonEmptyStr, TableError, TableKey,
+        Value, ValueType,
     },
     std::{
         borrow::Borrow,
@@ -13,7 +14,10 @@ use {
 
 #[cfg(feature = "ini")]
 use {
-    crate::{write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions},
+    crate::{
+        write_ini_array, write_ini_table, write_ini_value, DisplayIni, IniPath, ToIniStringError,
+        ToIniStringOptions,
+    },
     std::fmt::Write,
 };
 
@@ -418,7 +422,7 @@ impl<'t> BinTable<'t> {
     ///
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    pub fn iter<'i>(&'i self) -> impl Iterator<Item = (&'t str, BinConfigValue<'t>)> + 'i {
+    pub fn iter<'i>(&'i self) -> impl Iterator<Item = (NonEmptyStr<'t>, BinConfigValue<'t>)> + 'i {
         BinTableIter::new(self)
     }
 
@@ -494,7 +498,7 @@ impl<'t> BinTable<'t> {
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
 
         // Sort the keys in alphabetical order.
-        keys.sort_by(|l, r| l.cmp(r));
+        keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
@@ -513,7 +517,7 @@ impl<'t> BinTable<'t> {
             ",".fmt(f)?;
 
             if is_array_or_table {
-                write!(f, " -- {}", key)?;
+                write!(f, " -- {}", key.as_ref())?;
             }
 
             writeln!(f)?;
@@ -530,12 +534,11 @@ impl<'t> BinTable<'t> {
         &self,
         w: &mut W,
         level: u32,
-        _array: bool,
+        array: bool,
+        path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        use ToIniStringError::*;
-
-        debug_assert!(level < 2);
+        debug_assert!(options.nested_sections || level < 2);
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -553,7 +556,7 @@ impl<'t> BinTable<'t> {
             } else if l_is_a_table && !r_is_a_table {
                 std::cmp::Ordering::Greater
             } else {
-                l.cmp(r)
+                l.as_ref().cmp(r.as_ref())
             }
         });
 
@@ -568,62 +571,32 @@ impl<'t> BinTable<'t> {
 
             match value {
                 Value::Array(value) => {
-                    if options.arrays {
-                        let len = value.len() as usize;
-
-                        write_ini_key(w, key, options.escape)?;
-
-                        write!(w, " = [").map_err(|_| WriteError)?;
-
-                        for (array_index, array_value) in value.iter().enumerate() {
-                            let last = array_index == len - 1;
-
-                            array_value.fmt_ini(w, level + 1, true, options)?;
-
-                            if !last {
-                                write!(w, ", ").map_err(|_| WriteError)?;
-                            }
-                        }
-
-                        write!(w, "]").map_err(|_| WriteError)?;
-
-                        if !last {
-                            writeln!(w).map_err(|_| WriteError)?;
-                        }
-                    } else {
-                        return Err(ArraysNotAllowed);
-                    }
+                    write_ini_array(
+                        w,
+                        key,
+                        value.iter(),
+                        value.len() as usize,
+                        last,
+                        level,
+                        path,
+                        options,
+                    )?;
                 }
                 Value::Table(value) => {
-                    if level >= 1 {
-                        return Err(NestedTablesNotSupported);
-                    }
-
-                    if key_index > 0 {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
-
-                    write_ini_section(w, key, options.escape)?;
-
-                    if value.len() > 0 {
-                        writeln!(w).map_err(|_| WriteError)?;
-                        value.fmt_ini(w, level + 1, false, options)?;
-                    }
-
-                    if !last {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
+                    write_ini_table(
+                        w,
+                        key,
+                        key_index as u32,
+                        &value,
+                        value.len(),
+                        last,
+                        level,
+                        path,
+                        options,
+                    )?;
                 }
                 value => {
-                    write_ini_key(w, key, options.escape)?;
-
-                    write!(w, " = ").map_err(|_| WriteError)?;
-
-                    value.fmt_ini(w, level + 1, false, options)?;
-
-                    if !last {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
+                    write_ini_value(w, key, &value, last, level, array, path, options)?;
                 }
             }
         }
@@ -648,7 +621,7 @@ impl<'i, 't> BinTableIter<'i, 't> {
 }
 
 impl<'i, 't> Iterator for BinTableIter<'i, 't> {
-    type Item = (&'t str, BinConfigValue<'t>);
+    type Item = (NonEmptyStr<'t>, BinConfigValue<'t>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index;
@@ -663,7 +636,8 @@ impl<'i, 't> Iterator for BinTableIter<'i, 't> {
             let key = unsafe { self.table.0.key_ofset_and_len(key.index) };
 
             // Safe to call - the key string was validated.
-            let key = unsafe { self.table.0.string(key.offset, key.len) };
+            let key =
+                unsafe { NonEmptyStr::new_unchecked(self.table.0.string(key.offset, key.len)) };
 
             let value = self.table.get_value(value);
 
@@ -687,9 +661,10 @@ impl<'t> DisplayIni for BinTable<'t> {
         w: &mut W,
         level: u32,
         array: bool,
+        path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, array, options)
+        self.fmt_ini_impl(w, level, array, path, options)
     }
 }
 

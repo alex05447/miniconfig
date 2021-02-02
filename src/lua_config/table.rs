@@ -5,7 +5,8 @@ use {
     },
     crate::{
         util::{write_lua_key, DisplayLua},
-        ConfigKey, GetPathError, LuaArray, LuaConfigValue, LuaString, TableError, Value, ValueType,
+        ConfigKey, GetPathError, LuaArray, LuaConfigValue, LuaString, NonEmptyStr, TableError,
+        Value, ValueType,
     },
     rlua::Context,
     std::{
@@ -16,7 +17,10 @@ use {
 
 #[cfg(feature = "ini")]
 use {
-    crate::{write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions},
+    crate::{
+        write_ini_array, write_ini_table, write_ini_value, DisplayIni, IniPath, ToIniStringError,
+        ToIniStringOptions,
+    },
     std::fmt::Write,
 };
 
@@ -456,7 +460,7 @@ impl<'lua> LuaTable<'lua> {
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
-            let key = key.as_ref();
+            let key = unsafe { NonEmptyStr::new_unchecked(key.as_ref()) };
 
             <Self as DisplayLua>::do_indent(f, indent + 1)?;
 
@@ -473,7 +477,7 @@ impl<'lua> LuaTable<'lua> {
             ",".fmt(f)?;
 
             if is_array_or_table {
-                write!(f, " -- {}", key)?;
+                write!(f, " -- {}", key.as_ref())?;
             }
 
             writeln!(f)?;
@@ -491,11 +495,10 @@ impl<'lua> LuaTable<'lua> {
         w: &mut W,
         level: u32,
         array: bool,
+        path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        use ToIniStringError::*;
-
-        debug_assert!(level < 2);
+        debug_assert!(options.nested_sections || level < 2);
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -523,69 +526,39 @@ impl<'lua> LuaTable<'lua> {
         for (key_index, key) in keys.into_iter().enumerate() {
             let last = key_index == len - 1;
 
-            let key = key.as_ref();
+            let key = unsafe { NonEmptyStr::new_unchecked(key.as_ref()) };
 
             // Must succeed.
             let value = self.get(key).unwrap();
 
             match value {
                 Value::Array(value) => {
-                    if options.arrays {
-                        write_ini_key(w, key, options.escape)?;
-
-                        write!(w, " = [").map_err(|_| WriteError)?;
-
-                        let len = value.len() as usize;
-
-                        for (array_index, array_value) in value.iter().enumerate() {
-                            let last = array_index == len - 1;
-
-                            array_value.fmt_ini(w, level + 1, true, options)?;
-
-                            if !last {
-                                write!(w, ", ").map_err(|_| WriteError)?;
-                            }
-                        }
-
-                        write!(w, "]").map_err(|_| WriteError)?;
-
-                        if !last {
-                            writeln!(w).map_err(|_| WriteError)?;
-                        }
-                    } else {
-                        return Err(ArraysNotAllowed);
-                    }
+                    write_ini_array(
+                        w,
+                        key,
+                        value.iter(),
+                        value.len() as usize,
+                        last,
+                        level,
+                        path,
+                        options,
+                    )?;
                 }
                 Value::Table(value) => {
-                    if level >= 1 {
-                        return Err(NestedTablesNotSupported);
-                    }
-
-                    if key_index > 0 {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
-
-                    write_ini_section(w, key, options.escape)?;
-
-                    if value.len() > 0 {
-                        writeln!(w).map_err(|_| WriteError)?;
-                        value.fmt_ini(w, level + 1, array, options)?;
-                    }
-
-                    if !last {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
+                    write_ini_table(
+                        w,
+                        key,
+                        key_index as u32,
+                        &value,
+                        value.len(),
+                        last,
+                        level,
+                        path,
+                        options,
+                    )?;
                 }
                 value => {
-                    write_ini_key(w, key, options.escape)?;
-
-                    write!(w, " = ").map_err(|_| WriteError)?;
-
-                    value.fmt_ini(w, level + 1, array, options)?;
-
-                    if !last {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
+                    write_ini_value(w, key, &value, last, level, array, path, options)?;
                 }
             }
         }
@@ -640,9 +613,10 @@ impl<'lua> DisplayIni for LuaTable<'lua> {
         w: &mut W,
         level: u32,
         array: bool,
+        path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, array, options)
+        self.fmt_ini_impl(w, level, array, path, options)
     }
 }
 

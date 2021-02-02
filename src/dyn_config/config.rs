@@ -8,8 +8,8 @@ use crate::{BinConfigWriter, BinConfigWriterError, DynConfigValueRef};
 
 #[cfg(feature = "ini")]
 use crate::{
-    DisplayIni, IniConfig, IniError, IniParser, IniValue, NonEmptyStr, ToIniStringError,
-    ToIniStringOptions,
+    ConfigKey, DisplayIni, IniConfig, IniError, IniParser, IniPath, IniValue, NonEmptyStr,
+    ToIniStringError, ToIniStringOptions,
 };
 
 #[cfg(any(feature = "bin", feature = "ini"))]
@@ -114,8 +114,10 @@ impl DynConfig {
         options: ToIniStringOptions,
     ) -> Result<String, ToIniStringError> {
         let mut result = String::new();
+        let mut path = IniPath::new();
 
-        self.root().fmt_ini(&mut result, 0, false, options)?;
+        self.root()
+            .fmt_ini(&mut result, 0, false, &mut path, options)?;
 
         result.shrink_to_fit();
 
@@ -131,35 +133,62 @@ impl Display for DynConfig {
 
 #[cfg(feature = "ini")]
 impl IniConfig for DynConfig {
-    fn contains_section<'s>(&self, section: NonEmptyStr<'s>) -> bool {
-        self.root().get_table(section).is_ok()
+    fn contains_section<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
+        &self,
+        section: NonEmptyStr<'s>,
+        path: P,
+    ) -> bool {
+        let table = match self.root().get_table_path(path.map(ConfigKey::from)) {
+            Ok(table) => table,
+            Err(_) => return false,
+        };
+
+        table.get_table(section).is_ok()
     }
 
-    fn add_section<'s>(&mut self, section: NonEmptyStr<'s>, _overwrite: bool) {
-        self.root_mut()
-            .set(section, Value::Table(DynTable::new()))
-            .unwrap();
-    }
-
-    fn contains_key<'s, 'k>(&self, section: Option<NonEmptyStr<'s>>, key: NonEmptyStr<'k>) -> bool {
-        if let Some(section) = section {
-            self.root().get_table(section).unwrap().contains(key)
-        } else {
-            self.root().contains(key)
-        }
-    }
-
-    fn add_value<'s, 'k>(
+    fn add_section<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
         &mut self,
-        section: Option<NonEmptyStr<'s>>,
-        key: NonEmptyStr<'k>,
+        section: NonEmptyStr<'s>,
+        path: P,
+        _overwrite: bool,
+    ) {
+        let table = match self
+            .root_mut()
+            .get_table_mut_path(path.map(ConfigKey::from))
+        {
+            Ok(table) => table,
+            Err(_) => return,
+        };
+
+        table.set(section, Value::Table(DynTable::new())).unwrap();
+    }
+
+    fn contains_key<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
+        &self,
+        path: P,
+        key: NonEmptyStr<'s>,
+    ) -> bool {
+        let table = match self.root().get_table_path(path.map(ConfigKey::from)) {
+            Ok(table) => table,
+            Err(_) => return false,
+        };
+
+        table.contains(key)
+    }
+
+    fn add_value<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
+        &mut self,
+        path: P,
+        key: NonEmptyStr<'s>,
         value: IniValue<&str>,
         _overwrite: bool,
     ) {
-        let table = if let Some(section) = section {
-            self.root_mut().get_table_mut(section).unwrap()
-        } else {
-            self.root_mut()
+        let table = match self
+            .root_mut()
+            .get_table_mut_path(path.map(ConfigKey::from))
+        {
+            Ok(table) => table,
+            Err(_) => return,
         };
 
         match value {
@@ -171,17 +200,19 @@ impl IniConfig for DynConfig {
         .unwrap();
     }
 
-    fn add_array<'s, 'k>(
+    fn add_array<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
         &mut self,
-        section: Option<NonEmptyStr<'s>>,
-        key: NonEmptyStr<'k>,
+        path: P,
+        key: NonEmptyStr<'s>,
         array: Vec<IniValue<String>>,
         _overwrite: bool,
     ) {
-        let table = if let Some(section) = section {
-            self.root_mut().get_table_mut(section).unwrap()
-        } else {
-            self.root_mut()
+        let table = match self
+            .root_mut()
+            .get_table_mut_path(path.map(ConfigKey::from))
+        {
+            Ok(table) => table,
+            Err(_) => return,
         };
 
         let mut dyn_array = DynArray::new();
@@ -211,14 +242,14 @@ fn table_to_bin_config(
     let mut keys: Vec<_> = table.iter().map(|(key, _)| key).collect();
 
     // Sort the keys in alphabetical order.
-    keys.sort_by(|l, r| l.cmp(r));
+    keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
 
     // Iterate the table using the sorted keys.
     for key in keys.into_iter() {
         // Must succeed.
         let value = table.get(key).unwrap();
 
-        value_to_bin_config(Some(key), value, writer)?;
+        value_to_bin_config(Some(key.as_ref()), value, writer)?;
     }
 
     Ok(())

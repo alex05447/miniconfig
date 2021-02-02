@@ -15,12 +15,12 @@ use {
 
 #[cfg(feature = "dyn")]
 use {
-    crate::{BinArray, BinConfigValue, DynArray, DynConfig, DynTable},
+    crate::{BinArray, BinConfigValue, DynArray, DynConfig, DynTable, NonEmptyStr},
     std::ops::DerefMut,
 };
 
 #[cfg(feature = "ini")]
-use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
+use crate::{DisplayIni, IniPath, ToIniStringError, ToIniStringOptions};
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
@@ -112,8 +112,10 @@ impl BinConfig {
         options: ToIniStringOptions,
     ) -> Result<String, ToIniStringError> {
         let mut result = String::new();
+        let mut path = IniPath::new();
 
-        self.root().fmt_ini(&mut result, 0, false, options)?;
+        self.root()
+            .fmt_ini(&mut result, 0, false, &mut path, options)?;
 
         result.shrink_to_fit();
 
@@ -524,7 +526,11 @@ impl BinConfig {
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_table(key: &str, value: BinConfigValue<'_>, dyn_table: &mut DynTable) {
+    fn value_to_dyn_table<'k>(
+        key: NonEmptyStr<'k>,
+        value: BinConfigValue<'_>,
+        dyn_table: &mut DynTable,
+    ) {
         use crate::Value::{self, *};
 
         match value {

@@ -2,7 +2,7 @@ use {
     crate::{
         util::{write_lua_key, DisplayLua},
         ConfigKey, DynArray, DynConfigValue, DynConfigValueMut, DynConfigValueRef, GetPathError,
-        TableError, Value, ValueType, NonEmptyStr
+        NonEmptyStr, TableError, Value, ValueType,
     },
     std::{
         borrow::Borrow,
@@ -14,7 +14,10 @@ use {
 
 #[cfg(feature = "ini")]
 use {
-    crate::{write_ini_key, write_ini_section, DisplayIni, ToIniStringError, ToIniStringOptions},
+    crate::{
+        write_ini_array, write_ini_table, write_ini_value, DisplayIni, IniPath, ToIniStringError,
+        ToIniStringOptions,
+    },
     std::fmt::Write,
 };
 
@@ -77,7 +80,7 @@ impl DynTable {
     /// [`table`]: struct.DynTable.html
     /// [`error`]: enum.TableError.html
     pub fn get<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'_>, TableError> {
-        self.get_impl(NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)? )
+        self.get_impl(NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?)
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] at `path`.
@@ -342,7 +345,7 @@ impl DynTable {
     ///
     /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
-    pub fn iter(&self) -> impl Iterator<Item = (&'_ str, DynConfigValueRef<'_>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (NonEmptyStr<'_>, DynConfigValueRef<'_>)> {
         DynTableIter(self.0.iter())
     }
 
@@ -516,7 +519,7 @@ impl DynTable {
         self.0.len() as u32
     }
 
-    fn get_impl<'k>(&self, key: NonEmptyStr<'k> ) -> Result<DynConfigValueRef<'_>, TableError> {
+    fn get_impl<'k>(&self, key: NonEmptyStr<'k>) -> Result<DynConfigValueRef<'_>, TableError> {
         use TableError::*;
 
         if let Some(value) = self.0.get(key.as_ref()) {
@@ -601,7 +604,7 @@ impl DynTable {
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
 
         // Sort the keys in alphabetical order.
-        keys.sort_by(|l, r| l.cmp(r));
+        keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
@@ -620,7 +623,7 @@ impl DynTable {
             ",".fmt(f)?;
 
             if is_array_or_table {
-                write!(f, " -- {}", key)?;
+                write!(f, " -- {}", key.as_ref())?;
             }
 
             writeln!(f)?;
@@ -638,11 +641,10 @@ impl DynTable {
         w: &mut W,
         level: u32,
         _array: bool,
+        path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        use ToIniStringError::*;
-
-        debug_assert!(level < 2);
+        debug_assert!(options.nested_sections || level < 2);
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -660,7 +662,7 @@ impl DynTable {
             } else if l_is_a_table && !r_is_a_table {
                 std::cmp::Ordering::Greater
             } else {
-                l.cmp(r)
+                l.as_ref().cmp(r.as_ref())
             }
         });
 
@@ -675,62 +677,32 @@ impl DynTable {
 
             match value {
                 Value::Array(value) => {
-                    if options.arrays {
-                        let len = value.len() as usize;
-
-                        write_ini_key(w, key, options.escape)?;
-
-                        write!(w, " = [").map_err(|_| WriteError)?;
-
-                        for (array_index, array_value) in value.iter().enumerate() {
-                            let last = array_index == len - 1;
-
-                            array_value.fmt_ini(w, level + 1, true, options)?;
-
-                            if !last {
-                                write!(w, ", ").map_err(|_| WriteError)?;
-                            }
-                        }
-
-                        write!(w, "]").map_err(|_| WriteError)?;
-
-                        if !last {
-                            writeln!(w).map_err(|_| WriteError)?;
-                        }
-                    } else {
-                        return Err(ArraysNotAllowed);
-                    }
+                    write_ini_array(
+                        w,
+                        key,
+                        value.iter(),
+                        value.len() as usize,
+                        last,
+                        level,
+                        path,
+                        options,
+                    )?;
                 }
                 Value::Table(value) => {
-                    if level >= 1 {
-                        return Err(NestedTablesNotSupported);
-                    }
-
-                    if key_index > 0 {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
-
-                    write_ini_section(w, key, options.escape)?;
-
-                    if value.len() > 0 {
-                        writeln!(w).map_err(|_| WriteError)?;
-                        value.fmt_ini(w, level + 1, false, options)?;
-                    }
-
-                    if !last {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
+                    write_ini_table(
+                        w,
+                        key,
+                        key_index as u32,
+                        value,
+                        value.len(),
+                        last,
+                        level,
+                        path,
+                        options,
+                    )?;
                 }
                 value => {
-                    write_ini_key(w, key, options.escape)?;
-
-                    write!(w, " = ").map_err(|_| WriteError)?;
-
-                    value.fmt_ini(w, level + 1, false, options)?;
-
-                    if !last {
-                        writeln!(w).map_err(|_| WriteError)?;
-                    }
+                    write_ini_value(w, key, &value, last, level, false, path, options)?;
                 }
             }
         }
@@ -746,7 +718,7 @@ impl DynTable {
 struct DynTableIter<'t>(HashMapIter<'t, String, DynConfigValue>);
 
 impl<'t> Iterator for DynTableIter<'t> {
-    type Item = (&'t str, DynConfigValueRef<'t>);
+    type Item = (NonEmptyStr<'t>, DynConfigValueRef<'t>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((key, value)) = self.0.next() {
@@ -759,7 +731,8 @@ impl<'t> Iterator for DynTableIter<'t> {
                 Value::Table(value) => Value::Table(value),
             };
 
-            Some((key.as_str(), value))
+            // Safe to call - we validated the key.
+            Some((unsafe { NonEmptyStr::new_unchecked(key.as_str()) }, value))
         } else {
             None
         }
@@ -791,9 +764,10 @@ impl DisplayIni for DynTable {
         w: &mut W,
         level: u32,
         array: bool,
+        path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, array, options)
+        self.fmt_ini_impl(w, level, array, path, options)
     }
 }
 
@@ -804,9 +778,10 @@ impl<'t> DisplayIni for &'t DynTable {
         w: &mut W,
         level: u32,
         array: bool,
+        path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        self.fmt_ini_impl(w, level, array, options)
+        self.fmt_ini_impl(w, level, array, path, options)
     }
 }
 
@@ -1134,7 +1109,7 @@ mod tests {
 
         // Iterate the table.
         for (key, value) in table.iter() {
-            match key {
+            match key.as_ref() {
                 "i64" => assert_eq!(value.i64().unwrap(), 7),
                 "string" => assert_eq!(value.string().unwrap(), "bar"),
                 "table" => {
@@ -1142,7 +1117,7 @@ mod tests {
                     let nested_table = value.table().unwrap();
 
                     for (key, value) in nested_table.iter() {
-                        match key {
+                        match key.as_ref() {
                             "nested_bool" => assert_eq!(value.bool().unwrap(), false),
                             "nested_int" => assert_eq!(value.i64().unwrap(), -9),
                             _ => panic!("Invalid key."),

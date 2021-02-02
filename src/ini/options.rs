@@ -142,6 +142,13 @@ pub(crate) struct IniOptions {
     ///
     /// Default: `false`.
     pub(crate) arrays: bool,
+    /// Whether nested sections are supported.
+    /// If `true`, section names which contain forward slashes (`'/'`) are treated as paths.
+    /// Parent sections in paths must be declared before any children.
+    /// Otherwise forward slashes (`'/'`) are treated as normal key / value characters.
+    ///
+    /// Default: `false`.
+    pub(crate) nested_sections: bool,
 }
 
 impl Default for IniOptions {
@@ -157,6 +164,7 @@ impl Default for IniOptions {
             duplicate_sections: IniDuplicateSections::Merge,
             duplicate_keys: IniDuplicateKeys::Forbid,
             arrays: false,
+            nested_sections: false,
         }
     }
 }
@@ -172,6 +180,10 @@ pub struct ToIniStringOptions {
     ///
     /// Default: `false`.
     pub arrays: bool,
+    /// See [`arrays`](struct.IniParser.html#method.nested_sections).
+    ///
+    /// Default: `false`.
+    pub nested_sections: bool,
 }
 
 impl Default for ToIniStringOptions {
@@ -179,6 +191,7 @@ impl Default for ToIniStringOptions {
         Self {
             escape: true,
             arrays: false,
+            nested_sections: false,
         }
     }
 }

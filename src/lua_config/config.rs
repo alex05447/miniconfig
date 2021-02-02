@@ -9,7 +9,7 @@ use {
 use crate::{BinConfigWriter, BinConfigWriterError};
 
 #[cfg(feature = "ini")]
-use crate::{DisplayIni, ToIniStringError, ToIniStringOptions};
+use crate::{DisplayIni, IniPath, ToIniStringError, ToIniStringOptions};
 
 #[cfg(feature = "dyn")]
 use crate::{DynArray, DynConfig, DynTable};
@@ -157,8 +157,10 @@ impl<'lua> LuaConfig<'lua> {
         options: ToIniStringOptions,
     ) -> Result<String, ToIniStringError> {
         let mut result = String::new();
+        let mut path = IniPath::new();
 
-        self.root().fmt_ini(&mut result, 0, false, options)?;
+        self.root()
+            .fmt_ini(&mut result, 0, false, &mut path, options)?;
 
         result.shrink_to_fit();
 

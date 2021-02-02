@@ -17,7 +17,7 @@ Primitive values may be contained in
 - arrays / lists / etc. (with elements of homogenous type, with `0`-based contiguous integer indices).
 
 Tables and arrays may contain nested tables and arrays
-(except `.ini` configs (requires `"ini"` feature) which only support arrays of primitive types and do not support nested tables).
+(except `.ini` configs (requires `"ini"` feature) which only support arrays of primitive types).
 
 Each config has a (possibly empty) `root` table.
 
@@ -53,6 +53,7 @@ These are the special `.ini` characters:
 - `#` (optional comment delimiter)
 - `=` (default key-value separator)
 - `:` (optional key-value separator)
+- `/` (optional nested section separator)
 
 Section names, keys and string values may be enclosed in (matching) single (`'`) or double (`"`) quotes. In this case spaces (`' '`), non-matching double (`"`) or single (`'`) quotes and special `.ini` characters do not have to be (but may be) escaped.
 
@@ -78,7 +79,7 @@ May be used directly as a Lua representation within an [`rlua Context`](http://d
 
 **Runtime**: internally represented by a root Lua table reference. Provides a mutable config interface. Can add/modify/remove values.
 
-**Serialization**: to string Lua script, to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays and nested tables), to "dynamic" config (requires `"dyn"` feature).
+**Serialization**: to string Lua script, to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays), to "dynamic" config (requires `"dyn"` feature).
 
 **Example**:
 
@@ -105,11 +106,11 @@ Based on Rust hash maps and arrays.
 
 Main format for runtime representation of dynamic configs, or an intermediate representation for Lua configs (after deserialization) / binary configs (before serialization).
 
-**Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections a.k.a tables. Does not support non-primitive arrays and nested tables.
+**Data**: if `"ini"` feature is enabled - a text file representing a valid `.ini` config, declaring a root config table with string keys and a number of sections a.k.a tables. Does not support non-primitive arrays.
 
 **Runtime**: internally represented by a root Rust hash map with string keys; arrays are Rust vectors. Provides a mutable config interface. Can add/modify/remove values.
 
-**Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays and nested tables).
+**Serialization**: to string Lua script (requires `"lua"` feature), to binary config (requires `"bin"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays).
 
 **Example**:
 
@@ -187,6 +188,10 @@ string
 ; or ignore the new value.
 baz = "an overridden value"
 
+; Nested sections (separated by forward slashes: `/`) are optionally supported.
+; Each parent section must be declared prior.
+; If nested sections are not enabled, `/` is just a normal character.
+[some_section/nested_section]
 ```
 
 **Use cases**: if `"ini"` feature is enabled - use `.ini` config source text files for human-readable / writable data of limited complexity (only one level of nested tables) which must be user-visible/editable.
@@ -203,7 +208,7 @@ Strings (both keys and values) are deduplicated and stored separately in a conti
 
 **Runtime**: wrapper over the raw byte blob. Provides a read-only config interface. Cannot add/modify/remove values.
 
-**Serialization**: to string Lua script (requires `"lua"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays and nested tables).
+**Serialization**: to string Lua script (requires `"lua"` feature), to string `.ini` config (requires `"ini"` feature, does not support non-primitive arrays).
 
 **Use cases**: use for read-only data of arbitrary complexity which must not be user-visible, or for caching of data which does not need to change frequently at runtime for loading / access performance.
 

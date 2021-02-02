@@ -66,7 +66,7 @@ impl<'lua> LuaConfigValue<'lua> {
                     Value::Array(array) => {
                         let value = array.get(*index).map_err(|err| match err {
                             ArrayError::IndexOutOfBounds(len) => GetPathError::IndexOutOfBounds {
-                                path: ConfigPath::from_key(key.clone()),
+                                path: ConfigPath(vec![key.clone()]),
                                 len,
                             },
                             ArrayError::ArrayEmpty | ArrayError::IncorrectValueType(_) => {
@@ -86,7 +86,7 @@ impl<'lua> LuaConfigValue<'lua> {
                         let value = table.get(table_key).map_err(|err| match err {
                             TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
                             TableError::KeyDoesNotExist => {
-                                GetPathError::KeyDoesNotExist(ConfigPath::from_key(key.clone()))
+                                GetPathError::KeyDoesNotExist(ConfigPath(vec![key.clone()]))
                             }
                             TableError::IncorrectValueType(_) => unreachable!(),
                         })?;

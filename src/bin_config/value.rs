@@ -386,7 +386,7 @@ impl<'at> BinConfigValue<'at> {
                         let value = array.get(*index).map_err(|err| match err {
                             BinArrayError::IndexOutOfBounds(len) => {
                                 GetPathError::IndexOutOfBounds {
-                                    path: ConfigPath::from_key(key.clone()),
+                                    path: ConfigPath(vec![key.clone()]),
                                     len,
                                 }
                             }
@@ -407,7 +407,7 @@ impl<'at> BinConfigValue<'at> {
                             .map_err(|err| match err {
                                 TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
                                 TableError::KeyDoesNotExist => {
-                                    GetPathError::KeyDoesNotExist(ConfigPath::from_key(key.clone()))
+                                    GetPathError::KeyDoesNotExist(ConfigPath(vec![key.clone()]))
                                 }
                                 TableError::IncorrectValueType(_) => unreachable!(),
                             })?;

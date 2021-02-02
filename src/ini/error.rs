@@ -1,11 +1,14 @@
-use std::{
-    error::Error,
-    fmt::{Display, Formatter},
+use {
+    crate::ConfigPath,
+    std::{
+        error::Error,
+        fmt::{Display, Formatter},
+    },
 };
 
 /// An actual concrete error kind returned by the [`.ini parser`](struct.IniParser.html).
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum IniErrorKind {
+pub enum IniErrorKind<'a> {
     /// Invalid character at the start of the line -
     /// expected a section name, key or line comment.
     /// Contains the invalid character.
@@ -21,10 +24,14 @@ pub enum IniErrorKind {
     /// Unexpected end of file in a section name.
     UnexpectedEndOfFileInSectionName,
     /// Empty section names are invalid.
-    EmptySectionName,
+    /// Contains the (maybe empty) path to the empty section.
+    EmptySectionName(ConfigPath<'a>),
+    /// Invalid (missing) parent section name.
+    /// Contains the (non-empty) path of the parent section.
+    InvalidParentSection(ConfigPath<'a>),
     /// Duplicate section name encountered and is not allowed by options.
-    /// Contains the duplicate section name.
-    DuplicateSection(String),
+    /// Contains the (non-empty) path of the duplicate section.
+    DuplicateSection(ConfigPath<'a>),
     /// Invalid character at the end of the line - expected whitespace or an inline comment (if supported).
     /// Contains the invalid character.
     InvalidCharacterAtLineEnd(char),
@@ -78,7 +85,7 @@ pub enum IniErrorKind {
     UnexpectedEndOfFileInQuotedArrayValue,
 }
 
-impl Display for IniErrorKind {
+impl<'a> Display for IniErrorKind<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use IniErrorKind::*;
 
@@ -96,10 +103,11 @@ impl Display for IniErrorKind {
             ),
             UnexpectedNewLineInSectionName => "unexpected new line in a section name".fmt(f),
             UnexpectedEndOfFileInSectionName => "unexpected end of file in a section name".fmt(f),
-            EmptySectionName => "empty section names are invalid".fmt(f),
-            DuplicateSection(s) => write!(
+            EmptySectionName(path) => write!(f, "empty section names are invalid (in {})", path),
+            InvalidParentSection(path) => write!(f, "invalid (missing) parent section {}", path),
+            DuplicateSection(path) => write!(
                 f,
-                "duplicate section name (\"{}\") encountered and is not allowed by options", s
+                "duplicate section name ({}) encountered and is not allowed by options", path
             ),
             InvalidCharacterAtLineEnd(c) => write!(
                 f,
@@ -150,18 +158,18 @@ impl Display for IniErrorKind {
 
 /// An error returned by the [`.ini parser`](struct.IniParser.html).
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct IniError {
+pub struct IniError<'a> {
     /// Line in the source string where the error occured.
     pub line: u32,
     /// Column in the source string where the error occured.
     pub column: u32,
     /// Actual error.
-    pub error: IniErrorKind,
+    pub error: IniErrorKind<'a>,
 }
 
-impl Error for IniError {}
+impl<'a> Error for IniError<'a> {}
 
-impl Display for IniError {
+impl<'a> Display for IniError<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
@@ -171,15 +179,15 @@ impl Display for IniError {
     }
 }
 
-/// An error returned by `to_ini_string`.
+/// An error returned by `to_ini_string` methods (on `bin`, `dyn` and `lua` configs).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToIniStringError {
     /// Array values are not allowed by options.
     ArraysNotAllowed,
     /// Only boolean, number and string arrays are supported.
     InvalidArrayType,
-    /// Tables nested within tables are not supported in `.ini` configs.
-    NestedTablesNotSupported,
+    /// Sections nested within sections are not allowed by options.
+    NestedSectionsNotAllowed,
     /// General write error (out of memory?).
     WriteError,
     /// Encountered an escaped character not allowed by options.
@@ -196,8 +204,8 @@ impl Display for ToIniStringError {
         match self {
             ArraysNotAllowed => "array values are not allowed by options".fmt(f),
             InvalidArrayType => "only boolean, number and string arrays are supported".fmt(f),
-            NestedTablesNotSupported => {
-                "tables nested within tables are not supported in `.ini` configs".fmt(f)
+            NestedSectionsNotAllowed => {
+                "sections nested within sections are not allowed by options".fmt(f)
             }
             WriteError => "general write error (out of memory?)".fmt(f),
             EscapedCharacterNotAllowed(c) => write!(

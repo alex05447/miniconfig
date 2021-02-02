@@ -42,7 +42,10 @@ pub use dyn_config::*;
 pub use lua_config::*;
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-pub use {error::*, util::*};
+pub use error::*;
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
+pub use util::*;
 
 #[cfg(feature = "ini")]
 pub use ini::*;

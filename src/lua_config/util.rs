@@ -166,7 +166,7 @@ fn validate_lua_config_table_impl<'lua, 'a>(
                 if !are_lua_types_compatible(array_lua_value_type, lua_value_type) {
                     return Err(MixedArray {
                         //path: key.into(),
-                        path: ConfigPath::from_key(config_key_from_lua_value(key)),
+                        path: ConfigPath(vec![config_key_from_lua_value(key)]),
                         expected: array_lua_value_type,
                         found: lua_value_type,
                     });
@@ -185,8 +185,7 @@ fn validate_lua_config_table_impl<'lua, 'a>(
                 // Ensure string values are valid UTF-8.
                 if let Err(error) = value.to_str() {
                     return Err(InvalidValueUTF8 {
-                        //path: key.into(),
-                        path: ConfigPath::from_key(config_key_from_lua_value(key)),
+                        path: ConfigPath(vec![config_key_from_lua_value(key)]),
                         error,
                     });
                 }
@@ -204,8 +203,7 @@ fn validate_lua_config_table_impl<'lua, 'a>(
             // Only valid Lua value types allowed.
             invalid_value => {
                 return Err(InvalidValueType {
-                    //path: key.into(),
-                    path: ConfigPath::from_key(config_key_from_lua_value(key)),
+                    path: ConfigPath(vec![config_key_from_lua_value(key)]),
                     invalid_type: value_type(&invalid_value),
                 });
             }
