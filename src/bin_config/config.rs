@@ -293,25 +293,25 @@ impl BinConfig {
                 let key_string = unsafe { key_table.get_unchecked(key.index as usize) };
 
                 // Key length must be positive.
-                if key_string.len == 0 {
+                if key_string.len() == 0 {
                     return Err(InvalidBinaryConfigData);
                 }
 
                 // Make sure the key string and the null terminator lie within the config data blob (`+ 1`for null terminator).
                 Self::validate_range(
                     valid_string_range.clone(),
-                    key_string.offset..key_string.offset + key_string.len + 1,
+                    key_string.offset()..key_string.offset() + key_string.len() + 1,
                 )?;
 
                 // Make sure the key string is null-terminated.
-                let null_terminator = unsafe { table.slice(key_string.offset + key_string.len, 1) };
+                let null_terminator = unsafe { table.slice(key_string.offset() + key_string.len(), 1) };
 
                 if null_terminator[0] != b'\0' {
                     return Err(InvalidBinaryConfigData);
                 }
 
                 // Make sure the key string is valid UTF-8.
-                let key_slice = unsafe { table.slice(key_string.offset, key_string.len) };
+                let key_slice = unsafe { table.slice(key_string.offset(), key_string.len()) };
 
                 let key_string =
                     std::str::from_utf8(key_slice).map_err(|_| InvalidBinaryConfigData)?;

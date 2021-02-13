@@ -1,16 +1,29 @@
 use {
-    super::value::{BinConfigPackedValue, BinConfigUnpackedValue, BinTableKey},
+    super::{value::{BinConfigPackedValue, BinConfigUnpackedValue, BinTableKey}, util::u32_from_bin},
     std::{mem::size_of, slice::from_raw_parts},
 };
 
 /// Represents an interned UTF-8 string in the string section of the binary config.
+///
+/// Fields are in whatever endianness we use; see `super::util::__to_bin_bytes(), _from_bin()`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(C, packed)]
 pub(super) struct InternedString {
     /// Offset in bytes to the string w.r.t. the binary config data blob.
     /// `0` if the string is empty (`len` is `0`).
     pub(super) offset: u32,
     /// String length in bytes.
     pub(super) len: u32,
+}
+
+impl InternedString {
+    pub(super) fn offset(&self) -> u32 {
+        u32_from_bin(self.offset)
+    }
+
+    pub(super) fn len(&self) -> u32 {
+        u32_from_bin(self.len)
+    }
 }
 
 /// Represents a binary array/table, as unpacked from the binary config data blob.

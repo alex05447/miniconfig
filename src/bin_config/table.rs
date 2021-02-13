@@ -454,7 +454,7 @@ impl<'t> BinTable<'t> {
                     let key = unsafe { self.0.key_ofset_and_len(key.index) };
 
                     // Safe to call - the key string was validated.
-                    if string == unsafe { self.0.string(key.offset, key.len) } {
+                    if string == unsafe { self.0.string(key.offset(), key.len()) } {
                         Some(self.get_value(value))
                     } else {
                         None
@@ -637,7 +637,7 @@ impl<'i, 't> Iterator for BinTableIter<'i, 't> {
 
             // Safe to call - the key string was validated.
             let key =
-                unsafe { NonEmptyStr::new_unchecked(self.table.0.string(key.offset, key.len)) };
+                unsafe { NonEmptyStr::new_unchecked(self.table.0.string(key.offset(), key.len())) };
 
             let value = self.table.get_value(value);
 
