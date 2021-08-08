@@ -460,8 +460,8 @@ impl<'lua> LuaTable<'lua> {
         }
     }
 
-    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
-        writeln!(f, "{{")?;
+    fn fmt_lua_impl<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {
+        writeln!(w, "{{")?;
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -473,29 +473,29 @@ impl<'lua> LuaTable<'lua> {
         for key in keys.into_iter() {
             let key = unsafe { NonEmptyStr::new_unchecked(key.as_ref()) };
 
-            <Self as DisplayLua>::do_indent(f, indent + 1)?;
+            <Self as DisplayLua>::do_indent(w, indent + 1)?;
 
-            write_lua_key(f, key)?;
-            " = ".fmt(f)?;
+            write_lua_key(w, key)?;
+            write!(w, " = ")?;
 
             // Must succeed - all keys are valid.
             let value = unwrap_unchecked(self.get(key));
 
             let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
-            value.fmt_lua(f, indent + 1)?;
+            value.fmt_lua(w, indent + 1)?;
 
-            ",".fmt(f)?;
+            write!(w, ",")?;
 
             if is_array_or_table {
-                write!(f, " -- {}", key.as_ref())?;
+                write!(w, " -- {}", key.as_ref())?;
             }
 
-            writeln!(f)?;
+            writeln!(w)?;
         }
 
-        <Self as DisplayLua>::do_indent(f, indent)?;
-        write!(f, "}}")?;
+        <Self as DisplayLua>::do_indent(w, indent)?;
+        write!(w, "}}")?;
 
         Ok(())
     }
@@ -614,8 +614,8 @@ impl<'lua> std::iter::Iterator for LuaTableIter<'lua> {
 }
 
 impl<'lua> DisplayLua for LuaTable<'lua> {
-    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
-        self.fmt_lua_impl(f, indent)
+    fn fmt_lua<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(w, indent)
     }
 }
 

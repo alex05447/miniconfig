@@ -6,7 +6,7 @@ use {
     },
     std::{
         borrow::Borrow,
-        fmt::{Display, Formatter},
+        fmt::{Display, Formatter, Write},
         iter::Iterator,
     },
 };
@@ -350,28 +350,28 @@ impl<'a> BinArray<'a> {
         }
     }
 
-    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
-        writeln!(f, "{{")?;
+    fn fmt_lua_impl<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {
+        writeln!(w, "{{")?;
 
         // Iterate the array.
         for (index, value) in self.iter().enumerate() {
-            <Self as DisplayLua>::do_indent(f, indent + 1)?;
+            <Self as DisplayLua>::do_indent(w, indent + 1)?;
 
-            value.fmt_lua(f, indent + 1)?;
+            value.fmt_lua(w, indent + 1)?;
 
-            ",".fmt(f)?;
+            write!(w, ",")?;
 
             let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
             if is_array_or_table {
-                write!(f, " -- [{}]", index)?;
+                write!(w, " -- [{}]", index)?;
             }
 
-            writeln!(f)?;
+            writeln!(w)?;
         }
 
-        <Self as DisplayLua>::do_indent(f, indent)?;
-        write!(f, "}}")?;
+        <Self as DisplayLua>::do_indent(w, indent)?;
+        write!(w, "}}")?;
 
         Ok(())
     }
@@ -410,7 +410,7 @@ impl<'a> Iterator for BinArrayIter<'a> {
 }
 
 impl<'a> DisplayLua for BinArray<'a> {
-    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+    fn fmt_lua<W: Write>(&self, f: &mut W, indent: u32) -> std::fmt::Result {
         self.fmt_lua_impl(f, indent)
     }
 }

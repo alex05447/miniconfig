@@ -115,11 +115,11 @@ pub(crate) fn write_char<W: Write>(
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 pub(crate) trait DisplayLua {
-    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result;
+    fn fmt_lua<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result;
 
-    fn do_indent(f: &mut Formatter, indent: u32) -> std::fmt::Result {
+    fn do_indent<W: Write>(w: &mut W, indent: u32) -> std::fmt::Result {
         for _ in 0..indent {
-            "\t".fmt(f)?;
+            write!(w, "\t")?;
         }
 
         Ok(())

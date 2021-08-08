@@ -58,11 +58,20 @@ impl DynConfig {
     pub fn to_lua_string(&self) -> Result<String, std::fmt::Error> {
         let mut result = String::new();
 
-        write!(&mut result, "{}", self)?;
+        self.fmt_lua(&mut result)?;
 
         result.shrink_to_fit();
 
         Ok(result)
+    }
+
+    /// Tries to serialize this [`config`] to a Lua script string to the writer `w`.
+    ///
+    /// NOTE: you may also use the [`config`]'s `Display` implementation.
+    ///
+    /// [`config`]: struct.DynConfig.html
+    pub fn fmt_lua<W: Write>(&self, w: &mut W) -> Result<(), std::fmt::Error> {
+        self.root().fmt_lua(w, 0)
     }
 
     /// Tries to serialize this [`config`] to a [`binary config`].
@@ -108,6 +117,15 @@ impl DynConfig {
         self.to_ini_string_opts(Default::default())
     }
 
+    /// Tries to serialize this [`config`] to an `.ini` string to the writer `w` using default [`options`].
+    ///
+    /// [`config`]: struct.DynConfig.html
+    /// [`options`]: struct.ToIniStringOptions.html
+    #[cfg(feature = "ini")]
+    pub fn fmt_ini<W: Write>(&self, w: &mut W) -> Result<(), ToIniStringError> {
+        self.fmt_ini_opts(Default::default(), w)
+    }
+
     /// Tries to serialize this [`config`] to an `.ini` string using provided [`options`].
     ///
     /// [`config`]: struct.DynConfig.html
@@ -118,14 +136,27 @@ impl DynConfig {
         options: ToIniStringOptions,
     ) -> Result<String, ToIniStringError> {
         let mut result = String::new();
-        let mut path = IniPath::new();
 
-        self.root()
-            .fmt_ini(&mut result, 0, false, &mut path, options)?;
+        self.fmt_ini_opts(options, &mut result)?;
 
         result.shrink_to_fit();
 
         Ok(result)
+    }
+
+    /// Tries to serialize this [`config`] to an `.ini` string to the writer `w` using provided [`options`].
+    ///
+    /// [`config`]: struct.DynConfig.html
+    /// [`options`]: struct.ToIniStringOptions.html
+    #[cfg(feature = "ini")]
+    pub fn fmt_ini_opts<W: std::fmt::Write>(
+        &self,
+        options: ToIniStringOptions,
+        w: &mut W,
+    ) -> Result<(), ToIniStringError> {
+        let mut path = IniPath::new();
+
+        self.root().fmt_ini(w, 0, false, &mut path, options)
     }
 }
 

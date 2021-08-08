@@ -1,6 +1,6 @@
 use std::{
     convert::From,
-    fmt::{Display, Formatter},
+    fmt::{Display, Formatter, Write},
 };
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
@@ -44,14 +44,14 @@ where
     A: DisplayLua,
     T: DisplayLua,
 {
-    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
+    fn fmt_lua<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {
         match self {
-            Value::Bool(value) => write!(f, "{}", if *value { "true" } else { "false" }),
-            Value::I64(value) => write!(f, "{}", value),
-            Value::F64(value) => write!(f, "{}", value),
-            Value::String(value) => write_lua_string(f, value.as_ref()),
-            Value::Array(value) => value.fmt_lua(f, indent),
-            Value::Table(value) => value.fmt_lua(f, indent),
+            Value::Bool(value) => write!(w, "{}", if *value { "true" } else { "false" }),
+            Value::I64(value) => write!(w, "{}", value),
+            Value::F64(value) => write!(w, "{}", value),
+            Value::String(value) => write_lua_string(w, value.as_ref()),
+            Value::Array(value) => value.fmt_lua(w, indent),
+            Value::Table(value) => value.fmt_lua(w, indent),
         }
     }
 }

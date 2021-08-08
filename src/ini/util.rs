@@ -1,6 +1,6 @@
 use {
     crate::{
-        util::{write_char, WriteCharError},
+        util::{debug_unreachable, write_char, WriteCharError},
         ConfigKey, ConfigPath, NonEmptyStr, TableKey, ToIniStringError, ToIniStringOptions, Value,
     },
     std::fmt::Write,
@@ -59,7 +59,7 @@ where
                 if array {
                     Err(InvalidArrayType)
                 } else {
-                    unreachable!(); // Handled by parent tables.
+                    debug_unreachable(); // Handled by parent tables.
                 }
             }
         }

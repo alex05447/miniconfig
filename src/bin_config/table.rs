@@ -491,8 +491,8 @@ impl<'t> BinTable<'t> {
         }
     }
 
-    fn fmt_lua_impl(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
-        writeln!(f, "{{")?;
+    fn fmt_lua_impl<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {
+        writeln!(w, "{{")?;
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -502,29 +502,29 @@ impl<'t> BinTable<'t> {
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
-            <Self as DisplayLua>::do_indent(f, indent + 1)?;
+            <Self as DisplayLua>::do_indent(w, indent + 1)?;
 
-            write_lua_key(f, key)?;
-            " = ".fmt(f)?;
+            write_lua_key(w, key)?;
+            write!(w, " = ")?;
 
             // Must succeed - all keys are valid.
             let value = unwrap_unchecked(self.get_str(key));
 
             let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
-            value.fmt_lua(f, indent + 1)?;
+            value.fmt_lua(w, indent + 1)?;
 
-            ",".fmt(f)?;
+            write!(w, ",")?;
 
             if is_array_or_table {
-                write!(f, " -- {}", key.as_ref())?;
+                write!(w, " -- {}", key.as_ref())?;
             }
 
-            writeln!(f)?;
+            writeln!(w)?;
         }
 
-        <Self as DisplayLua>::do_indent(f, indent)?;
-        write!(f, "}}")?;
+        <Self as DisplayLua>::do_indent(w, indent)?;
+        write!(w, "}}")?;
 
         Ok(())
     }
@@ -650,8 +650,8 @@ impl<'i, 't> Iterator for BinTableIter<'i, 't> {
 }
 
 impl<'t> DisplayLua for BinTable<'t> {
-    fn fmt_lua(&self, f: &mut Formatter, indent: u32) -> std::fmt::Result {
-        self.fmt_lua_impl(f, indent)
+    fn fmt_lua<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {
+        self.fmt_lua_impl(w, indent)
     }
 }
 
