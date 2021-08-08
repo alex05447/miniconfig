@@ -4,7 +4,10 @@ use {
         util::{string_hash_fnv1a, u32_from_bin, u32_to_bin_bytes},
         value::BinConfigPackedValue,
     },
-    crate::{util::DisplayLua, BinConfigError, BinConfigWriterError, BinTable, ValueType},
+    crate::{
+        util::{debug_unreachable, DisplayLua},
+        BinConfigError, BinConfigWriterError, BinTable, ValueType,
+    },
     std::{
         fmt::{Display, Formatter},
         io::Write,
@@ -292,7 +295,7 @@ impl BinConfig {
 
                 let key_string = unsafe { key_table.get_unchecked(key.index as usize) };
 
-                // Key length must be positive.
+                // Key string must not be empty.
                 if key_string.len() == 0 {
                     return Err(InvalidBinaryConfigData);
                 }
@@ -304,7 +307,8 @@ impl BinConfig {
                 )?;
 
                 // Make sure the key string is null-terminated.
-                let null_terminator = unsafe { table.slice(key_string.offset() + key_string.len(), 1) };
+                let null_terminator =
+                    unsafe { table.slice(key_string.offset() + key_string.len(), 1) };
 
                 if null_terminator[0] != b'\0' {
                     return Err(InvalidBinaryConfigData);
@@ -531,61 +535,56 @@ impl BinConfig {
         value: BinConfigValue<'_>,
         dyn_table: &mut DynTable,
     ) {
-        use crate::Value::{self, *};
+        use crate::Value::*;
 
-        match value {
-            Bool(value) => {
-                dyn_table.set(key, Value::Bool(value)).unwrap();
-            }
-            I64(value) => {
-                dyn_table.set(key, Value::I64(value)).unwrap();
-            }
-            F64(value) => {
-                dyn_table.set(key, Value::F64(value)).unwrap();
-            }
-            String(value) => {
-                dyn_table.set(key, Value::String(value.into())).unwrap();
-            }
+        // Must succeed - we are only adding values to the dyn table.
+        if let Ok(already_existed) = match value {
+            Bool(value) => dyn_table.set(key, Bool(value)),
+            I64(value) => dyn_table.set(key, I64(value)),
+            F64(value) => dyn_table.set(key, F64(value)),
+            String(value) => dyn_table.set(key, String(value.into())),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set(key, Value::Array(array)).unwrap();
+                dyn_table.set(key, Array(array))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set(key, Value::Table(table)).unwrap();
+                dyn_table.set(key, Table(table))
             }
+        } {
+            debug_assert!(
+                !already_existed,
+                "value unexpectedly already existed in the table"
+            );
+        } else {
+            debug_unreachable()
         }
     }
 
     #[cfg(feature = "dyn")]
     fn value_to_dyn_array(value: BinConfigValue<'_>, dyn_array: &mut DynArray) {
-        use crate::Value::{self, *};
+        use crate::Value::*;
 
-        match value {
-            Bool(value) => {
-                dyn_array.push(Value::Bool(value)).unwrap();
-            }
-            I64(value) => {
-                dyn_array.push(Value::I64(value)).unwrap();
-            }
-            F64(value) => {
-                dyn_array.push(Value::F64(value)).unwrap();
-            }
-            String(value) => {
-                dyn_array.push(Value::String(value.to_owned())).unwrap();
-            }
+        // Must succeed - we are adding values of the same type to the dyn array.
+        if let Err(_) = match value {
+            Bool(value) => dyn_array.push(Bool(value)),
+            I64(value) => dyn_array.push(I64(value)),
+            F64(value) => dyn_array.push(F64(value)),
+            String(value) => dyn_array.push(String(value.to_owned())),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_array.push(Value::Array(array)).unwrap();
+                dyn_array.push(Array(array))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_array.push(Value::Table(table)).unwrap();
+                dyn_array.push(Table(table))
             }
+        } {
+            debug_unreachable()
         }
     }
 }
@@ -663,15 +662,17 @@ impl BinConfigHeader {
             .write(&u32_to_bin_bytes(len))
             .map_err(|_| WriteError)?;
 
+        // Key table offset.
         written += writer
             .write(&u32_to_bin_bytes(key_table_offset))
             .map_err(|_| WriteError)?;
 
+        // Key table length.
         written += writer
             .write(&u32_to_bin_bytes(key_table_len))
             .map_err(|_| WriteError)?;
 
-        Ok(written as u32)
+        Ok(written as _)
     }
 }
 

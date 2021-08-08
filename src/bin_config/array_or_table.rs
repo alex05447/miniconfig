@@ -1,6 +1,9 @@
 use {
-    super::{value::{BinConfigPackedValue, BinConfigUnpackedValue, BinTableKey}, util::u32_from_bin},
-    std::{mem::size_of, slice::from_raw_parts},
+    super::{
+        util::u32_from_bin,
+        value::{BinConfigPackedValue, BinConfigUnpackedValue, BinTableKey},
+    },
+    std::{mem::size_of, slice::from_raw_parts, str::from_utf8_unchecked},
 };
 
 /// Represents an interned UTF-8 string in the string section of the binary config.
@@ -101,7 +104,7 @@ impl<'at> BinArrayOrTable<'at> {
     /// Returns the UTF-8 string slice in the binary config data blob at `offset` with length `len`.
     /// NOTE - the caller ensures `offset` and `len` are valid and that the string contains valid UTF-8.
     pub(super) unsafe fn string(&self, offset: u32, len: u32) -> &'at str {
-        std::str::from_utf8_unchecked(self.slice(offset, len))
+        from_utf8_unchecked(self.slice(offset, len))
     }
 
     /// Looks up the key table with `index`.

@@ -99,24 +99,25 @@ pub(crate) struct IniOptions {
     /// in keys, section names and string values are supported.
     /// If `true`, the following escape sequences are supported:
     ///     `' '` (space),
-    ///     `'"'`,
-    ///     `'\''`,
-    ///     `'\0'`,
-    ///     `'\a'`,
-    ///     `'\b'`,
-    ///     `'\t'`,
-    ///     `'\r'`,
-    ///     `'\n'`,
-    ///     `'\v'`,
-    ///     `'\f'`,
-    ///     `'\\'`,
-    ///     `'\['`,
-    ///     `'\]'`,
-    ///     `'\;'`,
-    ///     `'\#'`,
-    ///     `'\='`,
-    ///     `'\:'`,
-    ///     `'\x????'` (where `?` are 4 hexadecimal digits).
+    ///     `'"'` (double quotes),
+    ///     `'\''` (single quotes),
+    ///     `'\0'` (null character),
+    ///     `'\a'` (bell),
+    ///     `'\b'` (backspace),
+    ///     `'\t'` (horizontal tab),
+    ///     `'\r'` (carriage return),
+    ///     `'\n'` (new line / line feed),
+    ///     `'\v'` (vertical tab),
+    ///     `'\f'` (form feed),
+    ///     `'\\'` (backslash / escape character),
+    ///     `'\['` (`.ini` section/array open delimiter),
+    ///     `'\]'` (`.ini` section/array close delimiter),
+    ///     `'\;'` (`.ini` comment delimiter),
+    ///     `'\#'` (optional `.ini` comment delimiter),
+    ///     `'\='` (`.ini` key-value separator),
+    ///     `'\:'` (optional `.ini` key-value separator),
+    ///     `'\x??'` (where `?` are 2 hexadecimal digits) (ASCII escape sequence),
+    ///     `'\u????'` (where `?` are 4 hexadecimal digits) (Unicode escape sequence).
     /// If `false`, backslash ('\') is treated as a normal section name / key / value character.
     ///
     /// Default: `true`.

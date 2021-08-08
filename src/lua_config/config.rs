@@ -1,6 +1,9 @@
 use {
     super::util::{new_table, validate_lua_config_table},
-    crate::{util::DisplayLua, LuaConfigError, LuaConfigKeyError, LuaTable},
+    crate::{
+        util::{debug_unreachable, unwrap_unchecked, DisplayLua},
+        LuaConfigError, LuaConfigKeyError, LuaTable,
+    },
     rlua::{Context, RegistryKey},
     std::fmt::{Display, Formatter, Write},
 };
@@ -39,18 +42,21 @@ impl<'lua> LuaConfig<'lua> {
     pub fn from_script<'a>(lua: Context<'lua>, script: &str) -> Result<Self, LuaConfigError<'a>> {
         use LuaConfigError::*;
 
-        let root = lua.create_table().unwrap();
+        let root = lua.create_table().map_err(LuaScriptError)?;
 
+        // Must prepend the global "root" value assignment because of the way we define the config root Lua table
+        // (similar to JSON).
         let script =
             std::iter::once(b"root = " as &[u8]).chain(std::iter::once(script).map(str::as_bytes));
 
         lua.load_ex(script)
             .set_environment(root.clone())
-            .unwrap()
+            .map_err(LuaScriptError)?
             .exec()
             .map_err(LuaScriptError)?;
 
-        let root = root.get("root").unwrap();
+        // Must succeed.
+        let root = unwrap_unchecked(root.get("root"));
 
         Self::from_table(lua, root)
     }
@@ -86,7 +92,10 @@ impl<'lua> LuaConfig<'lua> {
     /// [`Lua state`]: https://docs.rs/rlua/*/rlua/struct.Lua.html
     /// [`destroy`]: struct.LuaConfigKey.html#method.destroy
     pub fn key(self, lua: rlua::Context<'lua>) -> LuaConfigKey {
-        LuaConfigKey(lua.create_registry_value((self.0).0).unwrap())
+        LuaConfigKey(
+            lua.create_registry_value((self.0).0)
+                .expect("failed to create a Lua registry value"),
+        )
     }
 
     /// Tries to serialize this [`config`] to a Lua script string.
@@ -189,31 +198,29 @@ impl<'lua> LuaConfig<'lua> {
     ) {
         use Value::*;
 
-        match value {
-            Bool(value) => {
-                dyn_table.set(key, Value::Bool(value)).unwrap();
-            }
-            I64(value) => {
-                dyn_table.set(key, Value::I64(value)).unwrap();
-            }
-            F64(value) => {
-                dyn_table.set(key, Value::F64(value)).unwrap();
-            }
-            String(value) => {
-                dyn_table
-                    .set(key, Value::String(value.as_ref().into()))
-                    .unwrap();
-            }
+        // Must succeed - we are only adding values to the dyn table.
+        if let Ok(already_existed) = match value {
+            Bool(value) => dyn_table.set(key, Value::Bool(value)),
+            I64(value) => dyn_table.set(key, Value::I64(value)),
+            F64(value) => dyn_table.set(key, Value::F64(value)),
+            String(value) => dyn_table.set(key, Value::String(value.as_ref().into())),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set(key, Value::Array(array)).unwrap();
+                dyn_table.set(key, Value::Array(array))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set(key, Value::Table(table)).unwrap();
+                dyn_table.set(key, Value::Table(table))
             }
+        } {
+            debug_assert!(
+                !already_existed,
+                "value unexpectedly already existed in the table"
+            );
+        } else {
+            debug_unreachable()
         }
     }
 
@@ -224,31 +231,24 @@ impl<'lua> LuaConfig<'lua> {
     ) {
         use Value::*;
 
-        match value {
-            Bool(value) => {
-                dyn_array.push(Value::Bool(value)).unwrap();
-            }
-            I64(value) => {
-                dyn_array.push(Value::I64(value)).unwrap();
-            }
-            F64(value) => {
-                dyn_array.push(Value::F64(value)).unwrap();
-            }
-            String(value) => {
-                dyn_array
-                    .push(Value::String(value.as_ref().to_owned()))
-                    .unwrap();
-            }
+        // Must succeed - we are adding values of the same type to the dyn array.
+        if let Err(_) = match value {
+            Bool(value) => dyn_array.push(Value::Bool(value)),
+            I64(value) => dyn_array.push(Value::I64(value)),
+            F64(value) => dyn_array.push(Value::F64(value)),
+            String(value) => dyn_array.push(Value::String(value.as_ref().to_owned())),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_array.push(Value::Array(array)).unwrap();
+                dyn_array.push(Value::Array(array))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_array.push(Value::Table(table)).unwrap();
+                dyn_array.push(Value::Table(table))
             }
+        } {
+            debug_unreachable()
         }
     }
 }
@@ -329,8 +329,8 @@ fn table_to_bin_config(
     for key in keys.into_iter() {
         let key_str = key.as_ref();
 
-        // Must succeed.
-        let value = table.get(key_str).unwrap();
+        // Must succeed - all keys are valid.
+        let value = unwrap_unchecked(table.get(key_str));
 
         value_to_bin_config(Some(key_str), value, writer)?;
     }

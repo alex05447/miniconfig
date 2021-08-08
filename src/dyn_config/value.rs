@@ -53,6 +53,19 @@ impl Display for DynConfigValue {
 /// [`table`]: struct.DynTable.html
 pub type DynConfigValueRef<'at> = Value<&'at str, &'at DynArray, &'at DynTable>;
 
+impl<'at> From<&'at Value<String, DynArray, DynTable>> for DynConfigValueRef<'at> {
+    fn from(value: &'at Value<String, DynArray, DynTable>) -> Self {
+        match value {
+            Value::Bool(value) => Value::Bool(*value),
+            Value::I64(value) => Value::I64(*value),
+            Value::F64(value) => Value::F64(*value),
+            Value::String(value) => Value::String(value.as_str()),
+            Value::Array(value) => Value::Array(value),
+            Value::Table(value) => Value::Table(value),
+        }
+    }
+}
+
 impl<'at> DynConfigValueRef<'at> {
     pub(crate) fn get_path<'a, K, P>(self, mut path: P) -> Result<Self, GetPathError<'a>>
     where
@@ -117,6 +130,19 @@ impl<'a> Display for DynConfigValueRef<'a> {
 /// [`array`]: struct.DynArray.html
 /// [`table`]: struct.DynTable.html
 pub type DynConfigValueMut<'at> = Value<&'at str, &'at mut DynArray, &'at mut DynTable>;
+
+impl<'at> From<&'at mut Value<String, DynArray, DynTable>> for DynConfigValueMut<'at> {
+    fn from(value: &'at mut Value<String, DynArray, DynTable>) -> Self {
+        match value {
+            Value::Bool(value) => Value::Bool(*value),
+            Value::I64(value) => Value::I64(*value),
+            Value::F64(value) => Value::F64(*value),
+            Value::String(value) => Value::String(value.as_str()),
+            Value::Array(value) => Value::Array(value),
+            Value::Table(value) => Value::Table(value),
+        }
+    }
+}
 
 impl<'at> DynConfigValueMut<'at> {
     pub(crate) fn get_path<'a, K, P>(self, mut path: P) -> Result<Self, GetPathError<'a>>

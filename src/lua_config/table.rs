@@ -4,7 +4,7 @@ use {
         ValueFromLuaValueError,
     },
     crate::{
-        util::{write_lua_key, DisplayLua},
+        util::{debug_unreachable, unwrap_unchecked, write_lua_key, DisplayLua},
         ConfigKey, GetPathError, LuaArray, LuaConfigValue, LuaString, NonEmptyStr, TableError,
         Value, ValueType,
     },
@@ -392,6 +392,23 @@ impl<'lua> LuaTable<'lua> {
         })
     }
 
+    /// The caller guarantees `key` and `value` are valid.
+    fn set_table_value<'s>(
+        table: &rlua::Table<'lua>,
+        key: &str,
+        value: Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
+    ) {
+        // Must succeed - key and value are valid.
+        unwrap_unchecked(match value {
+            Value::Bool(value) => table.raw_set(key, value),
+            Value::F64(value) => table.raw_set(key, value),
+            Value::I64(value) => table.raw_set(key, value),
+            Value::String(value) => table.raw_set(key, value),
+            Value::Array(value) => table.raw_set(key, value.0),
+            Value::Table(value) => table.raw_set(key, value.0),
+        });
+    }
+
     fn set_impl<'s>(
         &mut self,
         key: &str,
@@ -407,14 +424,7 @@ impl<'lua> LuaTable<'lua> {
 
         // Add or modify a value - always succeeds.
         if let Some(value) = value {
-            match value {
-                Value::Bool(value) => self.0.set(key, value).unwrap(),
-                Value::F64(value) => self.0.set(key, value).unwrap(),
-                Value::I64(value) => self.0.set(key, value).unwrap(),
-                Value::String(value) => self.0.set(key, value).unwrap(),
-                Value::Array(value) => self.0.set(key, value.0).unwrap(),
-                Value::Table(value) => self.0.set(key, value.0).unwrap(),
-            }
+            Self::set_table_value(&self.0, key, value);
 
             // Change table length on value added.
             if !contains_key {
@@ -426,7 +436,8 @@ impl<'lua> LuaTable<'lua> {
         // (Try to) remove a value.
         // Succeeds if key existed.
         } else if contains_key {
-            self.0.set(key, rlua::Value::Nil).unwrap();
+            // Must succeed.
+            unwrap_unchecked(self.0.raw_set(key, rlua::Value::Nil));
 
             // Change table length on value removed.
             let len = self.len_impl();
@@ -467,8 +478,8 @@ impl<'lua> LuaTable<'lua> {
             write_lua_key(f, key)?;
             " = ".fmt(f)?;
 
-            // Must succeed.
-            let value = self.get(key).unwrap();
+            // Must succeed - all keys are valid.
+            let value = unwrap_unchecked(self.get(key));
 
             let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
@@ -505,8 +516,9 @@ impl<'lua> LuaTable<'lua> {
 
         // Sort the keys in alphabetical order, non-tables first.
         keys.sort_by(|l, r| {
-            let l_val = self.get(l.as_ref()).unwrap();
-            let r_val = self.get(r.as_ref()).unwrap();
+            // Must succeed - all keys are valid.
+            let l_val = unwrap_unchecked(self.get(l.as_ref()));
+            let r_val = unwrap_unchecked(self.get(r.as_ref()));
 
             let l_is_a_table = l_val.get_type() == ValueType::Table;
             let r_is_a_table = r_val.get_type() == ValueType::Table;
@@ -528,8 +540,8 @@ impl<'lua> LuaTable<'lua> {
 
             let key = unsafe { NonEmptyStr::new_unchecked(key.as_ref()) };
 
-            // Must succeed.
-            let value = self.get(key).unwrap();
+            // Must succeed - all keys are valid.
+            let value = unwrap_unchecked(self.get(key));
 
             match value {
                 Value::Array(value) => {
@@ -584,14 +596,15 @@ impl<'lua> std::iter::Iterator for LuaTableIter<'lua> {
                 let key = if let rlua::Value::String(key) = key {
                     LuaString::new(key)
                 } else {
-                    unreachable!();
+                    debug_unreachable();
                 };
 
-                // Must succeed.
-                let value = value_from_lua_value(value).unwrap();
+                // Must succeed - the table only contains valid values.
+                let value = unwrap_unchecked(value_from_lua_value(value));
 
                 Some((key, value))
             } else {
+                debug_assert!(false, "unexpected error when iterating a Lua table");
                 None // Stop on iteration error (this should never happen?).
             }
         } else {

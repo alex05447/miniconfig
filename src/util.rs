@@ -8,6 +8,7 @@ use std::convert::From;
 use std::{
     borrow::Cow,
     fmt::{Display, Formatter},
+    ops::Deref,
 };
 
 #[cfg(feature = "bin")]
@@ -167,14 +168,8 @@ fn is_lua_identifier_char(c: char, first: bool) -> bool {
 /// Lua identifiers start with an ASCII letter and may contain ASCII letters, digits and underscores.
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 fn is_lua_identifier_key<'k>(key: NonEmptyStr<'k>) -> bool {
-    let mut chars = key.as_ref().chars();
-
-    if !is_lua_identifier_char(chars.next().unwrap(), true) {
-        return false;
-    }
-
-    for c in chars {
-        if !is_lua_identifier_char(c, false) {
+    for (idx, key_char) in key.as_ref().chars().enumerate() {
+        if !is_lua_identifier_char(key_char, idx == 0) {
             return false;
         }
     }
@@ -183,7 +178,7 @@ fn is_lua_identifier_key<'k>(key: NonEmptyStr<'k>) -> bool {
 }
 
 /// A non-empty string slice.
-/// Implements `AsRef<str>`.
+/// Implements `AsRef<str>`, `Deref<Target = str>`.
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NonEmptyStr<'s>(&'s str);
@@ -203,6 +198,7 @@ impl<'s> NonEmptyStr<'s> {
     }
 
     pub(crate) unsafe fn new_unchecked(string: &'s str) -> Self {
+        debug_assert!(!string.is_empty());
         Self(string)
     }
 }
@@ -210,6 +206,15 @@ impl<'s> NonEmptyStr<'s> {
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
 impl<'s> AsRef<str> for NonEmptyStr<'s> {
     fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
+impl<'s> Deref for NonEmptyStr<'s> {
+    type Target = str;
+
+    fn deref(&self) -> &str {
         self.0
     }
 }
@@ -427,4 +432,46 @@ impl<'a> Display for ConfigPath<'a> {
 #[cfg(all(test, any(feature = "bin", feature = "dyn", feature = "lua")))]
 pub(crate) fn cmp_f64(l: f64, r: f64) -> bool {
     (l - r).abs() < 0.000_001
+}
+
+/// `unreachable!()` in debug to `panic!()` and catch the logic error,
+/// `std::hint::unreachable_unchecked()` in release to avoid unnecessary `panic!()` codegen.
+pub(crate) fn debug_unreachable() -> ! {
+    if cfg!(debug_assertions) {
+        unreachable!()
+    } else {
+        unsafe { std::hint::unreachable_unchecked() }
+    }
+}
+
+/// A helper trait to perfrom unwrapping of `Option`'s / `Result`'s
+/// which are known to be `Some` / `Ok`.
+/// Unlike the (currently unstable) `.unwrap_unchecked()` method on `Option`'s / `Result`'s,
+/// this uses `unreachable!()` in debug configuration and `std::hint::unreachable_unchecked()` in release configuration.
+pub(crate) trait UnwrapUnchecked<T> {
+    fn unwrap_unchecked(self) -> T;
+}
+
+impl<T> UnwrapUnchecked<T> for Option<T> {
+    fn unwrap_unchecked(self) -> T {
+        if let Some(val) = self {
+            val
+        } else {
+            debug_unreachable()
+        }
+    }
+}
+
+impl<T, E> UnwrapUnchecked<T> for Result<T, E> {
+    fn unwrap_unchecked(self) -> T {
+        if let Ok(val) = self {
+            val
+        } else {
+            debug_unreachable()
+        }
+    }
+}
+
+pub(crate) fn unwrap_unchecked<U: UnwrapUnchecked<T>, T>(option_or_result: U) -> T {
+    option_or_result.unwrap_unchecked()
 }

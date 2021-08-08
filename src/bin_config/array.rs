@@ -1,8 +1,8 @@
 use {
     super::{array_or_table::BinArrayOrTable, value::BinConfigUnpackedValue},
     crate::{
-        util::DisplayLua, BinArrayError, BinConfigValue, BinTable, ConfigKey, GetPathError, Value,
-        ValueType,
+        util::{unwrap_unchecked, DisplayLua},
+        BinArrayError, BinConfigValue, BinTable, ConfigKey, GetPathError, Value, ValueType,
     },
     std::{
         borrow::Borrow,
@@ -401,8 +401,8 @@ impl<'a> Iterator for BinArrayIter<'a> {
         if index < self.array.len() {
             self.index += 1;
 
-            // Must succeed.
-            Some(self.array.get(index).unwrap())
+            // Must succeed - all indices are valid.
+            Some(unwrap_unchecked(self.array.get(index)))
         } else {
             None
         }

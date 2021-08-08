@@ -1,5 +1,5 @@
 use {
-    crate::{ConfigKey, ConfigPath},
+    crate::{util::unwrap_unchecked, ConfigKey, ConfigPath},
     rlua::Value as LuaValue,
     rlua_ext,
     std::{
@@ -195,10 +195,8 @@ impl Display for LuaConfigKeyError {
 pub(super) fn config_key_from_lua_value<'a>(key: LuaValue<'_>) -> ConfigKey<'a> {
     match key {
         LuaValue::String(key) => ConfigKey::Table(
-            key.to_str()
-                .expect("expected a valid string Lua table / array key")
-                .to_owned()
-                .into(),
+            // Must succeed - keys are valid strings or integers.
+            unwrap_unchecked(key.to_str()).to_owned().into(),
         ),
         LuaValue::Integer(key) => {
             debug_assert!(key > 0);

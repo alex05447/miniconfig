@@ -1,5 +1,8 @@
 use {
-    crate::{util::DisplayLua, DynTable},
+    crate::{
+        util::{unwrap_unchecked, DisplayLua},
+        DynTable,
+    },
     std::fmt::{Display, Formatter, Write},
 };
 
@@ -8,10 +11,11 @@ use crate::{BinConfigWriter, BinConfigWriterError, DynConfigValueRef};
 
 #[cfg(feature = "ini")]
 use crate::{
-    ConfigKey, DisplayIni, IniConfig, IniError, IniParser, IniPath, IniValue, NonEmptyStr,
-    ToIniStringError, ToIniStringOptions,
+    ArrayError, ConfigKey, DisplayIni, IniConfig, IniError, IniParser, IniPath, IniValue,
+    NonEmptyStr, ToIniStringError, ToIniStringOptions,
 };
 
+use crate::debug_unreachable;
 #[cfg(any(feature = "bin", feature = "ini"))]
 use crate::{DynArray, Value};
 
@@ -140,7 +144,10 @@ impl IniConfig for DynConfig {
     ) -> bool {
         let table = match self.root().get_table_path(path.map(ConfigKey::from)) {
             Ok(table) => table,
-            Err(_) => return false,
+            Err(_) => {
+                debug_assert!(false, "invalid section path");
+                return false;
+            }
         };
 
         table.get_table(section).is_ok()
@@ -150,17 +157,27 @@ impl IniConfig for DynConfig {
         &mut self,
         section: NonEmptyStr<'s>,
         path: P,
-        _overwrite: bool,
+        overwrite: bool,
     ) {
         let table = match self
             .root_mut()
             .get_table_mut_path(path.map(ConfigKey::from))
         {
             Ok(table) => table,
-            Err(_) => return,
+            Err(_) => {
+                debug_assert!(false, "invalid section path");
+                return;
+            }
         };
 
-        table.set(section, Value::Table(DynTable::new())).unwrap();
+        if let Ok(already_existed) = table.set_impl(section, Some(Value::Table(DynTable::new()))) {
+            debug_assert!(
+                overwrite == already_existed,
+                "overwrite flag mismatch when adding a section"
+            );
+        } else {
+            debug_unreachable()
+        }
     }
 
     fn contains_key<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
@@ -170,10 +187,13 @@ impl IniConfig for DynConfig {
     ) -> bool {
         let table = match self.root().get_table_path(path.map(ConfigKey::from)) {
             Ok(table) => table,
-            Err(_) => return false,
+            Err(_) => {
+                debug_assert!(false, "invalid key path");
+                return false;
+            }
         };
 
-        table.contains(key)
+        table.get_impl(key).is_ok()
     }
 
     fn add_value<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
@@ -181,23 +201,32 @@ impl IniConfig for DynConfig {
         path: P,
         key: NonEmptyStr<'s>,
         value: IniValue<&str>,
-        _overwrite: bool,
+        overwrite: bool,
     ) {
         let table = match self
             .root_mut()
             .get_table_mut_path(path.map(ConfigKey::from))
         {
             Ok(table) => table,
-            Err(_) => return,
+            Err(_) => {
+                debug_assert!(false, "invalid value path");
+                return;
+            }
         };
 
-        match value {
+        if let Ok(already_existed) = match value {
             IniValue::Bool(value) => table.set(key, Value::Bool(value)),
             IniValue::I64(value) => table.set(key, Value::I64(value)),
             IniValue::F64(value) => table.set(key, Value::F64(value)),
             IniValue::String(value) => table.set(key, Value::String(value.into())),
+        } {
+            debug_assert!(
+                overwrite == already_existed,
+                "overwrite flag mismatch when adding a value"
+            );
+        } else {
+            debug_unreachable()
         }
-        .unwrap();
     }
 
     fn add_array<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
@@ -205,30 +234,46 @@ impl IniConfig for DynConfig {
         path: P,
         key: NonEmptyStr<'s>,
         array: Vec<IniValue<String>>,
-        _overwrite: bool,
+        overwrite: bool,
     ) {
         let table = match self
             .root_mut()
             .get_table_mut_path(path.map(ConfigKey::from))
         {
             Ok(table) => table,
-            Err(_) => return,
+            Err(_) => {
+                debug_assert!(false, "invalid array path");
+                return;
+            }
         };
 
         let mut dyn_array = DynArray::new();
 
         for value in array.into_iter() {
-            dyn_array
-                .push(match value {
-                    IniValue::Bool(value) => Value::Bool(value),
-                    IniValue::I64(value) => Value::I64(value),
-                    IniValue::F64(value) => Value::F64(value),
-                    IniValue::String(value) => Value::String(value),
-                })
-                .unwrap();
+            match dyn_array.push(match value {
+                IniValue::Bool(value) => Value::Bool(value),
+                IniValue::I64(value) => Value::I64(value),
+                IniValue::F64(value) => Value::F64(value),
+                IniValue::String(value) => Value::String(value),
+            }) {
+                Ok(_) => {}
+                Err(err) => match err {
+                    ArrayError::IncorrectValueType(_) => {
+                        debug_assert!(false, "mixed type array values")
+                    }
+                    ArrayError::IndexOutOfBounds(_) | ArrayError::ArrayEmpty => debug_unreachable(),
+                },
+            }
         }
 
-        table.set(key, Value::Array(dyn_array)).unwrap();
+        if let Ok(already_existed) = table.set_impl(key, Some(Value::Array(dyn_array))) {
+            debug_assert!(
+                overwrite == already_existed,
+                "overwrite flag mismatch when adding an array"
+            );
+        } else {
+            debug_unreachable()
+        }
     }
 }
 
@@ -246,8 +291,8 @@ fn table_to_bin_config(
 
     // Iterate the table using the sorted keys.
     for key in keys.into_iter() {
-        // Must succeed.
-        let value = table.get(key).unwrap();
+        // Must succeed - all keys are valid.
+        let value = unwrap_unchecked(table.get(key));
 
         value_to_bin_config(Some(key.as_ref()), value, writer)?;
     }

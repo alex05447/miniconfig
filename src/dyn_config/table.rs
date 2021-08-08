@@ -1,6 +1,6 @@
 use {
     crate::{
-        util::{write_lua_key, DisplayLua},
+        util::{debug_unreachable, unwrap_unchecked, write_lua_key, DisplayLua},
         ConfigKey, DynArray, DynConfigValue, DynConfigValueMut, DynConfigValueRef, GetPathError,
         NonEmptyStr, TableError, Value, ValueType,
     },
@@ -57,6 +57,7 @@ impl DynTable {
     }
 
     /// Returns `true` if the [`table`] contains a [`value`] with the (non-empty) string `key`.
+    /// Returns `false` if the `key` is empty.
     ///
     /// [`table`]: struct.DynTable.html
     /// [`value`]: type.DynConfigValueRef.html
@@ -67,7 +68,7 @@ impl DynTable {
             Ok(_) => true,
             Err(err) => match err {
                 EmptyKey | KeyDoesNotExist => false,
-                IncorrectValueType(_) => unreachable!(),
+                IncorrectValueType(_) => debug_unreachable(),
             },
         }
     }
@@ -80,7 +81,8 @@ impl DynTable {
     /// [`table`]: struct.DynTable.html
     /// [`error`]: enum.TableError.html
     pub fn get<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'_>, TableError> {
-        self.get_impl(NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?)
+        let key = NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?;
+        self.get_impl(key)
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] at `path`.
@@ -363,7 +365,8 @@ impl DynTable {
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
     pub fn get_mut<K: AsRef<str>>(&mut self, key: K) -> Result<DynConfigValueMut<'_>, TableError> {
-        self.get_mut_impl(key.as_ref())
+        let key = NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?;
+        self.get_mut_impl(key)
     }
 
     /// Tries to get a mutable reference to a [`value`] in the [`table`] at `path`.
@@ -501,97 +504,84 @@ impl DynTable {
     }
 
     /// If [`value`] is `Some`, inserts or changes the value at (non-empty) string `key`.
+    /// Returns `true` if the value at `key` already existed and was modified.
+    /// Returns `false` if the value at `key` did not exist and was added.
     ///
     /// If [`value`] is `None`, tries to remove the value at `key`.
-    /// Returns an [`error`] if the `key` does not exist in this case.
+    /// Returns an [`error`] if the value at `key` did not exist,
+    /// otherwise returns `true`.
+    ///
+    /// Returns an [`error`] if the the `key` is empty.
     ///
     /// [`value`]: type.DynConfigValue.html
     /// [`error`]: enum.TableError.html
-    pub fn set<K, V>(&mut self, key: K, value: V) -> Result<(), TableError>
+    pub fn set<K, V>(&mut self, key: K, value: V) -> Result<bool, TableError>
     where
         K: AsRef<str>,
         V: Into<Option<DynConfigValue>>,
     {
-        self.set_impl(key.as_ref(), value.into())
+        let key = NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?;
+        self.set_impl(key, value.into())
     }
 
     fn len_impl(&self) -> u32 {
         self.0.len() as u32
     }
 
-    fn get_impl<'k>(&self, key: NonEmptyStr<'k>) -> Result<DynConfigValueRef<'_>, TableError> {
+    pub(crate) fn get_impl<'k>(
+        &self,
+        key: NonEmptyStr<'k>,
+    ) -> Result<DynConfigValueRef<'_>, TableError> {
         use TableError::*;
 
         if let Some(value) = self.0.get(key.as_ref()) {
-            let value = match value {
-                Value::Bool(value) => Value::Bool(*value),
-                Value::I64(value) => Value::I64(*value),
-                Value::F64(value) => Value::F64(*value),
-                Value::String(value) => Value::String(value.as_str()),
-                Value::Array(value) => Value::Array(value),
-                Value::Table(value) => Value::Table(value),
-            };
-
-            Ok(value)
+            Ok(value.into())
         } else {
             Err(KeyDoesNotExist)
         }
     }
 
-    fn set_impl(&mut self, key: &str, value: Option<DynConfigValue>) -> Result<(), TableError> {
+    /// When adding or modifying a value (`value` is `Some`), returns `true` if the value at `key` already existed and was modified,
+    /// `false` if the value did not exist and was added.
+    /// When removing an existing value (`value` is `None`), returns `true`.
+    pub(crate) fn set_impl<'k>(
+        &mut self,
+        key: NonEmptyStr<'k>,
+        value: Option<DynConfigValue>,
+    ) -> Result<bool, TableError> {
         use TableError::*;
-
-        if key.is_empty() {
-            return Err(EmptyKey);
-        }
 
         // Add or modify a value - always succeeds.
         if let Some(value) = value {
-            let value = match value {
-                Value::Bool(value) => Value::Bool(value),
-                Value::I64(value) => Value::I64(value),
-                Value::F64(value) => Value::F64(value),
-                Value::String(value) => Value::String(value),
-                Value::Array(value) => Value::Array(value),
-                Value::Table(value) => Value::Table(value),
-            };
-
             // Modify.
-            if let Some(cur_value) = self.0.get_mut(key) {
+            if let Some(cur_value) = self.0.get_mut(key.as_ref()) {
                 *cur_value = value;
+                Ok(true)
 
             // Add.
             } else {
-                self.0.insert(key.to_owned(), value);
+                self.0.insert(key.as_ref().to_owned(), value);
+                Ok(false)
             }
 
         // (Try to) remove a value.
         // Succeeds if key existed.
-        } else if self.0.remove(key).is_none() {
-            return Err(KeyDoesNotExist);
+        } else {
+            match self.0.remove(key.as_ref()) {
+                None => Err(KeyDoesNotExist),
+                Some(_) => Ok(true),
+            }
         }
-
-        Ok(())
     }
 
-    fn get_mut_impl(&mut self, key: &str) -> Result<DynConfigValueMut<'_>, TableError> {
+    fn get_mut_impl<'k>(
+        &mut self,
+        key: NonEmptyStr<'k>,
+    ) -> Result<DynConfigValueMut<'_>, TableError> {
         use TableError::*;
 
-        if key.is_empty() {
-            return Err(EmptyKey);
-        }
-
-        if let Some(value) = self.0.get_mut(key) {
-            let value = match value {
-                Value::Bool(value) => Value::Bool(*value),
-                Value::I64(value) => Value::I64(*value),
-                Value::F64(value) => Value::F64(*value),
-                Value::String(value) => Value::String(value.as_str()),
-                Value::Array(value) => Value::Array(value),
-                Value::Table(value) => Value::Table(value),
-            };
-
-            Ok(value)
+        if let Some(value) = self.0.get_mut(key.as_ref()) {
+            Ok(value.into())
         } else {
             Err(KeyDoesNotExist)
         }
@@ -613,8 +603,8 @@ impl DynTable {
             write_lua_key(f, key)?;
             " = ".fmt(f)?;
 
-            // Must succeed.
-            let value = self.get(key).unwrap();
+            // Must succeed - all keys are valid.
+            let value = unwrap_unchecked(self.get(key));
 
             let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
@@ -651,8 +641,9 @@ impl DynTable {
 
         // Sort the keys in alphabetical order, non-tables first.
         keys.sort_by(|l, r| {
-            let l_val = self.get(*l).unwrap();
-            let r_val = self.get(*r).unwrap();
+            // Must succeed - all keys are valid.
+            let l_val = unwrap_unchecked(self.get(*l));
+            let r_val = unwrap_unchecked(self.get(*r));
 
             let l_is_a_table = l_val.get_type() == ValueType::Table;
             let r_is_a_table = r_val.get_type() == ValueType::Table;
@@ -672,8 +663,8 @@ impl DynTable {
         for (key_index, key) in keys.into_iter().enumerate() {
             let last = key_index == len - 1;
 
-            // Must succeed.
-            let value = self.get(key).unwrap();
+            // Must succeed - all keys are valid.
+            let value = unwrap_unchecked(self.get(key));
 
             match value {
                 Value::Array(value) => {

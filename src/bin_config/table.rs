@@ -1,7 +1,7 @@
 use {
     super::{array_or_table::BinArrayOrTable, value::BinConfigUnpackedValue},
     crate::{
-        util::{write_lua_key, DisplayLua},
+        util::{unwrap_unchecked, write_lua_key, DisplayLua},
         BinArray, BinConfigValue, ConfigKey, GetPathError, NonEmptyStr, TableError, TableKey,
         Value, ValueType,
     },
@@ -507,8 +507,8 @@ impl<'t> BinTable<'t> {
             write_lua_key(f, key)?;
             " = ".fmt(f)?;
 
-            // Must succeed.
-            let value = self.get_str(key).unwrap();
+            // Must succeed - all keys are valid.
+            let value = unwrap_unchecked(self.get_str(key));
 
             let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
@@ -545,8 +545,9 @@ impl<'t> BinTable<'t> {
 
         // Sort the keys in alphabetical order, non-tables first.
         keys.sort_by(|&l, &r| {
-            let l_val = self.get_str(l).unwrap();
-            let r_val = self.get_str(r).unwrap();
+            // Must succeed - all keys are valid.
+            let l_val = unwrap_unchecked(self.get_str(l));
+            let r_val = unwrap_unchecked(self.get_str(r));
 
             let l_is_a_table = l_val.get_type() == ValueType::Table;
             let r_is_a_table = r_val.get_type() == ValueType::Table;
@@ -566,8 +567,8 @@ impl<'t> BinTable<'t> {
         for (key_index, key) in keys.into_iter().enumerate() {
             let last = key_index == len - 1;
 
-            // Must succeed.
-            let value = self.get_str(key).unwrap();
+            // Must succeed - all keys are valid.
+            let value = unwrap_unchecked(self.get_str(key));
 
             match value {
                 Value::Array(value) => {

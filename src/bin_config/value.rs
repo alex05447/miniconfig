@@ -5,6 +5,7 @@ use {
         util::{u32_from_bin, u32_to_bin, u64_from_bin, u64_to_bin, StringHash},
     },
     crate::{
+        util::unwrap_unchecked,
         value::{value_type_from_u32, value_type_to_u32},
         BinArrayError, ConfigKey, ConfigPath, DisplayLua, GetPathError, TableError, Value,
         ValueType,
@@ -33,14 +34,14 @@ const KEY_INDEX_MASK: u32 = ((1 << KEY_INDEX_BITS) - 1) << KEY_INDEX_OFFSET;
 const MAX_KEY_INDEX: u32 = KEY_INDEX_MASK >> KEY_INDEX_OFFSET;
 
 /// Number of bits in `type_and_key_index` we use for value type.
-const TYPE_BITS2: u32 = 4;
+const TYPE_BITS: u32 = 4;
 
-const TYPE_OFFSET2: u32 = KEY_INDEX_OFFSET + KEY_INDEX_BITS;
+const TYPE_OFFSET: u32 = KEY_INDEX_OFFSET + KEY_INDEX_BITS;
 
 /// Read/write mask for type bits in `type_and_key_index`.
-const TYPE_MASK2: u32 = ((1 << TYPE_BITS2) - 1) << TYPE_OFFSET2;
+const TYPE_MASK: u32 = ((1 << TYPE_BITS) - 1) << TYPE_OFFSET;
 
-const_assert!(KEY_INDEX_BITS + TYPE_BITS2 == (std::mem::size_of::<u32>() as u32) * 8);
+const_assert!(KEY_INDEX_BITS + TYPE_BITS == (std::mem::size_of::<u32>() as u32) * 8);
 
 // |--   offset   --|--   length   --|
 // |--   32 bits  --|--   32 bits  --|
@@ -205,21 +206,19 @@ impl BinConfigPackedValue {
     /// Tries to unpack and load this value's type.
     /// Fails if it's not a valid value type.
     pub(super) fn try_value_type(&self) -> Option<ValueType> {
-        let value_type = (self.type_and_key_index() & TYPE_MASK2) >> TYPE_OFFSET2;
+        let value_type = (self.type_and_key_index() & TYPE_MASK) >> TYPE_OFFSET;
 
         value_type_from_u32(value_type)
     }
 
     /// Unpacks this value's type.
-    /// NOTE - panics if it's not a valid value type.
+    /// NOTE - the caller guarantees the value type is valid.
     pub(super) fn value_type(&self) -> ValueType {
-        self.try_value_type()
-            .expect("invalid binary config value type")
+        unwrap_unchecked(self.try_value_type())
     }
 
     fn set_value_type_and_key_index(&mut self, value_type: ValueType, key_index: u32) {
-        let type_and_key_index = ((value_type_to_u32(Some(value_type)) << TYPE_OFFSET2)
-            & TYPE_MASK2)
+        let type_and_key_index = ((value_type_to_u32(Some(value_type)) << TYPE_OFFSET) & TYPE_MASK)
             | (key_index & KEY_INDEX_MASK);
 
         self.set_type_and_key_index(type_and_key_index);
@@ -238,10 +237,9 @@ impl BinConfigPackedValue {
     }
 
     /// Unpacks and interprets this value as a `bool`.
-    /// NOTE - panics if value is not `0` or `1`.
+    /// NOTE - the caller guarantees the value is `0` or `1`.
     fn bool(&self) -> bool {
-        self.try_bool()
-            .expect("invalid binary config boolean value")
+        unwrap_unchecked(self.try_bool())
     }
 
     /// Unpacks and interprets this value as an `i64`.

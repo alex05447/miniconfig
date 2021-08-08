@@ -141,7 +141,10 @@ fn InvalidCharacterInSectionName() {
     let ini = dyn_config("[\\t\\ \\n]"); // Escaped whitespace in section.
     assert_eq!(ini.root().get_table("\t \n").unwrap().len(), 0);
 
-    let ini = dyn_config("[\\x0066\\x006f\\x006f]"); // Unicode in section ("foo").
+    let ini = dyn_config("[\\x66\\x6f\\x6f]"); // Hexadecimal ASCII escape sequence in section ("foo").
+    assert_eq!(ini.root().get_table("foo").unwrap().len(), 0);
+
+    let ini = dyn_config("[\\u0066\\u006f\\u006f]"); // Hexadecimal Unicode escape sequence in section ("foo").
     assert_eq!(ini.root().get_table("foo").unwrap().len(), 0);
 
     let ini = dyn_config("[\t\"a \" ]"); // Whitespace in quoted section name.
@@ -601,7 +604,10 @@ fn InvalidCharacterInKey() {
     let ini = dyn_config("a\\t=3.14"); // Escaped whitespace in key.
     assert!(cmp_f64(ini.root().get_f64("a\t").unwrap(), 3.14));
 
-    let ini = dyn_config("\\x0066\\x006f\\x006f=\"bar\""); // Unicode in key ("foo").
+    let ini = dyn_config("\\x66\\x6f\\x6f=\"bar\""); // Hexadecimal ASCII escape sequence in key ("foo").
+    assert_eq!(ini.root().get_string("foo").unwrap(), "bar");
+
+    let ini = dyn_config("\\u0066\\u006f\\u006f=\"bar\""); // Hexadecimal Unicode escape sequence in key ("foo").
     assert_eq!(ini.root().get_string("foo").unwrap(), "bar");
 }
 
@@ -967,7 +973,10 @@ fn InvalidCharacterInValue() {
     .unwrap(); // Supported inline comments.
     assert_eq!(ini.root().get_string("a").unwrap(), "a");
 
-    let ini = dyn_config("foo=\\x0066\\x006f\\x006f"); // Unicode in value ("foo").
+    let ini = dyn_config("foo=\\x66\\x6f\\x6f"); // Hexadecimal ASCII escape sequence in value ("foo").
+    assert_eq!(ini.root().get_string("foo").unwrap(), "foo");
+
+    let ini = dyn_config("foo=\\u0066\\u006f\\u006f"); // Hexadecimal Unicode escape sequence in value ("foo").
     assert_eq!(ini.root().get_string("foo").unwrap(), "foo");
 
     let ini = dyn_config("a=\" \""); // Unescaped whitespace in quoted value.
@@ -1184,17 +1193,35 @@ fn InvalidEscapeCharacter() {
     let ini = dyn_config("a=\":\"");
     assert_eq!(ini.root().get_string("a").unwrap(), ":");
 
-    let ini = dyn_config("a=\\x00e4"); // ä
+    let ini = dyn_config("a=\\x40"); // @
+    assert_eq!(ini.root().get_string("a").unwrap(), "@");
+
+    let ini = dyn_config("a=\"\\x40\""); // @
+    assert_eq!(ini.root().get_string("a").unwrap(), "@");
+
+    let ini = dyn_config("a=\\u00e4"); // ä
     assert_eq!(ini.root().get_string("a").unwrap(), "ä");
 
-    let ini = dyn_config("a=\"\\x00e4\""); // ä
+    let ini = dyn_config("a=\"\\u00e4\""); // ä
     assert_eq!(ini.root().get_string("a").unwrap(), "ä");
+}
+
+#[test]
+fn UnexpectedEndOfFileInASCIIEscapeSequence() {
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\\x0")).err().unwrap(),
+        IniError {
+            line: 1,
+            column: 5,
+            error: IniErrorKind::UnexpectedEndOfFileInASCIIEscapeSequence
+        }
+    );
 }
 
 #[test]
 fn UnexpectedEndOfFileInUnicodeEscapeSequence() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\\x000"))
+        DynConfig::from_ini(IniParser::new("a=\\u000"))
             .err()
             .unwrap(),
         IniError {
@@ -1206,9 +1233,23 @@ fn UnexpectedEndOfFileInUnicodeEscapeSequence() {
 }
 
 #[test]
-fn UnexpectedNewLineInUnicodeEscapeSequence() {
+fn UnexpectedNewLineInASCIIEscapeSequence() {
     assert_eq!(
         DynConfig::from_ini(IniParser::new("a=\\x\n"))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::UnexpectedNewLineInASCIIEscapeSequence
+        }
+    );
+}
+
+#[test]
+fn UnexpectedNewLineInUnicodeEscapeSequence() {
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\\u\n"))
             .err()
             .unwrap(),
         IniError {
@@ -1220,9 +1261,23 @@ fn UnexpectedNewLineInUnicodeEscapeSequence() {
 }
 
 #[test]
+fn InvalidASCIIEscapeSequence() {
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\\x$?"))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 6,
+            error: IniErrorKind::InvalidASCIIEscapeSequence
+        }
+    );
+}
+
+#[test]
 fn InvalidUnicodeEscapeSequence() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\\xdfff"))
+        DynConfig::from_ini(IniParser::new("a=\\udfff"))
             .err()
             .unwrap(),
         IniError {
@@ -1478,11 +1533,16 @@ fn InvalidCharacterInArray() {
         "\""
     );
 
-    let ini =
-        DynConfig::from_ini(IniParser::new("a=[\\x0066\\x006f\\x006f]").arrays(true)).unwrap(); // Unicode in array value ("foo").
+    let ini = DynConfig::from_ini(IniParser::new("a=[\\x66\\x6f\\x6f]").arrays(true)).unwrap(); // Hexadecimal ASCII escape sequence in array value ("foo").
     assert_eq!(
         ini.root().get_array("a").unwrap().get_string(0).unwrap(),
         "foo"
+    );
+    let ini =
+        DynConfig::from_ini(IniParser::new("a=[\\u0066\\u00f6\\u00f6]").arrays(true)).unwrap(); // Hexadecimal Unicode escape sequence in array value ("föö").
+    assert_eq!(
+        ini.root().get_array("a").unwrap().get_string(0).unwrap(),
+        "föö"
     );
 
     let ini = DynConfig::from_ini(IniParser::new("a=[\" \"]").arrays(true)).unwrap(); // Unescaped whitespace in quoted array value.
@@ -1557,14 +1617,18 @@ fn UnexpectedEndOfFileInQuotedArrayValue() {
 fn basic() {
     let ini = r#"bool = true
 float = 3.14
-int = 7
+; hexadecimal
+int = +0x17
 ; "foo"
-string = "\x0066\x006f\x006f"
+string = "\x66\x6f\x6f"
+; "föö"
+unicode_string = "\u0066\u00f6\u00f6"
 array = [foo, bar, "baz",]
 
 ["other 'section'"]
 other_bool = true
-other_int = 7
+; octal
+other_int = -0o17
 other_float = 3.14
 other_string = "foo"
 
@@ -1575,12 +1639,13 @@ float = 7.62
 string = "bar""#;
 
     let config = DynConfig::from_ini(IniParser::new(ini).arrays(true)).unwrap();
-    assert_eq!(config.root().len(), 5 + 2);
+    assert_eq!(config.root().len(), 6 + 2);
 
     assert_eq!(config.root().get_bool("bool").unwrap(), true);
-    assert_eq!(config.root().get_i64("int").unwrap(), 7);
+    assert_eq!(config.root().get_i64("int").unwrap(), 23);
     assert!(cmp_f64(config.root().get_f64("float").unwrap(), 3.14));
     assert_eq!(config.root().get_string("string").unwrap(), "foo");
+    assert_eq!(config.root().get_string("unicode_string").unwrap(), "föö");
 
     let array = config.root().get_array("array").unwrap();
 
@@ -1600,7 +1665,7 @@ string = "bar""#;
     assert_eq!(other_section.len(), 4);
 
     assert_eq!(other_section.get_bool("other_bool").unwrap(), true);
-    assert_eq!(other_section.get_i64("other_int").unwrap(), 7);
+    assert_eq!(other_section.get_i64("other_int").unwrap(), -15);
     assert!(cmp_f64(other_section.get_f64("other_float").unwrap(), 3.14));
     assert_eq!(other_section.get_string("other_string").unwrap(), "foo");
 }
@@ -1741,7 +1806,7 @@ string = "baz""#;
 fn escape() {
     // With escape sequences supported.
     let ini = DynConfig::from_ini(
-        IniParser::new("[a\\ b]\n\"c\\t\" = '\\x0066\\x006f\\x006f'")
+        IniParser::new("[a\\ b]\n\"c\\t\" = '\\x66\\x6f\\x6f'")
             .string_quotes(IniStringQuote::Single | IniStringQuote::Double),
     )
     .unwrap();
@@ -1773,7 +1838,7 @@ fn escape() {
     // With escape sequences unsupported.
     assert_eq!(
         DynConfig::from_ini(
-            IniParser::new("[a\\ b]\n\"c\\t\" = '\\x0066\\x006f\\x006f'").escape(false)
+            IniParser::new("[a\\ b]\n\"c\\t\" = '\\u0066\\u006f\\u006f'").escape(false)
         )
         .err()
         .unwrap(),
@@ -1785,7 +1850,7 @@ fn escape() {
     );
 
     let ini = DynConfig::from_ini(
-        IniParser::new("[\"a\\ b\"]\n\"c\\t\" = '\\x0066\\x006f\\x006f'")
+        IniParser::new("[\"a\\ b\"]\n\"c\\t\" = '\\u0066\\u00f6\\u00f6'")
             .escape(false)
             .string_quotes(IniStringQuote::Single | IniStringQuote::Double),
     )
@@ -1797,10 +1862,10 @@ fn escape() {
             .unwrap()
             .get_string("c\\t")
             .unwrap(),
-        "\\x0066\\x006f\\x006f"
+        "\\u0066\\u00f6\\u00f6"
     );
 
-    let string = "[\"a\\ b\"]\n\"c\\t\" = \"\\x0066\\x006f\\x006f\"";
+    let string = "[\"a\\ b\"]\n\"c\\t\" = \"\\u0066\\u00f6\\u00f6\"";
 
     assert_ne!(ini.to_ini_string().unwrap(), string);
     assert_eq!(

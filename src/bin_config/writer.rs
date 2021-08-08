@@ -5,7 +5,7 @@ use {
         util::{string_hash_fnv1a, StringHash},
         value::{BinConfigPackedValue, BinTableKey, StringIndex},
     },
-    crate::{BinConfigWriterError, ValueType},
+    crate::{util::unwrap_unchecked, BinConfigWriterError, ValueType},
     std::{
         collections::{hash_map::Entry, HashMap},
         io::{Cursor, Seek, SeekFrom, Write},
@@ -168,7 +168,7 @@ impl BinConfigWriter {
 
         // Lookup or intern the string.
         let (_, string) =
-            Self::intern_string(&mut self.strings, None, &mut self.string_writer, value);
+            Self::intern_string(&mut self.strings, None, &mut self.string_writer, value)?;
 
         // Write the packed value.
         Self::write_value(
@@ -233,7 +233,8 @@ impl BinConfigWriter {
             return Err(EndCallMismatch);
         }
 
-        let parent = self.stack.pop().unwrap();
+        // Must succeed - stack is not empty.
+        let parent = unwrap_unchecked(self.stack.pop());
         let (len, cur_len) = (parent.len, parent.current_len);
 
         // Must have been full.
@@ -265,7 +266,8 @@ impl BinConfigWriter {
             return Err(UnfinishedArraysOrTables(self.stack.len() as u32 - 1));
         }
 
-        let root = self.stack.pop().unwrap();
+        // Must succeed - stack is not empty.
+        let root = unwrap_unchecked(self.stack.pop());
 
         // The root table must have been full.
         if root.current_len < root.len {
@@ -279,7 +281,9 @@ impl BinConfigWriter {
         let key_table_offset = self.data_offset;
         let key_table_len = self.key_table.len() as u32;
 
-        self.config_writer.seek(SeekFrom::Start(0)).unwrap();
+        self.config_writer
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| WriteError)?;
 
         BinConfigHeader::write(
             &mut self.config_writer,
@@ -401,10 +405,11 @@ impl BinConfigWriter {
                 }
 
                 // Lookup / intern the key string, return its hash and index in the string table.
-                let (hash, key) = Self::intern_string(strings, Some(key_table), string_writer, key);
+                let (hash, key) =
+                    Self::intern_string(strings, Some(key_table), string_writer, key)?;
 
-                // Must succeed.
-                let index = key.index.unwrap();
+                // Must succeed - table keys have a key table index.
+                let index = unwrap_unchecked(key.index);
 
                 if index > BinTableKey::max_index() {
                     return Err(TooManyKeys(BinTableKey::max_index()));
@@ -444,13 +449,14 @@ impl BinConfigWriter {
 
     /// Looks up the `string` in the string section.
     /// If not found, interns the string.
-    /// Returns its hash, offset / length w.r.t. the string section and its (optional) index in the key table.
+    /// Returns its hash, offset / length w.r.t. the string section and its (optional) index in the key table (if `key_table` is `Some`,
+    /// i.e. it is a key string).
     fn intern_string(
         strings: &mut HashMap<StringHash, Vec<BinConfigWriterString>>,
         mut key_table: Option<&mut Vec<InternedString>>,
         string_writer: &mut Vec<u8>,
         string: &str,
-    ) -> (StringHash, BinConfigWriterString) {
+    ) -> Result<(StringHash, BinConfigWriterString), BinConfigWriterError> {
         // Hash the string.
         let hash = string_hash_fnv1a(string);
 
@@ -459,13 +465,17 @@ impl BinConfigWriter {
             string_writer: &mut Vec<u8>,
             key_table: Option<&mut Vec<InternedString>>,
             string: &str,
-        ) -> BinConfigWriterString {
+        ) -> Result<BinConfigWriterString, BinConfigWriterError> {
+            use BinConfigWriterError::*;
+
             // Offset to the start of the string is the current length of the string writer.
             let offset = string_writer.len() as u32;
 
             // Write the unique string and the null terminator.
-            string_writer.write_all(string.as_bytes()).unwrap();
-            string_writer.write_all(&[b'\0']).unwrap();
+            string_writer
+                .write_all(string.as_bytes())
+                .map_err(|_| WriteError)?;
+            string_writer.write_all(&[b'\0']).map_err(|_| WriteError)?;
 
             let len = string.len() as u32;
 
@@ -482,10 +492,10 @@ impl BinConfigWriter {
                 None
             };
 
-            BinConfigWriterString {
+            Ok(BinConfigWriterString {
                 offset_and_len,
                 index,
-            }
+            })
         }
 
         // Lookup the string in the hash map.
@@ -536,24 +546,24 @@ impl BinConfigWriter {
 
             // If we found a matching string, return it and its hash.
             if let Some(string) = result {
-                (hash, string)
+                Ok((hash, string))
 
             // Else there's a hash collision - write a new string and add it to the hash map and to the key table, if `Some`.
             } else {
-                let result = intern_string_impl(string_writer, key_table, string);
+                let result = intern_string_impl(string_writer, key_table, string)?;
 
                 strings.push(result);
 
-                (hash, result)
+                Ok((hash, result))
             }
 
         // Or write a new string and add it to the hash map and to the key table, if `Some`.
         } else {
-            let result = intern_string_impl(string_writer, key_table, string);
+            let result = intern_string_impl(string_writer, key_table, string)?;
 
             strings.insert(hash, vec![result]);
 
-            (hash, result)
+            Ok((hash, result))
         }
     }
 

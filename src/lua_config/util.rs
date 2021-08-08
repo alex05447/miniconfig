@@ -1,5 +1,6 @@
 use crate::{
     lua_config::error::config_key_from_lua_value,
+    util::unwrap_unchecked,
     value::{value_type_from_u32, value_type_to_u32},
     ConfigPath, LuaArray, LuaConfigError, LuaConfigValue, LuaString, LuaTable, Value, ValueType,
 };
@@ -90,7 +91,8 @@ fn validate_lua_config_table_impl<'lua, 'a>(
     let mut max_key = 0;
 
     for pair in table.clone().pairs::<LuaValue, LuaValue>() {
-        let (key, value) = pair.unwrap();
+        // Must succeed - no conversion from `LuaValue` is performed.
+        let (key, value) = unwrap_unchecked(pair);
 
         // Validate the key and determine if the table might be an array.
         let is_array = match key {
@@ -165,7 +167,6 @@ fn validate_lua_config_table_impl<'lua, 'a>(
             if let Some(array_lua_value_type) = array_lua_value_type {
                 if !are_lua_types_compatible(array_lua_value_type, lua_value_type) {
                     return Err(MixedArray {
-                        //path: key.into(),
                         path: ConfigPath(vec![config_key_from_lua_value(key)]),
                         expected: array_lua_value_type,
                         found: lua_value_type,
@@ -215,9 +216,10 @@ fn validate_lua_config_table_impl<'lua, 'a>(
         }
     }
 
-    let table_type = match key_type.unwrap() {
-        LuaTableKeyType::String => Ok(LuaTableType::Table),
-        LuaTableKeyType::Integer => {
+    let table_type = match key_type {
+        // Treat empty tables as tablesm not arrays.
+        Some(LuaTableKeyType::String) | None => Ok(LuaTableType::Table),
+        Some(LuaTableKeyType::Integer) => {
             if max_key != len {
                 Err(InvalidArrayIndex(ConfigPath::new()))
             } else {
@@ -244,19 +246,21 @@ fn set_lua_config_table_metatable<'lua>(
     array_value_type: Option<ValueType>,
     len: u32,
 ) {
-    let metatable = lua.create_table().unwrap();
+    let metatable = lua.create_table().expect("failed to create a Lua table");
 
     let table_type: u32 = lua_config_table_type_to_u32(table_type);
-    metatable.set(TABLE_TYPE_METATABLE_KEY, table_type).unwrap();
+    metatable
+        .set(TABLE_TYPE_METATABLE_KEY, table_type)
+        .expect("failed to set a metatable value");
     metatable
         .set(ARRAY_OR_TABLE_LEN_METATABLE_KEY, len)
-        .unwrap();
+        .expect("failed to set a metatable value");
     metatable
         .set(
             ARRAY_VALUE_TYPE_METATABLE_KEY,
             value_type_to_u32(array_value_type),
         )
-        .unwrap();
+        .expect("failed to set a metatable value");
 
     table.set_metatable(Some(metatable));
 }
@@ -264,7 +268,7 @@ fn set_lua_config_table_metatable<'lua>(
 /// Creates a new valid table for a Lua config table,
 /// with a valid metatable containing info about its type and length.
 pub(super) fn new_table(lua: rlua::Context<'_>) -> rlua::Table<'_> {
-    let table = lua.create_table().unwrap();
+    let table = lua.create_table().expect("failed to create a Lua table");
 
     set_lua_config_table_metatable(lua, &table, LuaTableType::Table, None, 0);
 
@@ -274,7 +278,7 @@ pub(super) fn new_table(lua: rlua::Context<'_>) -> rlua::Table<'_> {
 /// Creates a new valid table for a Lua config array,
 /// with a valid metatable containing info about its type, length and value type.
 pub(super) fn new_array(lua: rlua::Context<'_>) -> rlua::Table<'_> {
-    let table = lua.create_table().unwrap();
+    let table = lua.create_table().expect("failed to create a Lua table");
 
     set_lua_config_table_metatable(lua, &table, LuaTableType::Array, None, 0);
 
@@ -284,59 +288,47 @@ pub(super) fn new_array(lua: rlua::Context<'_>) -> rlua::Table<'_> {
 /// Reads the config table type from the Lua table's metatable.
 /// NOTE - caller guarantees `table` is a valid Lua config table.
 fn get_table_type(table: &rlua::Table<'_>) -> LuaTableType {
-    lua_config_table_type_from_u32(
-        table
-            .get_metatable()
-            .expect("Lua config table missing a metatable")
-            .get::<_, u32>(TABLE_TYPE_METATABLE_KEY)
-            .expect("Lua config table metatable missing the table type"),
-    )
-    .expect("invalid Lua config table type")
+    // Must succeed - `table` is a valid Lua config table.
+    unwrap_unchecked(lua_config_table_type_from_u32(unwrap_unchecked(
+        unwrap_unchecked(table.get_metatable()).get::<_, u32>(TABLE_TYPE_METATABLE_KEY),
+    )))
 }
 
 /// Reads the array value type from the array's Lua table metatable.
 /// NOTE - caller guarantees `table` is a valid Lua array table.
 pub(super) fn get_array_value_type(table: &rlua::Table<'_>) -> Option<ValueType> {
-    value_type_from_u32(
-        table
-            .get_metatable()
-            .expect("Lua config table missing a metatable")
-            .get::<_, u32>(ARRAY_VALUE_TYPE_METATABLE_KEY)
-            .expect("Lua config array metatable missing the value type"),
-    )
+    // Must succeed - `table` is a valid Lua array table.
+    value_type_from_u32(unwrap_unchecked(
+        unwrap_unchecked(table.get_metatable()).get::<_, u32>(ARRAY_VALUE_TYPE_METATABLE_KEY),
+    ))
 }
 
 /// Sets the array value type in the array's Lua table metatable.
 /// NOTE - caller guarantees `table` is a valid Lua array table.
 pub(super) fn set_array_value_type(table: &rlua::Table<'_>, value_type: Option<ValueType>) {
-    table
-        .get_metatable()
-        .expect("Lua config table missing a metatable")
-        .set(
-            ARRAY_VALUE_TYPE_METATABLE_KEY,
-            value_type_to_u32(value_type),
-        )
-        .unwrap()
+    // Must succeed - `table` is a valid Lua array table.
+    unwrap_unchecked(unwrap_unchecked(table.get_metatable()).set(
+        ARRAY_VALUE_TYPE_METATABLE_KEY,
+        value_type_to_u32(value_type),
+    ))
 }
 
 /// Reads the config table length from the Lua table's metatable.
 /// NOTE - caller guarantees `table` is a valid Lua config table.
 pub(super) fn get_table_len(table: &rlua::Table<'_>) -> u32 {
-    table
-        .get_metatable()
-        .expect("Lua config table missing a metatable")
-        .get::<_, u32>(ARRAY_OR_TABLE_LEN_METATABLE_KEY)
-        .expect("Lua config table metatable missing table length")
+    // Must succeed - `table` is a valid Lua config table.
+    unwrap_unchecked(
+        unwrap_unchecked(table.get_metatable()).get::<_, u32>(ARRAY_OR_TABLE_LEN_METATABLE_KEY),
+    )
 }
 
 /// Sets the config table length in the Lua table's metatable.
 /// NOTE - caller guarantees `table` is a valid Lua config table.
 pub(super) fn set_table_len(table: &rlua::Table<'_>, len: u32) {
-    table
-        .get_metatable()
-        .expect("Lua config table missing a metatable")
-        .set(ARRAY_OR_TABLE_LEN_METATABLE_KEY, len)
-        .unwrap()
+    // Must succeed - `table` is a valid Lua config table.
+    unwrap_unchecked(
+        unwrap_unchecked(table.get_metatable()).set(ARRAY_OR_TABLE_LEN_METATABLE_KEY, len),
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -369,7 +361,7 @@ pub(super) fn clear_table(table: &rlua::Table<'_>) {
 
     for pair in pairs {
         if let Ok((key, _)) = pair {
-            table.set(key, rlua::Value::Nil).unwrap();
+            let _ = table.set(key, rlua::Value::Nil);
         }
     }
 }
@@ -378,6 +370,6 @@ pub(super) fn clear_array(table: &rlua::Table<'_>) {
     let values: rlua::TableSequence<rlua::Value> = table.clone().sequence_values();
 
     for (index, _) in values.enumerate() {
-        table.set(index + 1, rlua::Value::Nil).unwrap();
+        let _ = table.set(index + 1, rlua::Value::Nil);
     }
 }

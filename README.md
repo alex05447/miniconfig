@@ -4,7 +4,7 @@ A minimalistic config file library written in Rust.
 
 ## **Overview**
 
-Config (file)s here are meant to be collections of key - value pairs. Think JSON.
+Config files here are meant to be simple collections of key - value pairs. Think JSON.
 
 Primitive value types are
 - booleans,
@@ -14,7 +14,7 @@ Primitive value types are
 
 Primitive values may be contained in
 - tables / hash maps / objects etc., with (non-empty, UTF-8) string keys,
-- arrays / lists / etc. (with elements of homogenous type, with `0`-based contiguous integer indices).
+- arrays / lists etc. (with elements of homogenous type, with `0`-based contiguous integer indices).
 
 Tables and arrays may contain nested tables and arrays
 (except `.ini` configs (requires `"ini"` feature) which only support arrays of primitive types).
@@ -23,7 +23,7 @@ Each config has a (possibly empty) `root` table.
 
 ### **(Table, incl. root table) keys**
 
-Any valid UTF-8 string, with special characters escaped.
+Any non-empty UTF-8 string, with special characters escaped.
 
 These are the special characters which must always be escaped:
 
@@ -39,11 +39,11 @@ These are the special characters which must always be escaped:
 
 #### **Lua**
 
-In Lua configs (requires `"lua"` feature), keys work according to Lua rules: keys which are not valid Lua identifiers (i.e. do not contain only from ASCII alphanumerical characters and underscores and start with an ASCII alphabetical character) must be enclosed in brackets and quotes (`"` \ `'`) (e.g. `["áéíóú"]`). Within quoted strings, enclosed in (matching) single (`'`) or double (`"`) quotes, non-matching double (`"`) or single (`'`) quotes and spaces (`' '`) don't have to be escaped. Unicode 2-digit hexadecimal escape sequences work according to Lua rules.
+In Lua configs (requires `"lua"` feature), keys work according to Lua rules: keys which are not valid Lua identifiers (i.e. do not contain only ASCII alphanumerical characters and underscores and start with an ASCII alphabetical character) must be enclosed in brackets and (single or double) quotes (`"` \ `'`) (e.g. `["áéíóú"]`). Within quoted strings, enclosed in (matching) single (`'`) or double (`"`) quotes, non-matching double (`"`) or single (`'`) quotes and spaces (`' '`) don't have to be escaped. Unicode 2-digit hexadecimal escape sequences work according to Lua rules.
 
 #### **INI**
 
-In `.ini` configs (requires `"ini"` feature), additionally, special `.ini` characters and spaces (`' '`) must be escaped in section names and keys.
+In `.ini` configs (requires `"ini"` feature), additionally, special `.ini` characters and spaces (`' '`) must be escaped in section names, keys and string values.
 
 These are the special `.ini` characters:
 
@@ -53,7 +53,7 @@ These are the special `.ini` characters:
 - `#` (optional comment delimiter)
 - `=` (default key-value separator)
 - `:` (optional key-value separator)
-- `/` (optional nested section separator)
+- `/` (optional nested section separator, must be escaped in unquoted section names when using nested sections)
 
 Section names, keys and string values may be enclosed in (matching) single (`'`) or double (`"`) quotes. In this case spaces (`' '`), non-matching double (`"`) or single (`'`) quotes and special `.ini` characters do not have to be (but may be) escaped.
 
@@ -61,21 +61,21 @@ Section names, keys and string values may be enclosed in (matching) single (`'`)
 
 For string values the rules are the same as for keys.
 
-Strings `"true"` and `"false"` (case-sensitive) are the only valid boolean value representations (i.e. not `"on"` / `"off"`, `"yes"` / `"no"`, `"TRUE"` / `"FALSE"`, `"0"` / `"1"`).
+Literals `true` and `false` (case-sensitive) are the only valid boolean value representations (i.e. not `"True"` / `"False"`, `"TRUE"` / `"FALSE"`, `"on"` / `"off"`, `"yes"` / `"no"`, `"0"` / `"1"`).
 
 In Lua configs (requires `"lua"` feature), integer and float values work according to Lua rules. String values are always quoted in (matching) single (`'`) or (`"`) double quotes.
 
-In `.ini` configs (requires `"ini"` feature), integer and float values work according to Rust integer / float parsing rules. Quoted values are always parsed as strings; otherwise values are first parsed as booleans, than as integers and lastly as floats.
+In `.ini` configs (requires `"ini"` feature), integer and float values work according to Rust integer / float parsing rules. Additionally, hexadecimal (`"0x"`) and octal (`"0o"`) integer prefixes are supported. Quoted values are always parsed as strings; otherwise values are first parsed as booleans, than as integers and lastly as floats.
 
 ## **Lua configs** (requires `"lua"` feature).
 
 Main format for human-readable config files with nested array/table support.
 
-Piggybacks on the Lua interpreter both as a parser and as runtime data representation.
+Piggybacks on the Lua interpreter as a parser and and the Lua state as a runtime data representation.
 
 May be used directly as a Lua representation within an [`rlua Context`](http://docs.rs/rlua/*/rlua/struct.Context.html), or be serialized for dynamic (requires `"dyn"` feature) or read-only (requires `"bin"` feature) use to decouple itself from the Lua state.
 
-**Data**: text file representing a(n incomplete) Lua script, declaring a root config table with string keys, including nested config arrays/tables represented by Lua tables. Only a subset of Lua types / features are supported.
+**Data**: text file representing a(n incomplete) Lua script, declaring an implicit anonymous root config table with string keys, including nested config arrays/tables represented by Lua tables. Only a subset of Lua types / features are supported.
 
 **Runtime**: internally represented by a root Lua table reference. Provides a mutable config interface. Can add/modify/remove values.
 
@@ -120,37 +120,41 @@ Main format for runtime representation of dynamic configs, or an intermediate re
 
 ; This and following key/value pairs go to the root of the config.
 ; Unquoted `value` is parsed as a string if support for unquoted strings is enabled
-; (it is by default).
+; (it is by default) (unless it first parses as a boolean `true` / `false` or a number).
 key = value ; Inline comments are optionally supported.
 
 ; Spaces and other special / `.ini` characters may be escaped with `\`.
 ; This key is `key 2`, value is a boolean `true`.
 ; The only valid values for booleans are the strings `true` and `false`
-; (but not `yes` \ `no`, `on` \ `off`, `0` \ `1`).
+; (but not `True` \`False`, `yes` \ `no`, `on` \ `off`, `0` \ `1`).
 key\ 2 = true
 
 ; Quoted keys do not have to escape space and `.ini` characters
 ; (but do have to escape special characters).
 ; Double quotes (`"`) are used by default, single quotes (`'`) are optional.
-; This key is `key 3`, value is a signed 64-buit integer `7`.
+; This key is `key 3`, value is a signed 64-bit integer `7`.
 "key 3" = 7
 
 ; Sections declare tables with string keys
-; and boolean/integer/floating/array values.
+; and boolean/integer/floating point/array values.
 ; All following key/value pairs go to this section.
 ; Sections may be empty.
-; Section names are enclosed in brackets (`[` \ `]`).
+; Section names are enclosed in brackets (`[` \ `]`) and may not be empty.
 ; Leading and trailing whitespace is ignored.
-; This section name is `some_section`, not ` some_section `
+; This section name is `"some_section"`, not `" some_section "`
 ; (note the skipped spaces).
 [ some_section ]
 
-; 4 hexadecimal digit Unicode escape sequences are supported.
+; 2 hexadecimal digit ASCII escape sequences are supported.
 ; This key is `foo`.
-; Quoted values (in single quotes this time) are always parsed as strings.
+; Quoted values (in single quotes here) are always parsed as strings.
 ; Non-matching quotes (double quotes here) don't have to be escaped.
 ; This value is a string `"42"` (not an integer).
-\x0066\x006f\x006f = '"42"'
+\x66\x6f\x6f = '"42"'
+
+; 4 hexadecimal digit Unicode escape sequences are supported.
+; This key is `baz`.
+\u0066\u006f\u007a = "áêìõü"
 
 ; Colon (`:`) is supported as an optional key-value separator.
 ; This key is `bar`, value is a 64-bit floating point value `3.14`.
@@ -163,12 +167,12 @@ bar : 3.14
 ; Array values are enclosed in brackets (`[` \ `]`)
 ; and are delimited by commas `,`.
 ; Trailing commas are allowed.
-; Arrays may only contain boolean/integer/float/string **values**
+; Arrays may only contain boolean/integer/floating point/string **values**
 ; and only values of the same type (except ints and floats, which may be mixed).
 ; This array contains two ints and a float, which may be interpreted as both types.
 ; If you query them as ints, you'll get `[3, 4, 7]`.
 ; If you query them as floats, you'll get `[3.0, 4.0, 7.62]`.
-'array value' = [3, 4, 7.62,]
+'array value' = [0x3, 0o4, 7.62,]
 
 ; Duplicate sections are merged by default,
 ; but this behaviour may be configured.
@@ -177,8 +181,8 @@ bar : 3.14
 ; Line continuations (backslash `\` followed by a new line)
 ; are optionally supported in section names, keys and values (including numeric values for what it's worth).
 ; This value is a string `a multiline string`.
-; Section `some_section` now contains 3 keys - `foo`, `bar` and `baz`.
-baz = a\
+; Section `some_section` now contains 4 keys - `foo`, `baz`, `bar` and `bob`.
+bob = a\
 multiline\
 string
 
@@ -188,13 +192,14 @@ string
 ; or ignore the new value.
 baz = "an overridden value"
 
-; Nested sections (separated by forward slashes: `/`) are optionally supported.
+; Nested sections (separated by forward slashes (`/`)) are optionally supported.
 ; Each parent section must be declared prior.
-; If nested sections are not enabled, `/` is just a normal character.
+; If nested sections are not enabled, `/` is treated as a normal key/value character.
+; Otherwise it must be escaped in unquoted section names.
 [some_section/nested_section]
 ```
 
-**Use cases**: if `"ini"` feature is enabled - use `.ini` config source text files for human-readable / writable data of limited complexity (only one level of nested tables) which must be user-visible/editable.
+**Use cases**: if `"ini"` feature is enabled - use `.ini` config source text files for human-readable / writable data of limited complexity (e.g. no arrays of tables) which must be user-visible/editable.
 
 ## **Binary configs** (requires `"bin"` feature).
 

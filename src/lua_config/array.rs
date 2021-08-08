@@ -4,8 +4,8 @@ use {
         set_table_len, value_from_lua_value,
     },
     crate::{
-        util::DisplayLua, ArrayError, ConfigKey, GetPathError, LuaConfigValue, LuaString, LuaTable,
-        Value, ValueType,
+        util::{unwrap_unchecked, DisplayLua},
+        ArrayError, ConfigKey, GetPathError, LuaConfigValue, LuaString, LuaTable, Value, ValueType,
     },
     rlua::Context,
     std::{
@@ -387,11 +387,11 @@ impl<'lua> LuaArray<'lua> {
         }
 
         // `+ 1` because of Lua array indexing.
-        // Must succeed.
-        let value: rlua::Value = self.0.get(index + 1).unwrap();
+        // Must succeed - the index is valid.
+        let value: rlua::Value = unwrap_unchecked(self.0.get(index + 1));
 
         // Must succeed - the array only contains valid values.
-        Ok(value_from_lua_value(value).unwrap())
+        Ok(unwrap_unchecked(value_from_lua_value(value)))
     }
 
     fn validate_value_type<'s>(
@@ -422,6 +422,23 @@ impl<'lua> LuaArray<'lua> {
         Ok(())
     }
 
+    /// The caller guarantees `index` and `value` are valid.
+    fn set_array_value<'s>(
+        array: &rlua::Table<'lua>,
+        index: u32,
+        value: Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
+    ) {
+        // Must succeed - index and value are valid.
+        unwrap_unchecked(match value {
+            Value::Bool(value) => array.raw_set(index, value),
+            Value::F64(value) => array.raw_set(index, value),
+            Value::I64(value) => array.raw_set(index, value),
+            Value::String(value) => array.raw_set(index, value),
+            Value::Array(value) => array.raw_set(index, value.0),
+            Value::Table(value) => array.raw_set(index, value.0),
+        });
+    }
+
     fn set_impl<'s>(
         &mut self,
         index: u32,
@@ -442,14 +459,7 @@ impl<'lua> LuaArray<'lua> {
         // `+ 1` because of Lua array indexing.
         let index = index + 1;
 
-        match value {
-            Value::Bool(value) => self.0.set(index, value).unwrap(),
-            Value::F64(value) => self.0.set(index, value).unwrap(),
-            Value::I64(value) => self.0.set(index, value).unwrap(),
-            Value::String(value) => self.0.set(index, value).unwrap(),
-            Value::Array(value) => self.0.set(index, value.0).unwrap(),
-            Value::Table(value) => self.0.set(index, value.0).unwrap(),
-        }
+        Self::set_array_value(&self.0, index, value);
 
         Ok(())
     }
@@ -466,15 +476,9 @@ impl<'lua> LuaArray<'lua> {
         // `+ 1` because of Lua array indexing.
         let index = len + 1;
 
-        match value {
-            Value::Bool(value) => self.0.set(index, value).unwrap(),
-            Value::F64(value) => self.0.set(index, value).unwrap(),
-            Value::I64(value) => self.0.set(index, value).unwrap(),
-            Value::String(value) => self.0.set(index, value).unwrap(),
-            Value::Array(value) => self.0.set(index, value.0).unwrap(),
-            Value::Table(value) => self.0.set(index, value.0).unwrap(),
-        }
+        Self::set_array_value(&self.0, index, value);
 
+        // Increment the array length.
         set_table_len(&self.0, len + 1);
 
         Ok(())
@@ -497,11 +501,12 @@ impl<'lua> LuaArray<'lua> {
             }
 
             // Last element has index `len` because of Lua array indexing.
-            // Must succeed.
-            let value: rlua::Value = self.0.get(len).unwrap();
-            self.0.set(len, rlua::Value::Nil).unwrap();
-
-            Ok(value_from_lua_value(value).unwrap())
+            // Must succeed - the index is valid.
+            let value: rlua::Value = unwrap_unchecked(self.0.get(len));
+            // Must succeed - the index is valid.
+            unwrap_unchecked(self.0.set(len, rlua::Value::Nil));
+            // Must succeed - the value is valid.
+            Ok(unwrap_unchecked(value_from_lua_value(value)))
         } else {
             Err(ArrayEmpty)
         }
@@ -546,9 +551,10 @@ impl<'lua> std::iter::Iterator for LuaArrayIter<'lua> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(value) = self.0.next() {
             if let Ok(value) = value {
-                // Must succeed.
-                Some(value_from_lua_value(value).unwrap())
+                // Must succeed - the array only contains valid values.
+                Some(unwrap_unchecked(value_from_lua_value(value)))
             } else {
+                debug_assert!(false, "unexpected error when iterating a Lua array");
                 None // Stop on iteration error (this should never happen).
             }
         } else {
