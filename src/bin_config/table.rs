@@ -1,24 +1,14 @@
 use {
     super::{array_or_table::BinArrayOrTable, value::BinConfigUnpackedValue},
     crate::{
-        util::{unwrap_unchecked, write_lua_key, DisplayLua},
-        BinArray, BinConfigValue, ConfigKey, GetPathError, NonEmptyStr, TableError, TableKey,
-        Value, ValueType,
+        util::*,
+        *,
     },
     std::{
         borrow::Borrow,
-        fmt::{Display, Formatter},
+        fmt::{Display, Formatter, Write},
         iter::Iterator,
     },
-};
-
-#[cfg(feature = "ini")]
-use {
-    crate::{
-        write_ini_array, write_ini_table, write_ini_value, DisplayIni, IniPath, ToIniStringError,
-        ToIniStringOptions,
-    },
-    std::fmt::Write,
 };
 
 /// Represents an immutable map of [`Value`]'s with (non-empty) string keys.
@@ -538,7 +528,7 @@ impl<'t> BinTable<'t> {
         path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        debug_assert!(options.nested_sections || level < 2);
+        debug_assert!(options.nested_sections() || level < 2);
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -637,8 +627,10 @@ impl<'i, 't> Iterator for BinTableIter<'i, 't> {
             let key = unsafe { self.table.0.key_ofset_and_len(key.index) };
 
             // Safe to call - the key string was validated.
-            let key =
-                unsafe { NonEmptyStr::new_unchecked(self.table.0.string(key.offset(), key.len())) };
+            let key = unwrap_unchecked_msg(
+                NonEmptyStr::new(unsafe { self.table.0.string(key.offset(), key.len()) }),
+                "empty key",
+            );
 
             let value = self.table.get_value(value);
 
@@ -684,7 +676,7 @@ mod tests {
     #[test]
     fn BinTableError_EmptyKey() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.bool("bool", true).unwrap();
+        writer.bool(nestr!("bool"), true).unwrap();
         let data = writer.finish().unwrap();
         let config = BinConfig::new(data).unwrap();
 
@@ -711,7 +703,7 @@ mod tests {
     #[test]
     fn BinTableError_KeyDoesNotExist() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.bool("bool", true).unwrap();
+        writer.bool(nestr!("bool"), true).unwrap();
         let data = writer.finish().unwrap();
         let config = BinConfig::new(data).unwrap();
 
@@ -744,7 +736,7 @@ mod tests {
     #[test]
     fn BinTableError_IncorrectValueType() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.f64("f64", 3.14).unwrap();
+        writer.f64(nestr!("f64"), 3.14).unwrap();
         let data = writer.finish().unwrap();
         let config = BinConfig::new(data).unwrap();
 

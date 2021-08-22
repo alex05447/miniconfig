@@ -1,5 +1,5 @@
 use {
-    crate::ConfigPath,
+    crate::*,
     std::{
         error::Error,
         fmt::{Display, Formatter},
@@ -10,7 +10,7 @@ use {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum IniErrorKind<'a> {
     /// Invalid character at the start of the line -
-    /// expected a section name, key or line comment.
+    /// expected a key, section name (if supported), or line comment (if supported).
     /// Contains the invalid character.
     InvalidCharacterAtLineStart(char),
     /// Invalid character in section name.
@@ -29,6 +29,8 @@ pub enum IniErrorKind<'a> {
     /// Invalid (missing) parent section name.
     /// Contains the (non-empty) path of the parent section.
     InvalidParentSection(ConfigPath<'a>),
+    /// Maximum allowed nested section depth exceeded.
+    NestedSectionDepthExceeded,
     /// Duplicate section name encountered and is not allowed by options.
     /// Contains the (non-empty) path of the duplicate section.
     DuplicateSection(ConfigPath<'a>),
@@ -44,7 +46,7 @@ pub enum IniErrorKind<'a> {
     EmptyKey,
     /// Duplicate key encountered and is not allowed by options.
     /// Contains the duplicate key.
-    DuplicateKey(String),
+    DuplicateKey(TableKey<'a>),
     /// Unexpected end of file encountered before a key-value separator.
     UnexpectedEndOfFileBeforeKeyValueSeparator,
     /// Invalid character encountered instead of the key-value separator.
@@ -97,7 +99,7 @@ impl<'a> Display for IniErrorKind<'a> {
 
         match self {
             InvalidCharacterAtLineStart(c) => write!(
-                f, "invalid character ('{}') at the start of the line - expected a section name, key or line comment", c
+                f, "invalid character ('{}') at the start of the line - expected a key, section name (if supported), or line comment (if supported)", c
             ),
             InvalidCharacterInSectionName(c) => write!(
                 f,
@@ -111,6 +113,7 @@ impl<'a> Display for IniErrorKind<'a> {
             UnexpectedEndOfFileInSectionName => "unexpected end of file in a section name".fmt(f),
             EmptySectionName(path) => write!(f, "empty section names are invalid (in {})", path),
             InvalidParentSection(path) => write!(f, "invalid (missing) parent section {}", path),
+            NestedSectionDepthExceeded => write!(f, "maximum allowed nested section depth exceeded"),
             DuplicateSection(path) => write!(
                 f,
                 "duplicate section name ({}) encountered and is not allowed by options", path
@@ -188,15 +191,19 @@ impl<'a> Display for IniError<'a> {
     }
 }
 
-/// An error returned by `to_ini_string` methods (on `bin`, `dyn` and `lua` configs).
+/// An error returned by `to_ini_string` / `fmt_ini` methods on [`bin`], [`dyn`] and [`lua`] configs.
+///
+/// [`bin`]: struct.BinConfig.html#method.to_ini_string
+/// [`dyn`]: struct.DynConfig.html#method.to_ini_string
+/// [`lua`]: struct.LuaConfig.html#method.to_ini_string
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToIniStringError {
     /// Array values are not allowed by options.
     ArraysNotAllowed,
     /// Only boolean, number and string arrays are supported.
     InvalidArrayType,
-    /// Sections nested within sections are not allowed by options.
-    NestedSectionsNotAllowed,
+    /// Maximum allowed nested section depth exceeded.
+    NestedSectionDepthExceeded,
     /// General write error (out of memory?).
     WriteError,
     /// Encountered an escaped character not allowed by options.
@@ -213,9 +220,7 @@ impl Display for ToIniStringError {
         match self {
             ArraysNotAllowed => "array values are not allowed by options".fmt(f),
             InvalidArrayType => "only boolean, number and string arrays are supported".fmt(f),
-            NestedSectionsNotAllowed => {
-                "sections nested within sections are not allowed by options".fmt(f)
-            }
+            NestedSectionDepthExceeded => "maximum allowed nested section depth exceeded".fmt(f),
             WriteError => "general write error (out of memory?)".fmt(f),
             EscapedCharacterNotAllowed(c) => write!(
                 f,

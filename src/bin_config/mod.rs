@@ -7,11 +7,6 @@ mod util;
 mod value;
 mod writer;
 
-pub use array::BinArray;
-pub use config::BinConfig;
-pub use error::*;
-pub use table::BinTable;
-pub use value::BinConfigValue;
-pub use writer::BinConfigWriter;
-
 pub(crate) use util::string_hash_fnv1a;
+
+pub use {array::*, config::*, error::*, table::*, value::*, writer::*};

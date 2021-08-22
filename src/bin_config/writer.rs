@@ -1,11 +1,11 @@
 use {
     super::{
-        array_or_table::InternedString,
-        config::BinConfigHeader,
-        util::{string_hash_fnv1a, StringHash},
-        value::{BinConfigPackedValue, BinTableKey, StringIndex},
+        array_or_table::*,
+        config::*,
+        util::*,
+        value::*,
     },
-    crate::{util::unwrap_unchecked, BinConfigWriterError, ValueType},
+    crate::*,
     std::{
         collections::{hash_map::Entry, HashMap},
         io::{Cursor, Seek, SeekFrom, Write},
@@ -83,7 +83,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn bool<'k, K: Into<Option<&'k str>>>(
+    pub fn bool<'k, K: Into<Option<NonEmptyStr<'k>>>>(
         &mut self,
         key: K,
         value: bool,
@@ -108,7 +108,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn i64<'k, K: Into<Option<&'k str>>>(
+    pub fn i64<'k, K: Into<Option<NonEmptyStr<'k>>>>(
         &mut self,
         key: K,
         value: i64,
@@ -133,7 +133,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn f64<'k, K: Into<Option<&'k str>>>(
+    pub fn f64<'k, K: Into<Option<NonEmptyStr<'k>>>>(
         &mut self,
         key: K,
         value: f64,
@@ -158,7 +158,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn string<'k, K: Into<Option<&'k str>>>(
+    pub fn string<'k, K: Into<Option<NonEmptyStr<'k>>>>(
         &mut self,
         key: K,
         value: &str,
@@ -195,7 +195,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     /// [`writer`]: struct.BinConfigWriter.html
     /// [`end`]: #method.end
-    pub fn array<'k, K: Into<Option<&'k str>>>(
+    pub fn array<'k, K: Into<Option<NonEmptyStr<'k>>>>(
         &mut self,
         key: K,
         len: u32,
@@ -213,7 +213,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     /// [`writer`]: struct.BinConfigWriter.html
     /// [`end`]: #method.end
-    pub fn table<'k, K: Into<Option<&'k str>>>(
+    pub fn table<'k, K: Into<Option<NonEmptyStr<'k>>>>(
         &mut self,
         key: K,
         len: u32,
@@ -351,7 +351,7 @@ impl BinConfigWriter {
 
     fn array_or_table(
         &mut self,
-        key: Option<&str>,
+        key: Option<NonEmptyStr<'_>>,
         len: u32,
         table: bool,
     ) -> Result<(), BinConfigWriterError> {
@@ -392,7 +392,7 @@ impl BinConfigWriter {
         key_table: &mut Vec<InternedString>,
         string_writer: &mut Vec<u8>,
         parent_table: Option<&mut BinConfigArrayOrTable>,
-        key: Option<&str>,
+        key: Option<NonEmptyStr<'_>>,
     ) -> Result<BinTableKey, BinConfigWriterError> {
         use BinConfigWriterError::*;
 
@@ -406,10 +406,11 @@ impl BinConfigWriter {
 
                 // Lookup / intern the key string, return its hash and index in the string table.
                 let (hash, key) =
-                    Self::intern_string(strings, Some(key_table), string_writer, key)?;
+                    Self::intern_string(strings, Some(key_table), string_writer, key.as_ref())?;
 
                 // Must succeed - table keys have a key table index.
-                let index = unwrap_unchecked(key.index);
+                let index =
+                    unwrap_unchecked_msg(key.index, "table keys must have a valid key table index");
 
                 if index > BinTableKey::max_index() {
                     return Err(TooManyKeys(BinTableKey::max_index()));
@@ -572,7 +573,7 @@ impl BinConfigWriter {
     /// Checks if the current parent array/table is full.
     fn key_and_value_offset(
         &mut self,
-        key: Option<&str>,
+        key: Option<NonEmptyStr<'_>>,
         value_type: ValueType,
     ) -> Result<(BinTableKey, u32), BinConfigWriterError> {
         use BinConfigWriterError::*;
@@ -768,15 +769,15 @@ mod tests {
 
         // But this works.
 
-        writer.bool("bool", true).unwrap();
+        writer.bool(nestr!("bool"), true).unwrap();
     }
 
     #[test]
     fn ArrayKeyNotRequired() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array("array", 1).unwrap();
+        writer.array(nestr!("array"), 1).unwrap();
         assert_eq!(
-            writer.bool("bool", true).err().unwrap(),
+            writer.bool(nestr!("bool"), true).err().unwrap(),
             BinConfigWriterError::ArrayKeyNotRequired
         );
 
@@ -788,7 +789,7 @@ mod tests {
     #[test]
     fn MixedArray() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array("array", 2).unwrap();
+        writer.array(nestr!("array"), 2).unwrap();
         writer.bool(None, true).unwrap();
         assert_eq!(
             writer.i64(None, 7).err().unwrap(),
@@ -806,15 +807,15 @@ mod tests {
     #[test]
     fn NonUniqueKey() {
         let mut writer = BinConfigWriter::new(2).unwrap();
-        writer.bool("bool", true).unwrap();
+        writer.bool(nestr!("bool"), true).unwrap();
         assert_eq!(
-            writer.bool("bool", true).err().unwrap(),
+            writer.bool(nestr!("bool"), true).err().unwrap(),
             BinConfigWriterError::NonUniqueKey
         );
 
         // But this works.
 
-        writer.bool("other_bool", false).unwrap();
+        writer.bool(nestr!("other_bool"), false).unwrap();
     }
 
     #[test]
@@ -833,16 +834,16 @@ mod tests {
             // But this works.
 
             let mut writer = BinConfigWriter::new(1).unwrap();
-            writer.bool("bool", true).unwrap();
+            writer.bool(nestr!("bool"), true).unwrap();
             writer.finish().unwrap();
         }
 
         // Overflow, root table.
         {
             let mut writer = BinConfigWriter::new(1).unwrap();
-            writer.bool(Some("bool_0"), true).unwrap();
+            writer.bool(nestr!("bool_0"), true).unwrap();
             assert_eq!(
-                writer.bool(Some("bool_1"), true).err().unwrap(),
+                writer.bool(nestr!("bool_1"), true).err().unwrap(),
                 BinConfigWriterError::ArrayOrTableLengthMismatch {
                     expected: 1,
                     found: 2
@@ -857,10 +858,10 @@ mod tests {
         // Overflow, nested table.
         {
             let mut writer = BinConfigWriter::new(1).unwrap();
-            writer.table(Some("table"), 1).unwrap();
-            writer.bool(Some("bool_0"), true).unwrap();
+            writer.table(nestr!("table"), 1).unwrap();
+            writer.bool(nestr!("bool_0"), true).unwrap();
             assert_eq!(
-                writer.bool(Some("bool_1"), true).err().unwrap(),
+                writer.bool(nestr!("bool_1"), true).err().unwrap(),
                 BinConfigWriterError::ArrayOrTableLengthMismatch {
                     expected: 1,
                     found: 2
@@ -876,8 +877,8 @@ mod tests {
         // Underflow, nested table.
         {
             let mut writer = BinConfigWriter::new(1).unwrap();
-            writer.table("table", 2).unwrap();
-            writer.bool("bool_0", true).unwrap();
+            writer.table(nestr!("table"), 2).unwrap();
+            writer.bool(nestr!("bool_0"), true).unwrap();
             assert_eq!(
                 writer.end().err().unwrap(),
                 BinConfigWriterError::ArrayOrTableLengthMismatch {
@@ -888,7 +889,7 @@ mod tests {
 
             // But this works.
 
-            writer.bool("bool_1", false).unwrap();
+            writer.bool(nestr!("bool_1"), false).unwrap();
             writer.end().unwrap();
             writer.finish().unwrap();
         }
@@ -896,7 +897,7 @@ mod tests {
         // Overflow, nested array.
         {
             let mut writer = BinConfigWriter::new(1).unwrap();
-            writer.array("array", 1).unwrap();
+            writer.array(nestr!("array"), 1).unwrap();
             writer.bool(None, true).unwrap();
             assert_eq!(
                 writer.bool(None, true).err().unwrap(),
@@ -915,7 +916,7 @@ mod tests {
         // Underflow, nested array.
         {
             let mut writer = BinConfigWriter::new(1).unwrap();
-            writer.array(Some("array"), 2).unwrap();
+            writer.array(nestr!("array"), 2).unwrap();
             writer.bool(None, true).unwrap();
             assert_eq!(
                 writer.end().err().unwrap(),
@@ -936,7 +937,7 @@ mod tests {
     #[test]
     fn EndCallMismatch() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.bool(Some("bool"), true).unwrap();
+        writer.bool(nestr!("bool"), true).unwrap();
         assert_eq!(
             writer.end().err().unwrap(),
             BinConfigWriterError::EndCallMismatch
@@ -947,7 +948,7 @@ mod tests {
         writer.finish().unwrap();
 
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array("array", 0).unwrap();
+        writer.array(nestr!("array"), 0).unwrap();
         writer.end().unwrap();
         writer.finish().unwrap();
     }
@@ -955,7 +956,7 @@ mod tests {
     #[test]
     fn UnfinishedArraysOrTables() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array(Some("array"), 1).unwrap();
+        writer.array(nestr!("array"), 1).unwrap();
         assert_eq!(
             writer.finish().err().unwrap(),
             BinConfigWriterError::UnfinishedArraysOrTables(1)
@@ -964,7 +965,7 @@ mod tests {
         // But this succeeds.
 
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array(Some("array"), 1).unwrap();
+        writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, false).unwrap();
         writer.end().unwrap();
         writer.finish().unwrap();
@@ -987,21 +988,21 @@ mod tests {
 
         let mut writer = BinConfigWriter::new(6).unwrap();
 
-        writer.array("array_value", 3).unwrap();
+        writer.array(nestr!("array_value"), 3).unwrap();
         writer.i64(None, 54).unwrap();
         writer.i64(None, 12).unwrap();
         writer.f64(None, 78.9).unwrap();
         writer.end().unwrap();
 
-        writer.bool("bool_value", true).unwrap();
-        writer.f64("float_value", 3.14).unwrap();
-        writer.i64("int_value", 7).unwrap();
-        writer.string("string_value", "foo").unwrap();
+        writer.bool(nestr!("bool_value"), true).unwrap();
+        writer.f64(nestr!("float_value"), 3.14).unwrap();
+        writer.i64(nestr!("int_value"), 7).unwrap();
+        writer.string(nestr!("string_value"), "foo").unwrap();
 
-        writer.table("table_value", 3).unwrap();
-        writer.i64("bar", 2020).unwrap();
-        writer.string("baz", "hello").unwrap();
-        writer.bool("foo", false).unwrap();
+        writer.table(nestr!("table_value"), 3).unwrap();
+        writer.i64(nestr!("bar"), 2020).unwrap();
+        writer.string(nestr!("baz"), "hello").unwrap();
+        writer.bool(nestr!("foo"), false).unwrap();
         writer.end().unwrap();
 
         let data = writer.finish().unwrap();

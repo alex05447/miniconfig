@@ -143,13 +143,13 @@ pub(crate) struct IniOptions {
     ///
     /// Default: `false`.
     pub(crate) arrays: bool,
-    /// Whether nested sections are supported.
-    /// If `true`, section names which contain forward slashes (`'/'`) are treated as paths.
-    /// Parent sections in paths must be declared before any children.
-    /// Otherwise forward slashes (`'/'`) are treated as normal key / value characters.
+    /// Maximum supported depth of nested sections.
+    /// If `0`, sections are not supported at all.
+    /// If `1`, one level of sections is supported; forward slashes (`'/'`) are treated as normal section name character.
+    /// If `>1`, nested sections are supported; section names which contain forward slashes (`'/'`) are treated as paths.
     ///
-    /// Default: `false`.
-    pub(crate) nested_sections: bool,
+    /// Default: `1`.
+    pub(crate) nested_section_depth: u32,
 }
 
 impl Default for IniOptions {
@@ -165,7 +165,7 @@ impl Default for IniOptions {
             duplicate_sections: IniDuplicateSections::Merge,
             duplicate_keys: IniDuplicateKeys::Forbid,
             arrays: false,
-            nested_sections: false,
+            nested_section_depth: 1,
         }
     }
 }
@@ -181,10 +181,10 @@ pub struct ToIniStringOptions {
     ///
     /// Default: `false`.
     pub arrays: bool,
-    /// See [`arrays`](struct.IniParser.html#method.nested_sections).
+    /// See [`nested_section_depth`](struct.IniParser.html#method.nested_section_depth).
     ///
-    /// Default: `false`.
-    pub nested_sections: bool,
+    /// Default: `1`.
+    pub nested_section_depth: u32,
 }
 
 impl Default for ToIniStringOptions {
@@ -192,7 +192,13 @@ impl Default for ToIniStringOptions {
         Self {
             escape: true,
             arrays: false,
-            nested_sections: false,
+            nested_section_depth: 1,
         }
+    }
+}
+
+impl ToIniStringOptions {
+    pub(crate) fn nested_sections(&self) -> bool {
+        self.nested_section_depth > 1
     }
 }

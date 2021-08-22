@@ -196,7 +196,7 @@ fn InvalidCharacterAfterSectionName() {
 
     // Any character after whitespace after nested section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\n[a /b]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a]\n[a /b]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -208,7 +208,7 @@ fn InvalidCharacterAfterSectionName() {
 
     // Any character after whitespace after nested section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\n[a/b c]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a]\n[a/b c]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -220,7 +220,7 @@ fn InvalidCharacterAfterSectionName() {
 
     // Any character after whitespace after quoted nested section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\n[\"a\"/\"b\" c]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a]\n[\"a\"/\"b\" c]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -239,19 +239,23 @@ fn InvalidCharacterAfterSectionName() {
     assert_eq!(ini.root().get_table("a b").unwrap().len(), 0);
 
     let ini =
-        DynConfig::from_ini(IniParser::new("[\"a \"]\n[\"a \"/b]").nested_sections(true)).unwrap(); // Unescaped whitespace in quoted nested section name.
+        DynConfig::from_ini(IniParser::new("[\"a \"]\n[\"a \"/b]").nested_section_depth(u32::MAX))
+            .unwrap(); // Unescaped whitespace in quoted nested section name.
     let a = ini.root().get_table("a ").unwrap();
     assert_eq!(a.len(), 1);
     assert_eq!(a.get_table("b").unwrap().len(), 0);
 
     let ini =
-        DynConfig::from_ini(IniParser::new("[\"a\"]\n[\"a\" /b]").nested_sections(true)).unwrap(); // Whitespace between quoted nested section names.
+        DynConfig::from_ini(IniParser::new("[\"a\"]\n[\"a\" /b]").nested_section_depth(u32::MAX))
+            .unwrap(); // Whitespace between quoted nested section names.
     let a = ini.root().get_table("a").unwrap();
     assert_eq!(a.len(), 1);
     assert_eq!(a.get_table("b").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[\"a\"]\n[\"a\" / \"b\"]").nested_sections(true))
-        .unwrap(); // Whitespace between quoted nested section names.
+    let ini = DynConfig::from_ini(
+        IniParser::new("[\"a\"]\n[\"a\" / \"b\"]").nested_section_depth(u32::MAX),
+    )
+    .unwrap(); // Whitespace between quoted nested section names.
     let a = ini.root().get_table("a").unwrap();
     assert_eq!(a.len(), 1);
     assert_eq!(a.get_table("b").unwrap().len(), 0);
@@ -347,7 +351,7 @@ fn EmptySectionName() {
     );
     // Empty parent section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[/a]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[/a]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -358,7 +362,7 @@ fn EmptySectionName() {
     );
     // Empty child section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\n[a/]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a]\n[a/]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -369,7 +373,7 @@ fn EmptySectionName() {
     );
     // Empty child section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\n[a/b]\n[a/b/]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a]\n[a/b]\n[a/b/]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -397,7 +401,7 @@ fn EmptySectionName() {
 #[test]
 fn InvalidParentSection() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a/]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a/]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -407,7 +411,7 @@ fn InvalidParentSection() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a/b]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a/b]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -417,7 +421,7 @@ fn InvalidParentSection() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\n[a/b/]").nested_sections(true))
+        DynConfig::from_ini(IniParser::new("[a]\n[a/b/]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
         IniError {
@@ -439,11 +443,95 @@ fn InvalidParentSection() {
     assert_eq!(ini.root().get_table("a").unwrap().len(), 0);
     assert_eq!(ini.root().get_table("a/b/").unwrap().len(), 0);
 
-    let ini = DynConfig::from_ini(IniParser::new("[a]\n[a/b]").nested_sections(true)).unwrap();
+    let ini =
+        DynConfig::from_ini(IniParser::new("[a]\n[a/b]").nested_section_depth(u32::MAX)).unwrap();
     assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
     assert_eq!(
         ini.root()
             .get_table_path(&["a".into(), "b".into()])
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn NestedSectionDepthExceeded() {
+    // `nested_section_depth == 0` - sections not supported at all
+    assert_eq!(
+        DynConfig::from_ini(
+            IniParser::new(
+                r#"[a]
+[a/b]
+[a/b/c]"#
+            )
+            .nested_section_depth(0)
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 1,
+            error: IniErrorKind::NestedSectionDepthExceeded
+        }
+    );
+
+    // `nested_section_depth == 1` - sections supported, nested section separators ('/') treated as normal section name chars.
+    let ini = DynConfig::from_ini(
+        IniParser::new(
+            r#"[a]
+[a/b]
+[a/b/c]"#,
+        )
+        .nested_section_depth(1),
+    )
+    .unwrap();
+
+    assert_eq!(ini.root().get_table("a").unwrap().len(), 0);
+    assert_eq!(ini.root().get_table("a/b").unwrap().len(), 0);
+    assert_eq!(ini.root().get_table("a/b/c").unwrap().len(), 0);
+
+    // `nested_section_depth == 2` - 2 levels of nested sections supported,
+    // nested section separators ('/') are not valid section name chars (need to be escaped).
+    assert_eq!(
+        DynConfig::from_ini(
+            IniParser::new(
+                r#"[a]
+[a/b]
+[a/b/c]"#
+            )
+            .nested_section_depth(2)
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 3,
+            column: 5,
+            error: IniErrorKind::NestedSectionDepthExceeded
+        }
+    );
+
+    let ini = DynConfig::from_ini(
+        IniParser::new(
+            r#"[a]
+[a/b]
+[a/b/c]"#,
+        )
+        .nested_section_depth(3),
+    )
+    .unwrap();
+
+    assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
+    assert_eq!(
+        ini.root()
+            .get_table_path(&["a".into(), "b".into()])
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        ini.root()
+            .get_table_path(&["a".into(), "b".into(), "c".into()])
             .unwrap()
             .len(),
         0
@@ -654,6 +742,14 @@ fn EmptyKey() {
             error: IniErrorKind::EmptyKey
         }
     );
+    assert_eq!(
+        dyn_config_error("=false"),
+        IniError {
+            line: 1,
+            column: 0,
+            error: IniErrorKind::EmptyKey
+        }
+    );
     // Empty unquoted key.
     assert_eq!(
         DynConfig::from_ini(
@@ -738,6 +834,28 @@ fn DuplicateKey() {
             error: IniErrorKind::DuplicateKey("a".into())
         }
     );
+    // Key and section.
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=7\n[a]\nb=8"))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 2,
+            column: 2,
+            error: IniErrorKind::DuplicateKey("a".into())
+        }
+    );
+    // Section and key.
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("[a]\nb=8\n[a/b]").nested_section_depth(2))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 3,
+            column: 4,
+            error: IniErrorKind::DuplicateKey("b".into())
+        }
+    );
 
     // But this succeeds.
 
@@ -794,6 +912,51 @@ fn DuplicateKey() {
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("a").unwrap(), 9);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("b").unwrap(), 8);
     assert_eq!(ini.root().get_table("a").unwrap().get_i64("c").unwrap(), 10);
+
+    // Key and section, `First`.
+    let ini = DynConfig::from_ini(
+        IniParser::new("a=7\n[a]\nb=8").duplicate_keys(IniDuplicateKeys::First),
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_i64("a").unwrap(), 7);
+    assert!(ini.root().get_table("a").is_err());
+
+    // Key and section, `Last`.
+    let ini =
+        DynConfig::from_ini(IniParser::new("a=7\n[a]\nb=8").duplicate_keys(IniDuplicateKeys::Last))
+            .unwrap();
+    assert!(ini.root().get_i64("a").is_err());
+    assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
+
+    // Section and key, `First`.
+    let ini = DynConfig::from_ini(
+        IniParser::new("[a]\nb=8\n[a/b]").duplicate_keys(IniDuplicateKeys::First),
+    )
+    .unwrap();
+    assert_eq!(
+        ini.root().get_i64_path(&["a".into(), "b".into()]).unwrap(),
+        8
+    );
+    assert!(ini
+        .root()
+        .get_table_path(&["a".into(), "b".into()])
+        .is_err());
+
+    // Section and key, `Last`.
+    let ini = DynConfig::from_ini(
+        IniParser::new("[a]\nb=8\n[a/b]")
+            .duplicate_keys(IniDuplicateKeys::Last)
+            .nested_section_depth(2),
+    )
+    .unwrap();
+    assert!(ini.root().get_i64_path(&["a".into(), "b".into()]).is_err());
+    assert_eq!(
+        ini.root()
+            .get_table_path(&["a".into(), "b".into()])
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[test]
@@ -1272,6 +1435,16 @@ fn InvalidASCIIEscapeSequence() {
             error: IniErrorKind::InvalidASCIIEscapeSequence
         }
     );
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\"\\xf\""))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 7,
+            error: IniErrorKind::InvalidASCIIEscapeSequence
+        }
+    );
 }
 
 #[test]
@@ -1283,6 +1456,16 @@ fn InvalidUnicodeEscapeSequence() {
         IniError {
             line: 1,
             column: 8,
+            error: IniErrorKind::InvalidUnicodeEscapeSequence
+        }
+    );
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\"\\udff\""))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 9,
             error: IniErrorKind::InvalidUnicodeEscapeSequence
         }
     );
@@ -1750,13 +1933,13 @@ fn NestedSectionsNotAllowed() {
 
     assert_eq!(
         config.to_ini_string(),
-        Err(ToIniStringError::NestedSectionsNotAllowed)
+        Err(ToIniStringError::NestedSectionDepthExceeded)
     );
 
     // But this works.
     config
         .to_ini_string_opts(ToIniStringOptions {
-            nested_sections: true,
+            nested_section_depth: 2,
             ..Default::default()
         })
         .unwrap();
@@ -1788,13 +1971,17 @@ float = 5.56
 int = 13
 string = "baz""#;
 
-    let config =
-        DynConfig::from_ini(IniParser::new(ini).arrays(true).nested_sections(true)).unwrap();
+    let config = DynConfig::from_ini(
+        IniParser::new(ini)
+            .arrays(true)
+            .nested_section_depth(u32::MAX),
+    )
+    .unwrap();
 
     let string = config
         .to_ini_string_opts(ToIniStringOptions {
             arrays: true,
-            nested_sections: true,
+            nested_section_depth: 2,
             ..Default::default()
         })
         .unwrap();

@@ -1,23 +1,10 @@
 use {
-    crate::{
-        util::{unwrap_unchecked, DisplayLua},
-        DynTable,
-    },
+    crate::{util::DisplayLua, *},
     std::fmt::{Display, Formatter, Write},
 };
 
 #[cfg(feature = "bin")]
-use crate::{BinConfigWriter, BinConfigWriterError, DynConfigValueRef};
-
-#[cfg(feature = "ini")]
-use crate::{
-    ArrayError, ConfigKey, DisplayIni, IniConfig, IniError, IniParser, IniPath, IniValue,
-    NonEmptyStr, ToIniStringError, ToIniStringOptions,
-};
-
-use crate::debug_unreachable;
-#[cfg(any(feature = "bin", feature = "ini"))]
-use crate::{DynArray, Value};
+use crate::util::unwrap_unchecked;
 
 /// Represents a mutable config with a root hashmap [`table`].
 ///
@@ -102,11 +89,9 @@ impl DynConfig {
     /// [`.ini parser`]: struct.IniParser.html
     #[cfg(feature = "ini")]
     pub fn from_ini(parser: IniParser) -> Result<Self, IniError> {
-        let mut config = DynConfig::new();
-
+        let mut config = DynConfigIniConfig::new();
         parser.parse(&mut config)?;
-
-        Ok(config)
+        Ok(config.into_inner())
     }
 
     /// Tries to serialize this [`config`] to an `.ini` string.
@@ -166,144 +151,169 @@ impl Display for DynConfig {
     }
 }
 
+/// Implements the `IniConfig` `.ini` parser event handler for the `DynConfig`.
 #[cfg(feature = "ini")]
-impl IniConfig for DynConfig {
-    fn contains_section<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
-        &self,
-        section: NonEmptyStr<'s>,
-        path: P,
-    ) -> bool {
-        let table = match self.root().get_table_path(path.map(ConfigKey::from)) {
-            Ok(table) => table,
-            Err(_) => {
-                debug_assert!(false, "invalid section path");
-                return false;
-            }
-        };
+pub(crate) struct DynConfigIniConfig {
+    root: DynTable,
+    current_section: Option<DynTable>,
+    // Never allocates if we don't support nested sections.
+    section_stack: Vec<DynTable>,
+    // Always `None` if we don't support arrays.
+    current_array: Option<DynArray>,
+}
 
-        table.get_table(section).is_ok()
-    }
-
-    fn add_section<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
-        &mut self,
-        section: NonEmptyStr<'s>,
-        path: P,
-        overwrite: bool,
-    ) {
-        let table = match self
-            .root_mut()
-            .get_table_mut_path(path.map(ConfigKey::from))
-        {
-            Ok(table) => table,
-            Err(_) => {
-                debug_assert!(false, "invalid section path");
-                return;
-            }
-        };
-
-        if let Ok(already_existed) = table.set_impl(section, Some(Value::Table(DynTable::new()))) {
-            debug_assert!(
-                overwrite == already_existed,
-                "overwrite flag mismatch when adding a section"
-            );
-        } else {
-            debug_unreachable()
+#[cfg(feature = "ini")]
+impl DynConfigIniConfig {
+    pub fn new() -> Self {
+        Self {
+            root: DynTable::new(),
+            current_section: None,
+            section_stack: Vec::new(),
+            current_array: None,
         }
     }
 
-    fn contains_key<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
-        &self,
-        path: P,
-        key: NonEmptyStr<'s>,
-    ) -> bool {
-        let table = match self.root().get_table_path(path.map(ConfigKey::from)) {
-            Ok(table) => table,
-            Err(_) => {
-                debug_assert!(false, "invalid key path");
-                return false;
-            }
-        };
+    pub fn into_inner(self) -> DynConfig {
+        debug_assert!(
+            self.current_section.is_none(),
+            "missing `end_section()` call"
+        );
+        debug_assert!(
+            self.section_stack.is_empty(),
+            "missing `end_section()` call"
+        );
+        debug_assert!(self.current_array.is_none(), "missing `end_array()` call");
 
-        table.get_impl(key).is_ok()
+        DynConfig(self.root)
+    }
+}
+
+#[cfg(feature = "ini")]
+impl IniConfig for DynConfigIniConfig {
+    fn contains_key(&self, key: NonEmptyStr<'_>) -> Result<bool, ()> {
+        let table = self.current_section.as_ref().unwrap_or(&self.root);
+        table
+            .get_impl(key)
+            .map_err(|_| ())
+            .map(|val| val.table().is_some())
     }
 
-    fn add_value<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
-        &mut self,
-        path: P,
-        key: NonEmptyStr<'s>,
-        value: IniValue<&str>,
-        overwrite: bool,
-    ) {
-        let table = match self
-            .root_mut()
-            .get_table_mut_path(path.map(ConfigKey::from))
-        {
-            Ok(table) => table,
-            Err(_) => {
-                debug_assert!(false, "invalid value path");
-                return;
-            }
-        };
+    fn add_value(&mut self, key: NonEmptyStr<'_>, value: IniValue<&str>, overwrite: bool) {
+        let table = self.current_section.as_mut().unwrap_or(&mut self.root);
 
         if let Ok(already_existed) = match value {
-            IniValue::Bool(value) => table.set(key, Value::Bool(value)),
-            IniValue::I64(value) => table.set(key, Value::I64(value)),
-            IniValue::F64(value) => table.set(key, Value::F64(value)),
-            IniValue::String(value) => table.set(key, Value::String(value.into())),
+            IniValue::Bool(value) => table.set_impl(key, Some(Value::Bool(value))),
+            IniValue::I64(value) => table.set_impl(key, Some(Value::I64(value))),
+            IniValue::F64(value) => table.set_impl(key, Some(Value::F64(value))),
+            IniValue::String(value) => table.set_impl(key, Some(Value::String(value.into()))),
         } {
             debug_assert!(
                 overwrite == already_existed,
                 "overwrite flag mismatch when adding a value"
             );
         } else {
-            debug_unreachable()
+            debug_assert!(false,);
         }
     }
 
-    fn add_array<'s, P: Iterator<Item = NonEmptyStr<'s>>>(
-        &mut self,
-        path: P,
-        key: NonEmptyStr<'s>,
-        array: Vec<IniValue<String>>,
-        overwrite: bool,
-    ) {
-        let table = match self
-            .root_mut()
-            .get_table_mut_path(path.map(ConfigKey::from))
-        {
-            Ok(table) => table,
-            Err(_) => {
-                debug_assert!(false, "invalid array path");
-                return;
+    fn start_section(&mut self, section: NonEmptyStr<'_>, overwrite: bool) {
+        let start_section_in_section =
+            |parent: &mut DynTable, current_section: &mut Option<DynTable>| {
+                // Overwrite the previous value / section with this key in the parent section.
+                if overwrite {
+                    let previous = parent.remove(section);
+                    debug_assert!(
+                        previous.is_some(),
+                        "overwrite flag mismatch when starting a section"
+                    );
+                    current_section.replace(DynTable::new());
+
+                // Add a new section or continue the previous section with this key in the parent section.
+                } else {
+                    // Previous value at this key was a section - continue it.
+                    if let Some(previous) = parent.remove(section).map(Value::table).flatten() {
+                        current_section.replace(previous);
+
+                    // Else it was a value and we will overwrite it.
+                    } else {
+                        current_section.replace(DynTable::new());
+                    }
+                }
+            };
+
+        if let Some(mut current_section) = self.current_section.take() {
+            start_section_in_section(&mut current_section, &mut self.current_section);
+
+            self.section_stack.push(current_section);
+        } else {
+            start_section_in_section(&mut self.root, &mut self.current_section);
+        }
+    }
+
+    fn end_section(&mut self, section: NonEmptyStr<'_>) {
+        if let Some(current_section) = self.current_section.take() {
+            if let Some(mut parent_section) = self.section_stack.pop() {
+                let existed = parent_section.set_impl(section, Some(Value::Table(current_section)));
+                debug_assert_eq!(existed, Ok(false));
+                self.current_section.replace(parent_section);
+            } else {
+                let existed = self
+                    .root
+                    .set_impl(section, Some(Value::Table(current_section)));
+                debug_assert_eq!(existed, Ok(false));
             }
-        };
+        } else {
+            debug_assert!(
+                false,
+                "`end_section()` call without a matching `start_section()`"
+            );
+        }
+    }
 
-        let mut dyn_array = DynArray::new();
+    fn start_array(&mut self, array: NonEmptyStr<'_>, overwrite: bool) {
+        let table = self.current_section.as_mut().unwrap_or(&mut self.root);
 
-        for value in array.into_iter() {
-            match dyn_array.push(match value {
+        if overwrite {
+            let previous = table.remove(array);
+            debug_assert!(previous.is_some());
+        }
+
+        debug_assert!(
+            self.current_array.is_none(),
+            "nested arrays are not supported"
+        );
+        self.current_array.replace(DynArray::new());
+    }
+
+    fn add_array_value(&mut self, value: IniValue<&str>) {
+        if let Some(current_array) = self.current_array.as_mut() {
+            let result = current_array.push(match value {
                 IniValue::Bool(value) => Value::Bool(value),
                 IniValue::I64(value) => Value::I64(value),
                 IniValue::F64(value) => Value::F64(value),
-                IniValue::String(value) => Value::String(value),
-            }) {
-                Ok(_) => {}
-                Err(err) => match err {
-                    ArrayError::IncorrectValueType(_) => {
-                        debug_assert!(false, "mixed type array values")
-                    }
-                    ArrayError::IndexOutOfBounds(_) | ArrayError::ArrayEmpty => debug_unreachable(),
-                },
-            }
-        }
-
-        if let Ok(already_existed) = table.set_impl(key, Some(Value::Array(dyn_array))) {
-            debug_assert!(
-                overwrite == already_existed,
-                "overwrite flag mismatch when adding an array"
-            );
+                IniValue::String(value) => Value::String(value.to_owned()),
+            });
+            debug_assert!(result.is_ok(), "incorrect array value type");
         } else {
-            debug_unreachable()
+            debug_assert!(
+                false,
+                "`add_array_value()` call without a matching `start_array()`"
+            );
+        }
+    }
+
+    fn end_array(&mut self, array: NonEmptyStr<'_>) {
+        if let Some(current_array) = self.current_array.take() {
+            let root = &mut self.root;
+            let table = self.current_section.as_mut().unwrap_or(root);
+
+            let existed = table.set_impl(array, Some(Value::Array(current_array)));
+            debug_assert_eq!(existed, Ok(false));
+        } else {
+            debug_assert!(
+                false,
+                "`end_array()` call without a matching `start_array()`"
+            );
         }
     }
 }
@@ -325,7 +335,7 @@ fn table_to_bin_config(
         // Must succeed - all keys are valid.
         let value = unwrap_unchecked(table.get(key));
 
-        value_to_bin_config(Some(key.as_ref()), value, writer)?;
+        value_to_bin_config(Some(key), value, writer)?;
     }
 
     Ok(())
@@ -348,7 +358,7 @@ fn array_to_bin_config(
 #[cfg(feature = "bin")]
 /// Writes the dyn config value with `key` recursively to the binary config writer.
 fn value_to_bin_config(
-    key: Option<&str>,
+    key: Option<NonEmptyStr<'_>>,
     value: DynConfigValueRef<'_>,
     writer: &mut BinConfigWriter,
 ) -> Result<(), BinConfigWriterError> {

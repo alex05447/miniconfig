@@ -1,8 +1,8 @@
 use {
     super::{array_or_table::BinArrayOrTable, value::BinConfigUnpackedValue},
     crate::{
-        util::{unwrap_unchecked, DisplayLua},
-        BinArrayError, BinConfigValue, BinTable, ConfigKey, GetPathError, Value, ValueType,
+        util::*,
+        *,
     },
     std::{
         borrow::Borrow,
@@ -402,7 +402,10 @@ impl<'a> Iterator for BinArrayIter<'a> {
             self.index += 1;
 
             // Must succeed - all indices are valid.
-            Some(unwrap_unchecked(self.array.get(index)))
+            Some(unwrap_unchecked_msg(
+                self.array.get(index),
+                "invalid index in array iterator",
+            ))
         } else {
             None
         }
@@ -430,7 +433,7 @@ mod tests {
     #[test]
     fn BinArrayError_IndexOutOfBounds() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array("array", 1).unwrap();
+        writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, true).unwrap();
         writer.end().unwrap();
         let data = writer.finish().unwrap();
@@ -507,7 +510,7 @@ mod tests {
     #[test]
     fn BinArrayError_IncorrectValueType() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array("array", 1).unwrap();
+        writer.array(nestr!("array"), 1).unwrap();
         writer.f64(None, 3.14).unwrap();
         writer.end().unwrap();
         let data = writer.finish().unwrap();

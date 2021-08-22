@@ -1,10 +1,13 @@
 use std::{
     convert::From,
-    fmt::{Display, Formatter, Write},
+    fmt::{Display, Formatter},
 };
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-use crate::util::{write_lua_string, DisplayLua};
+use {
+    crate::util::*,
+    std::fmt::Write,
+};
 
 /// Represents a config value.
 ///
@@ -165,7 +168,7 @@ impl<S: AsRef<str>, A, T> Value<S, A, T> {
 }
 
 impl ValueType {
-    #[cfg(any(feature = "bin", feature = "dyn", feature = "ini", feature = "lua"))]
+    #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
     pub(crate) fn is_compatible(self, other: ValueType) -> bool {
         use ValueType::*;
 

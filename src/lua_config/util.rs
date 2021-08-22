@@ -1,12 +1,13 @@
-use crate::{
-    lua_config::error::config_key_from_lua_value,
-    util::unwrap_unchecked,
-    value::{value_type_from_u32, value_type_to_u32},
-    ConfigPath, LuaArray, LuaConfigError, LuaConfigValue, LuaString, LuaTable, Value, ValueType,
+use {
+    crate::{
+        lua_config::error::config_key_from_lua_value,
+        util::unwrap_unchecked,
+        value::*,
+        *,
+    },
+    rlua::Value as LuaValue,
+    rlua_ext::value_type,
 };
-
-use rlua::Value as LuaValue;
-use rlua_ext::value_type;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum LuaTableKeyType {

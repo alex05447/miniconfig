@@ -1,24 +1,14 @@
 use {
     crate::{
-        util::{debug_unreachable, unwrap_unchecked, write_lua_key, DisplayLua},
-        ConfigKey, DynArray, DynConfigValue, DynConfigValueMut, DynConfigValueRef, GetPathError,
-        NonEmptyStr, TableError, Value, ValueType,
+        util::*,
+        *,
     },
     std::{
         borrow::Borrow,
         collections::{hash_map::Iter as HashMapIter, HashMap},
-        fmt::{Display, Formatter},
+        fmt::{Display, Formatter, Write},
         iter::{IntoIterator, Iterator},
     },
-};
-
-#[cfg(feature = "ini")]
-use {
-    crate::{
-        write_ini_array, write_ini_table, write_ini_value, DisplayIni, IniPath, ToIniStringError,
-        ToIniStringOptions,
-    },
-    std::fmt::Write,
 };
 
 /// Represents a mutable hashmap of [`Value`]'s with (non-empty) string keys.
@@ -68,7 +58,8 @@ impl DynTable {
             Ok(_) => true,
             Err(err) => match err {
                 EmptyKey | KeyDoesNotExist => false,
-                IncorrectValueType(_) => debug_unreachable(),
+                // This error is not returned by `get()`.
+                IncorrectValueType(_) => debug_unreachable!("unexpected error"),
             },
         }
     }
@@ -81,7 +72,7 @@ impl DynTable {
     /// [`table`]: struct.DynTable.html
     /// [`error`]: enum.TableError.html
     pub fn get<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'_>, TableError> {
-        let key = NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?;
+        let key = NonEmptyStr::new(key.as_ref()).ok_or(TableError::EmptyKey)?;
         self.get_impl(key)
     }
 
@@ -365,7 +356,7 @@ impl DynTable {
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
     pub fn get_mut<K: AsRef<str>>(&mut self, key: K) -> Result<DynConfigValueMut<'_>, TableError> {
-        let key = NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?;
+        let key = NonEmptyStr::new(key.as_ref()).ok_or(TableError::EmptyKey)?;
         self.get_mut_impl(key)
     }
 
@@ -520,7 +511,7 @@ impl DynTable {
         K: AsRef<str>,
         V: Into<Option<DynConfigValue>>,
     {
-        let key = NonEmptyStr::new(key.as_ref()).map_err(|_| TableError::EmptyKey)?;
+        let key = NonEmptyStr::new(key.as_ref()).ok_or(TableError::EmptyKey)?;
         self.set_impl(key, value.into())
     }
 
@@ -528,9 +519,9 @@ impl DynTable {
         self.0.len() as u32
     }
 
-    pub(crate) fn get_impl<'k>(
+    pub(crate) fn get_impl(
         &self,
-        key: NonEmptyStr<'k>,
+        key: NonEmptyStr<'_>,
     ) -> Result<DynConfigValueRef<'_>, TableError> {
         use TableError::*;
 
@@ -543,10 +534,11 @@ impl DynTable {
 
     /// When adding or modifying a value (`value` is `Some`), returns `true` if the value at `key` already existed and was modified,
     /// `false` if the value did not exist and was added.
-    /// When removing an existing value (`value` is `None`), returns `true`.
-    pub(crate) fn set_impl<'k>(
+    /// When removing an existing value (`value` is `None`), returns `true` if the value existed and was removed,
+    /// or a `KeyDoesNotExist` error if it did not exist.
+    pub(crate) fn set_impl(
         &mut self,
-        key: NonEmptyStr<'k>,
+        key: NonEmptyStr<'_>,
         value: Option<DynConfigValue>,
     ) -> Result<bool, TableError> {
         use TableError::*;
@@ -572,6 +564,11 @@ impl DynTable {
                 Some(_) => Ok(true),
             }
         }
+    }
+
+    #[cfg(feature = "ini")]
+    pub(crate) fn remove(&mut self, key: NonEmptyStr<'_>) -> Option<DynConfigValue> {
+        self.0.remove(key.as_ref())
     }
 
     fn get_mut_impl<'k>(
@@ -634,7 +631,7 @@ impl DynTable {
         path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        debug_assert!(options.nested_sections || level < 2);
+        debug_assert!(options.nested_sections() || level < 2);
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -723,7 +720,10 @@ impl<'t> Iterator for DynTableIter<'t> {
             };
 
             // Safe to call - we validated the key.
-            Some((unsafe { NonEmptyStr::new_unchecked(key.as_str()) }, value))
+            Some((
+                unwrap_unchecked_msg(NonEmptyStr::new(key.as_ref()), "empty key"),
+                value,
+            ))
         } else {
             None
         }

@@ -1,13 +1,10 @@
 use {
     super::{
         array_or_table::{BinArrayOrTable, InternedString},
-        util::{string_hash_fnv1a, u32_from_bin, u32_to_bin_bytes},
+        util::*,
         value::BinConfigPackedValue,
     },
-    crate::{
-        util::{debug_unreachable, DisplayLua},
-        BinConfigError, BinConfigWriterError, BinTable, ValueType,
-    },
+    crate::{util::DisplayLua, *},
     std::{
         fmt::{Display, Formatter, Write},
         mem::size_of,
@@ -16,13 +13,7 @@ use {
 };
 
 #[cfg(feature = "dyn")]
-use {
-    crate::{BinArray, BinConfigValue, DynArray, DynConfig, DynTable, NonEmptyStr},
-    std::ops::DerefMut,
-};
-
-#[cfg(feature = "ini")]
-use crate::{DisplayIni, IniPath, ToIniStringError, ToIniStringOptions};
+use std::ops::DerefMut;
 
 /// Represents an immutable config with a root hashmap [`table`].
 ///
@@ -559,8 +550,8 @@ impl BinConfig {
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_table<'k>(
-        key: NonEmptyStr<'k>,
+    fn value_to_dyn_table(
+        key: NonEmptyStr<'_>,
         value: BinConfigValue<'_>,
         dyn_table: &mut DynTable,
     ) {
@@ -568,19 +559,19 @@ impl BinConfig {
 
         // Must succeed - we are only adding values to the dyn table.
         if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set(key, Bool(value)),
-            I64(value) => dyn_table.set(key, I64(value)),
-            F64(value) => dyn_table.set(key, F64(value)),
-            String(value) => dyn_table.set(key, String(value.into())),
+            Bool(value) => dyn_table.set_impl(key, Some(Bool(value))),
+            I64(value) => dyn_table.set_impl(key, Some(I64(value))),
+            F64(value) => dyn_table.set_impl(key, Some(F64(value))),
+            String(value) => dyn_table.set_impl(key, Some(String(value.into()))),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set(key, Array(array))
+                dyn_table.set_impl(key, Some(Array(array)))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set(key, Table(table))
+                dyn_table.set_impl(key, Some(Table(table)))
             }
         } {
             debug_assert!(
@@ -588,7 +579,7 @@ impl BinConfig {
                 "value unexpectedly already existed in the table"
             );
         } else {
-            debug_unreachable()
+            debug_unreachable!("adding a value to the table failed")
         }
     }
 
@@ -613,7 +604,7 @@ impl BinConfig {
                 dyn_array.push(Table(table))
             }
         } {
-            debug_unreachable()
+            debug_unreachable!("pushing a value to the array failed")
         }
     }
 }
@@ -714,8 +705,8 @@ mod tests {
     #[test]
     fn GetPathError_EmptyKey() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.table("foo", 1).unwrap();
-        writer.bool("bar", true).unwrap();
+        writer.table(nestr!("foo"), 1).unwrap();
+        writer.bool(nestr!("bar"), true).unwrap();
         writer.end().unwrap();
         let data = writer.finish().unwrap();
         let config = BinConfig::new(data).unwrap();
@@ -743,10 +734,10 @@ mod tests {
     #[test]
     fn GetPathError_PathDoesNotExist() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.table("foo", 1).unwrap();
-        writer.array("bar", 1).unwrap();
+        writer.table(nestr!("foo"), 1).unwrap();
+        writer.array(nestr!("bar"), 1).unwrap();
         writer.table(None, 1).unwrap();
-        writer.bool("bob", true).unwrap();
+        writer.bool(nestr!("bob"), true).unwrap();
         writer.end().unwrap();
         writer.end().unwrap();
         writer.end().unwrap();
@@ -790,7 +781,7 @@ mod tests {
     #[test]
     fn GetPathError_IndexOutOfBounds() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array("array", 1).unwrap();
+        writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, true).unwrap();
         writer.end().unwrap();
         let data = writer.finish().unwrap();
@@ -822,8 +813,8 @@ mod tests {
     #[test]
     fn GetPathError_ValueNotAnArray() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.table("table", 1).unwrap();
-        writer.bool("array", true).unwrap();
+        writer.table(nestr!("table"), 1).unwrap();
+        writer.bool(nestr!("array"), true).unwrap();
         writer.end().unwrap();
         let data = writer.finish().unwrap();
         let config = BinConfig::new(data).unwrap();
@@ -854,7 +845,7 @@ mod tests {
     #[test]
     fn GetPathError_ValueNotATable() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.array("array", 1).unwrap();
+        writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, true).unwrap();
         writer.end().unwrap();
         let data = writer.finish().unwrap();
@@ -886,9 +877,9 @@ mod tests {
     #[test]
     fn GetPathError_IncorrectValueType() {
         let mut writer = BinConfigWriter::new(1).unwrap();
-        writer.table("table", 2).unwrap();
-        writer.bool("foo", true).unwrap();
-        writer.f64("bar", 3.14).unwrap();
+        writer.table(nestr!("table"), 2).unwrap();
+        writer.bool(nestr!("foo"), true).unwrap();
+        writer.f64(nestr!("bar"), 3.14).unwrap();
         writer.end().unwrap();
         let data = writer.finish().unwrap();
         let config = BinConfig::new(data).unwrap();
@@ -966,8 +957,8 @@ mod tests {
 
         let mut writer = BinConfigWriter::new(2).unwrap();
 
-        writer.string("costarring", "declinate").unwrap();
-        writer.string("liquid", "macallums").unwrap();
+        writer.string(nestr!("costarring"), "declinate").unwrap();
+        writer.string(nestr!("liquid"), "macallums").unwrap();
 
         let data = writer.finish().unwrap();
 
@@ -1005,21 +996,21 @@ mod tests {
     fn to_dyn_config() {
         let mut writer = BinConfigWriter::new(6).unwrap();
 
-        writer.array("array_value", 3).unwrap();
+        writer.array(nestr!("array_value"), 3).unwrap();
         writer.i64(None, 54).unwrap();
         writer.i64(None, 12).unwrap();
         writer.f64(None, 78.9).unwrap();
         writer.end().unwrap();
 
-        writer.bool("bool_value", true).unwrap();
-        writer.f64("float_value", 3.14).unwrap();
-        writer.i64("int_value", 7).unwrap();
-        writer.string("string_value", "foo").unwrap();
+        writer.bool(nestr!("bool_value"), true).unwrap();
+        writer.f64(nestr!("float_value"), 3.14).unwrap();
+        writer.i64(nestr!("int_value"), 7).unwrap();
+        writer.string(nestr!("string_value"), "foo").unwrap();
 
-        writer.table("table_value", 3).unwrap();
-        writer.i64("bar", 2020).unwrap();
-        writer.string("baz", "hello").unwrap();
-        writer.bool("foo", false).unwrap();
+        writer.table(nestr!("table_value"), 3).unwrap();
+        writer.i64(nestr!("bar"), 2020).unwrap();
+        writer.string(nestr!("baz"), "hello").unwrap();
+        writer.bool(nestr!("foo"), false).unwrap();
         writer.end().unwrap();
 
         let data = writer.finish().unwrap();
@@ -1082,29 +1073,29 @@ string = "bar""#;
 
         let mut writer = BinConfigWriter::new(7).unwrap();
 
-        writer.array("array", 3).unwrap();
+        writer.array(nestr!("array"), 3).unwrap();
         writer.string(None, "foo").unwrap();
         writer.string(None, "bar").unwrap();
         writer.string(None, "baz").unwrap();
         writer.end().unwrap();
 
-        writer.bool("bool", true).unwrap();
-        writer.f64("float", 3.14).unwrap();
-        writer.i64("int", 7).unwrap();
-        writer.string("string", "foo").unwrap();
+        writer.bool(nestr!("bool"), true).unwrap();
+        writer.f64(nestr!("float"), 3.14).unwrap();
+        writer.i64(nestr!("int"), 7).unwrap();
+        writer.string(nestr!("string"), "foo").unwrap();
 
-        writer.table("other_section", 4).unwrap();
-        writer.bool("other_bool", true).unwrap();
-        writer.f64("other_float", 3.14).unwrap();
-        writer.i64("other_int", 7).unwrap();
-        writer.string("other_string", "foo").unwrap();
+        writer.table(nestr!("other_section"), 4).unwrap();
+        writer.bool(nestr!("other_bool"), true).unwrap();
+        writer.f64(nestr!("other_float"), 3.14).unwrap();
+        writer.i64(nestr!("other_int"), 7).unwrap();
+        writer.string(nestr!("other_string"), "foo").unwrap();
         writer.end().unwrap();
 
-        writer.table("section", 4).unwrap();
-        writer.bool("bool", false).unwrap();
-        writer.f64("float", 7.62).unwrap();
-        writer.i64("int", 9).unwrap();
-        writer.string("string", "bar").unwrap();
+        writer.table(nestr!("section"), 4).unwrap();
+        writer.bool(nestr!("bool"), false).unwrap();
+        writer.f64(nestr!("float"), 7.62).unwrap();
+        writer.i64(nestr!("int"), 9).unwrap();
+        writer.string(nestr!("string"), "bar").unwrap();
         writer.end().unwrap();
 
         let data = writer.finish().unwrap();

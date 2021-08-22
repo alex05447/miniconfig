@@ -1,7 +1,7 @@
 use {
     crate::{
-        util::{debug_unreachable, write_char, WriteCharError},
-        ConfigKey, ConfigPath, NonEmptyStr, TableKey, ToIniStringError, ToIniStringOptions, Value,
+        util::{write_char, WriteCharError},
+        *,
     },
     std::fmt::Write,
 };
@@ -51,7 +51,7 @@ where
                 if array {
                     Err(InvalidArrayType)
                 } else {
-                    debug_assert!(options.nested_sections || level < 2);
+                    debug_assert!(options.nested_sections() || level < 2);
                     value.fmt_ini(writer, level, false, path, options)
                 }
             }
@@ -59,7 +59,7 @@ where
                 if array {
                     Err(InvalidArrayType)
                 } else {
-                    debug_unreachable(); // Handled by parent tables.
+                    debug_unreachable!("array foramtting is handled by parent tables")
                 }
             }
         }
@@ -218,8 +218,8 @@ pub(crate) fn write_ini_table<'k, W: Write, V: DisplayIni>(
 ) -> Result<(), ToIniStringError> {
     use ToIniStringError::*;
 
-    if (level >= 1) && !options.nested_sections {
-        return Err(NestedSectionsNotAllowed);
+    if level >= options.nested_section_depth {
+        return Err(NestedSectionDepthExceeded);
     }
 
     if key_index > 0 {
@@ -228,7 +228,7 @@ pub(crate) fn write_ini_table<'k, W: Write, V: DisplayIni>(
 
     path.push(key);
 
-    write_ini_sections(w, path, options.escape, options.nested_sections)?;
+    write_ini_sections(w, path, options.escape, options.nested_sections())?;
 
     if value_len > 0 {
         writeln!(w).map_err(|_| WriteError)?;
@@ -331,7 +331,7 @@ impl IniPath {
 
     /// Pops a section name off the end of the path.
     /// NOTE - the caller guarantees that the path is not empty.
-    #[cfg(any(feature = "bin", feature = "dyn", feature = "lua", test))]
+    //#[cfg(any(feature = "bin", feature = "dyn", feature = "lua", test))]
     pub(crate) fn pop(&mut self) {
         debug_assert!(!self.offsets.is_empty());
 
@@ -344,10 +344,12 @@ impl IniPath {
         }
     }
 
-    /// Clears the path.
-    pub(crate) fn clear(&mut self) {
-        self.path.clear();
-        self.offsets.clear();
+    pub(crate) fn last(&self) -> Option<NonEmptyStr<'_>> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(unsafe { self.slice(self.len() - 1) })
+        }
     }
 
     /// Returns the number of section names in the path.
@@ -394,7 +396,10 @@ impl IniPath {
 
         debug_assert!(start < end);
 
-        NonEmptyStr::new_unchecked(&self.path[start..end])
+        unwrap_unchecked_msg(
+            NonEmptyStr::new(&self.path[start..end]),
+            "empty section name",
+        )
     }
 }
 
@@ -436,35 +441,35 @@ mod tests {
         assert!(path.is_empty());
         assert!(path.len() == 0);
 
-        path.push(NonEmptyStr::new("foo").unwrap());
+        path.push(nestr!("foo"));
 
         assert!(!path.is_empty());
         assert!(path.len() == 1);
 
-        assert_eq!(unsafe { path.slice(0) }, NonEmptyStr::new("foo").unwrap());
+        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
 
-        path.push(NonEmptyStr::new("bill").unwrap());
+        path.push(nestr!("bill"));
 
         assert!(!path.is_empty());
         assert!(path.len() == 2);
 
-        assert_eq!(unsafe { path.slice(0) }, NonEmptyStr::new("foo").unwrap());
-        assert_eq!(unsafe { path.slice(1) }, NonEmptyStr::new("bill").unwrap());
+        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
+        assert_eq!(unsafe { path.slice(1) }, nestr!("bill"));
 
-        path.push(NonEmptyStr::new("bob").unwrap());
+        path.push(nestr!("bob"));
 
         assert!(!path.is_empty());
         assert!(path.len() == 3);
 
-        assert_eq!(unsafe { path.slice(0) }, NonEmptyStr::new("foo").unwrap());
-        assert_eq!(unsafe { path.slice(1) }, NonEmptyStr::new("bill").unwrap());
-        assert_eq!(unsafe { path.slice(2) }, NonEmptyStr::new("bob").unwrap());
+        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
+        assert_eq!(unsafe { path.slice(1) }, nestr!("bill"));
+        assert_eq!(unsafe { path.slice(2) }, nestr!("bob"));
 
         for (idx, path_part) in path.iter().enumerate() {
             match idx {
-                0 => assert_eq!(path_part, NonEmptyStr::new("foo").unwrap()),
-                1 => assert_eq!(path_part, NonEmptyStr::new("bill").unwrap()),
-                2 => assert_eq!(path_part, NonEmptyStr::new("bob").unwrap()),
+                0 => assert_eq!(path_part, nestr!("foo")),
+                1 => assert_eq!(path_part, nestr!("bill")),
+                2 => assert_eq!(path_part, nestr!("bob")),
                 _ => unreachable!(),
             }
         }
@@ -474,13 +479,13 @@ mod tests {
         assert!(!path.is_empty());
         assert!(path.len() == 2);
 
-        assert_eq!(unsafe { path.slice(0) }, NonEmptyStr::new("foo").unwrap());
-        assert_eq!(unsafe { path.slice(1) }, NonEmptyStr::new("bill").unwrap());
+        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
+        assert_eq!(unsafe { path.slice(1) }, nestr!("bill"));
 
         for (idx, path_part) in path.iter().enumerate() {
             match idx {
-                0 => assert_eq!(path_part, NonEmptyStr::new("foo").unwrap()),
-                1 => assert_eq!(path_part, NonEmptyStr::new("bill").unwrap()),
+                0 => assert_eq!(path_part, nestr!("foo")),
+                1 => assert_eq!(path_part, nestr!("bill")),
                 _ => unreachable!(),
             }
         }
@@ -490,11 +495,11 @@ mod tests {
         assert!(!path.is_empty());
         assert!(path.len() == 1);
 
-        assert_eq!(unsafe { path.slice(0) }, NonEmptyStr::new("foo").unwrap());
+        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
 
         for (idx, path_part) in path.iter().enumerate() {
             match idx {
-                0 => assert_eq!(path_part, NonEmptyStr::new("foo").unwrap()),
+                0 => assert_eq!(path_part, nestr!("foo")),
                 _ => unreachable!(),
             }
         }

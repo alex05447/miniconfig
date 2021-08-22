@@ -1,27 +1,14 @@
 use {
-    super::util::{
-        clear_table, get_table_len, new_table, set_table_len, value_from_lua_value,
-        ValueFromLuaValueError,
-    },
+    super::util::*,
     crate::{
-        util::{debug_unreachable, unwrap_unchecked, write_lua_key, DisplayLua},
-        ConfigKey, GetPathError, LuaArray, LuaConfigValue, LuaString, NonEmptyStr, TableError,
-        Value, ValueType,
+        util::*,
+        *,
     },
     rlua::Context,
     std::{
         borrow::Borrow,
-        fmt::{Display, Formatter},
+        fmt::{Display, Formatter, Write},
     },
-};
-
-#[cfg(feature = "ini")]
-use {
-    crate::{
-        write_ini_array, write_ini_table, write_ini_value, DisplayIni, IniPath, ToIniStringError,
-        ToIniStringOptions,
-    },
-    std::fmt::Write,
 };
 
 /// Represents a mutable Lua hash table of [`Value`]'s with string keys.
@@ -471,7 +458,7 @@ impl<'lua> LuaTable<'lua> {
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
-            let key = unsafe { NonEmptyStr::new_unchecked(key.as_ref()) };
+            let key = unwrap_unchecked_msg(NonEmptyStr::new(key.as_ref()), "empty key");
 
             <Self as DisplayLua>::do_indent(w, indent + 1)?;
 
@@ -509,7 +496,7 @@ impl<'lua> LuaTable<'lua> {
         path: &mut IniPath,
         options: ToIniStringOptions,
     ) -> Result<(), ToIniStringError> {
-        debug_assert!(options.nested_sections || level < 2);
+        debug_assert!(options.nested_sections() || level < 2);
 
         // Gather the keys.
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
@@ -538,7 +525,7 @@ impl<'lua> LuaTable<'lua> {
         for (key_index, key) in keys.into_iter().enumerate() {
             let last = key_index == len - 1;
 
-            let key = unsafe { NonEmptyStr::new_unchecked(key.as_ref()) };
+            let key = unwrap_unchecked_msg(NonEmptyStr::new(key.as_ref()), "empty key");
 
             // Must succeed - all keys are valid.
             let value = unwrap_unchecked(self.get(key));
@@ -596,7 +583,7 @@ impl<'lua> std::iter::Iterator for LuaTableIter<'lua> {
                 let key = if let rlua::Value::String(key) = key {
                     LuaString::new(key)
                 } else {
-                    debug_unreachable();
+                    debug_unreachable!("expected a string table key");
                 };
 
                 // Must succeed - the table only contains valid values.

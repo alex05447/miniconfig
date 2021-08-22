@@ -1,5 +1,5 @@
 use {
-    crate::{util::unwrap_unchecked, ConfigKey, ConfigPath},
+    crate::{util::unwrap_unchecked, *},
     rlua::Value as LuaValue,
     rlua_ext,
     std::{

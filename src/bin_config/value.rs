@@ -2,13 +2,12 @@ use {
     super::{
         array::BinArray,
         table::BinTable,
-        util::{u32_from_bin, u32_to_bin, u64_from_bin, u64_to_bin, StringHash},
+        util::*,
     },
     crate::{
-        util::unwrap_unchecked,
-        value::{value_type_from_u32, value_type_to_u32},
-        BinArrayError, ConfigKey, ConfigPath, DisplayLua, GetPathError, TableError, Value,
-        ValueType,
+        util::unwrap_unchecked_msg,
+        value::*,
+        *,
     },
     static_assertions::const_assert,
     std::{
@@ -214,7 +213,7 @@ impl BinConfigPackedValue {
     /// Unpacks this value's type.
     /// NOTE - the caller guarantees the value type is valid.
     pub(super) fn value_type(&self) -> ValueType {
-        unwrap_unchecked(self.try_value_type())
+        unwrap_unchecked_msg(self.try_value_type(), "invalid binary config value type")
     }
 
     fn set_value_type_and_key_index(&mut self, value_type: ValueType, key_index: u32) {
@@ -239,7 +238,7 @@ impl BinConfigPackedValue {
     /// Unpacks and interprets this value as a `bool`.
     /// NOTE - the caller guarantees the value is `0` or `1`.
     fn bool(&self) -> bool {
-        unwrap_unchecked(self.try_bool())
+        unwrap_unchecked_msg(self.try_bool(), "invalid binary config boolean value")
     }
 
     /// Unpacks and interprets this value as an `i64`.

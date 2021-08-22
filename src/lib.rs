@@ -1,8 +1,3 @@
-#![allow(clippy::cognitive_complexity)]
-#![allow(clippy::len_without_is_empty)]
-#![allow(clippy::new_without_default)]
-#![allow(clippy::approx_constant)]
-
 #[cfg(feature = "bin")]
 mod bin_config;
 
@@ -15,12 +10,18 @@ mod lua_config;
 #[cfg(feature = "ini")]
 mod ini;
 
-#[cfg(not(all(feature = "bin", feature = "str_hash")))]
-mod util;
-
-#[cfg(all(feature = "bin", feature = "str_hash"))]
+#[cfg(any(
+    feature = "bin",
+    feature = "dyn",
+    feature = "ini",
+    feature = "lua",
+    feature = "str_hash"
+))]
 #[macro_use]
 mod util;
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
+pub(crate) use util::debug_unreachable_impl;
 
 mod value;
 
@@ -52,6 +53,3 @@ pub use ini::*;
 
 #[cfg(all(feature = "bin", feature = "str_hash"))]
 pub use util::StringAndHash;
-
-#[cfg(any(feature = "ini", feature = "dyn"))]
-pub use util::NonEmptyStr;

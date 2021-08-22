@@ -1,24 +1,15 @@
 use {
-    super::util::{new_table, validate_lua_config_table},
+    super::util::*,
     crate::{
-        util::{debug_unreachable, unwrap_unchecked, DisplayLua},
-        LuaConfigError, LuaConfigKeyError, LuaTable,
+        util::*,
+        *,
     },
     rlua::{Context, RegistryKey},
     std::fmt::{Display, Formatter, Write},
 };
 
 #[cfg(feature = "bin")]
-use crate::{BinConfigWriter, BinConfigWriterError};
-
-#[cfg(feature = "ini")]
-use crate::{DisplayIni, IniPath, ToIniStringError, ToIniStringOptions};
-
-#[cfg(feature = "dyn")]
-use crate::{DynArray, DynConfig, DynTable};
-
-#[cfg(any(feature = "bin", feature = "dyn"))]
-use crate::{LuaArray, LuaString, Value};
+use crate::util::unwrap_unchecked_msg;
 
 /// Represents a mutable config with a root [`Lua table`] within the [`Lua context`].
 ///
@@ -210,7 +201,9 @@ impl<'lua> LuaConfig<'lua> {
     #[cfg(feature = "dyn")]
     fn table_to_dyn_table(table: LuaTable<'_>, dyn_table: &mut DynTable) {
         for (key, value) in table.iter() {
-            Self::value_to_dyn_table(key.as_ref(), value, dyn_table);
+            // Must succeed - we don't allow empty keys.
+            let key = unwrap_unchecked(NonEmptyStr::new(key.as_ref()));
+            Self::value_to_dyn_table(key, value, dyn_table);
         }
     }
 
@@ -223,7 +216,7 @@ impl<'lua> LuaConfig<'lua> {
 
     #[cfg(feature = "dyn")]
     fn value_to_dyn_table(
-        key: &str,
+        key: NonEmptyStr<'_>,
         value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
         dyn_table: &mut DynTable,
     ) {
@@ -231,19 +224,19 @@ impl<'lua> LuaConfig<'lua> {
 
         // Must succeed - we are only adding values to the dyn table.
         if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set(key, Value::Bool(value)),
-            I64(value) => dyn_table.set(key, Value::I64(value)),
-            F64(value) => dyn_table.set(key, Value::F64(value)),
-            String(value) => dyn_table.set(key, Value::String(value.as_ref().into())),
+            Bool(value) => dyn_table.set_impl(key, Some(Value::Bool(value))),
+            I64(value) => dyn_table.set_impl(key, Some(Value::I64(value))),
+            F64(value) => dyn_table.set_impl(key, Some(Value::F64(value))),
+            String(value) => dyn_table.set_impl(key, Some(Value::String(value.as_ref().into()))),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set(key, Value::Array(array))
+                dyn_table.set_impl(key, Some(Value::Array(array)))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set(key, Value::Table(table))
+                dyn_table.set_impl(key, Some(Value::Table(table)))
             }
         } {
             debug_assert!(
@@ -251,7 +244,7 @@ impl<'lua> LuaConfig<'lua> {
                 "value unexpectedly already existed in the table"
             );
         } else {
-            debug_unreachable()
+            debug_unreachable!("adding a value to the table failed")
         }
     }
 
@@ -279,7 +272,7 @@ impl<'lua> LuaConfig<'lua> {
                 dyn_array.push(Value::Table(table))
             }
         } {
-            debug_unreachable()
+            debug_unreachable!("pushing a value to the array failed")
         }
     }
 }
@@ -358,7 +351,9 @@ fn table_to_bin_config(
 
     // Iterate the table using the sorted keys.
     for key in keys.into_iter() {
-        let key_str = key.as_ref();
+        // Must succeed - we don't allow empty table keys.
+        let key_str =
+            unwrap_unchecked_msg(NonEmptyStr::new(key.as_ref()), "empty table string key");
 
         // Must succeed - all keys are valid.
         let value = unwrap_unchecked(table.get(key_str));
@@ -384,7 +379,7 @@ fn array_to_bin_config(
 
 #[cfg(feature = "bin")]
 fn value_to_bin_config(
-    key: Option<&str>,
+    key: Option<NonEmptyStr<'_>>,
     value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
     writer: &mut BinConfigWriter,
 ) -> Result<(), BinConfigWriterError> {
