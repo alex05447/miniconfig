@@ -1,8 +1,5 @@
 use {
-    super::{
-        util::*,
-        value::*,
-    },
+    super::{util::*, value::*},
     std::{mem::size_of, slice::from_raw_parts, str::from_utf8_unchecked},
 };
 

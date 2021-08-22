@@ -196,18 +196,6 @@ fn InvalidCharacterAfterSectionName() {
 
     // Any character after whitespace after nested section name.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\n[a /b]").nested_section_depth(u32::MAX))
-            .err()
-            .unwrap(),
-        IniError {
-            line: 2,
-            column: 4,
-            error: IniErrorKind::InvalidCharacterAfterSectionName('/')
-        }
-    );
-
-    // Any character after whitespace after nested section name.
-    assert_eq!(
         DynConfig::from_ini(IniParser::new("[a]\n[a/b c]").nested_section_depth(u32::MAX))
             .err()
             .unwrap(),
@@ -259,6 +247,28 @@ fn InvalidCharacterAfterSectionName() {
     let a = ini.root().get_table("a").unwrap();
     assert_eq!(a.len(), 1);
     assert_eq!(a.get_table("b").unwrap().len(), 0);
+
+    // Whitespace after nested section name.
+    let ini =
+        DynConfig::from_ini(IniParser::new("[a]\n[a /b]").nested_section_depth(u32::MAX)).unwrap();
+    assert_eq!(
+        ini.root()
+            .get_table_path(&["a".into(), "b".into()])
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // Whitespace before nested section name.
+    let ini =
+        DynConfig::from_ini(IniParser::new("[a]\n[a/ b]").nested_section_depth(u32::MAX)).unwrap();
+    assert_eq!(
+        ini.root()
+            .get_table_path(&["a".into(), "b".into()])
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[test]
@@ -847,12 +857,12 @@ fn DuplicateKey() {
     );
     // Section and key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\nb=8\n[a/b]").nested_section_depth(2))
+        DynConfig::from_ini(IniParser::new("[a]\nb=8\n[a / b]").nested_section_depth(2))
             .err()
             .unwrap(),
         IniError {
             line: 3,
-            column: 4,
+            column: 6,
             error: IniErrorKind::DuplicateKey("b".into())
         }
     );
@@ -930,7 +940,9 @@ fn DuplicateKey() {
 
     // Section and key, `First`.
     let ini = DynConfig::from_ini(
-        IniParser::new("[a]\nb=8\n[a/b]").duplicate_keys(IniDuplicateKeys::First),
+        IniParser::new("[a]\nb=8\n[a/ b]")
+            .duplicate_keys(IniDuplicateKeys::First)
+            .nested_section_depth(2),
     )
     .unwrap();
     assert_eq!(

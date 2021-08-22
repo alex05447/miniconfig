@@ -1,8 +1,5 @@
 use {
-    crate::{
-        util::*,
-        *,
-    },
+    crate::{util::*, *},
     std::{
         borrow::Borrow,
         collections::{hash_map::Iter as HashMapIter, HashMap},

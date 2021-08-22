@@ -1,14 +1,6 @@
 use {
-    super::{
-        array::BinArray,
-        table::BinTable,
-        util::*,
-    },
-    crate::{
-        util::unwrap_unchecked_msg,
-        value::*,
-        *,
-    },
+    super::{array::BinArray, table::BinTable, util::*},
+    crate::{util::unwrap_unchecked_msg, value::*, *},
     static_assertions::const_assert,
     std::{
         borrow::Borrow,

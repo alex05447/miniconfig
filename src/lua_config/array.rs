@@ -1,9 +1,6 @@
 use {
     super::util::*,
-    crate::{
-        util::*,
-        *,
-    },
+    crate::{util::*, *},
     rlua::Context,
     std::{
         borrow::Borrow,

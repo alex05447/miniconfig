@@ -196,7 +196,7 @@ baz = "an overridden value"
 ; Each parent section must be declared prior.
 ; If nested sections are not enabled, `/` is treated as a normal key/value character.
 ; Otherwise it must be escaped in unquoted section names.
-[some_section/nested_section]
+[some_section / nested_section]
 ```
 
 **Use cases**: if `"ini"` feature is enabled - use `.ini` config source text files for human-readable / writable data of limited complexity (e.g. no arrays of tables) which must be user-visible/editable.
@@ -241,7 +241,7 @@ The crate by itself with no features enabled exposes no functionality. Enable on
 
 - If `"ini"` feature is enabled, [`bitflags`](https://crates.io/crates/bitflags) for `.ini` parser options, and [`static_assertions`](https://crates.io/crates/static_assertions).
 
-- If `"bin"` and `"str_hash"` features are enabled, `"ministrhash"` for compile-time string hashing as a path dependency (TODO - github dependency?).
+- If `"bin"` and `"str_hash"` features are enabled, `"ministrhash"` and `"mininestr"` for compile-time string hashing as a path dependency (TODO - github dependency?).
 
 ## **Problems / missing features**
 

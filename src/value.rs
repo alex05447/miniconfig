@@ -4,10 +4,7 @@ use std::{
 };
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-use {
-    crate::util::*,
-    std::fmt::Write,
-};
+use {crate::util::*, std::fmt::Write};
 
 /// Represents a config value.
 ///

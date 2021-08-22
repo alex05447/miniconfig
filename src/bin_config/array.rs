@@ -1,9 +1,6 @@
 use {
     super::{array_or_table::BinArrayOrTable, value::BinConfigUnpackedValue},
-    crate::{
-        util::*,
-        *,
-    },
+    crate::{util::*, *},
     std::{
         borrow::Borrow,
         fmt::{Display, Formatter, Write},

@@ -1,8 +1,6 @@
 use {
     super::util::IniPath,
-    crate::{
-        util::unwrap_unchecked, *,
-    },
+    crate::{util::unwrap_unchecked, *},
     std::{iter::Iterator, str::Chars},
 };
 
@@ -23,46 +21,52 @@ enum IniParserState {
     /// escape sequences (if supported) (-> Section),
     /// valid key chars (-> Section).
     BeforeSection,
+    /// We started parsing an unquoted section name.
     /// Accept nested section separators ('/') (if supported),
     /// escape sequences (if supported),
     /// valid key chars,
     /// section end delimiters (']') (-> SkipLineWhitespaceOrComments),
     /// whitespace (except new lines) (-> AfterSection).
     Section,
+    /// We started parsing a quoted section name.
     /// Accept matching string quotes ('"' / '\'') (-> AfterQuotedSection),
     /// escape sequences (if supported),
     /// non-matching string quotes (if supported),
     /// spaces (' '),
     /// valid key chars.
     QuotedSection,
-    /// Accept whitespace (except new lines),
-    /// section end delimiters (']') (-> SkipLineWhitespaceOrComments).
-    AfterSection,
+    /// We finished parsing a (maybe quoted) section name and expect a nested section separator or a section end delimiter.
     /// Accept whitespace (except new lines),
     /// section end delimiters (']') (-> SkipLineWhitespaceOrComments),
     /// nested section separators ('/') (if supported) -> (BeforeSection),
-    AfterQuotedSection,
+    AfterSection,
+    /// We encountered a comment delimiter and skip the rest of the line.
     /// Accept new lines (-> StartLine),
     /// everything else.
     SkipLine,
+    /// We finished parsing a section name or a value and expect the next line or the comment delimiter.
     /// Accept new lines (-> StartLine),
     /// whitespace,
     /// comment start delimiters (';' / '#') (if supported) (-> SkipLine).
     SkipLineWhitespaceOrComments,
+    /// We started parsing an unquoted key.
     /// Accept valid key chars,
     /// escape sequences (if supported),
     /// key-value separators ('=' / ':') (-> BeforeValue),
     /// whitespace (except new lines) (-> KeyValueSeparator).
     Key,
+    /// We started parsing a quoted key.
     /// Accept valid key chars,
     /// escape sequences (if supported),
     /// non-matching string quotes (if supported),
     /// spaces (' '),
     /// matching string quotes ('"' / '\'') (-> KeyValueSeparator).
     QuotedKey,
+    /// We finished parsing a key and expect a key-value separator.
     /// Accept key-value separators ('=' / ':') (-> BeforeValue),
     /// whitespace (except new lines).
     KeyValueSeparator,
+    /// We finished parsing a key-value separator and expect a value (or a new line).
     /// Accept whitespace (except new lines (->StartLine)),
     /// inline comment delimiters (';' / '#') (if supported) (-> SkipLine),
     /// string quotes ('"' / '\'') (if supported) (-> QuotedValue),
@@ -70,36 +74,44 @@ enum IniParserState {
     /// array start delimiters (if supported) (-> BeforeArrayValue),
     /// valid value chars (-> Value).
     BeforeValue,
+    /// We started parsing an unquoted value.
     /// Accept whitespace (-> SkipLineWhitespaceOrComments)
     /// (including new lines (-> StartLine)),
     /// inline comment delimiters (';' / '#') (if supported) (-> SkipLine),
     /// escape sequences (if supported),
     /// valid value chars.
     Value,
+    /// We started parsing a quoted value.
     /// Accept matching string quotes ('"' / '\'') (-> SkipLineWhitespaceOrComments),
     /// spaces (' '),
     /// non-matching string quotes (if supported),
     /// escape sequences (if supported),
     /// valid value chars.
     QuotedValue,
+    /// We started parsing an array, or finished parsing a previous array value and separator,
+    /// and expect the new value or the end of the array.
     /// Accept whitespace (except new lines),
     /// array end delimiters (-> SkipLineWhitespaceOrComments),
     /// string quotes ('"' / '\'') (if supported) (-> QuotedArrayValue),
     /// escape sequences (if supported) (-> ArrayValue),
     /// valid value chars (-> ArrayValue).
     BeforeArrayValue,
+    /// We started parsing an unquoted array value.
     /// Accept whitespace (except new lines) (-> AfterArrayValue),
     /// array value separators (-> BeforeArrayValue),
     /// array end delimiters (-> SkipLineWhitespaceOrComments),
     /// escape sequences (if supported) (-> ArrayValue),
     /// valid value chars (-> ArrayValue).
     ArrayValue,
+    /// We started parsing a quoted array value.
     /// Accept matching string quotes ('"' / '\'') (-> AfterArrayValue),
     /// spaces (' '),
     /// non-matching string quotes (if supported),
     /// escape sequences (if supported),
     /// valid value chars.
     QuotedArrayValue,
+    /// We finished parsing a previous array value
+    /// and expect the array value separator or the end of the array.
     /// Accept whitespace (except new lines),
     /// array value separators (-> BeforeArrayValue),
     /// array end delimiters (-> SkipLineWhitespaceOrComments).
@@ -422,7 +434,7 @@ impl<'s> IniParser<'s> {
 
                     // Section end delimiter - empty section names not allowed.
                     } else if self.is_section_end(c) {
-                        return Err(self.error(EmptySectionName(ConfigPath::new())));
+                        return Err(self.error(EmptySectionName(path.to_config_path())));
 
                     // Else an error.
                     } else {
@@ -436,7 +448,7 @@ impl<'s> IniParser<'s> {
                     if self.is_new_line(c) {
                         return Err(self.error_offset(UnexpectedNewLineInSectionName));
 
-                    // Nested section separator (if supported) - finish the current section, keep parsing.
+                    // Nested section separator (if supported) - finish the current section, keep parsing the nested section.
                     } else if self.is_nested_section_separator(c) {
                         // Empty section names are not allowed.
                         let section = NonEmptyStr::new(&buffer)
@@ -446,18 +458,21 @@ impl<'s> IniParser<'s> {
                             return Err(self.error(NestedSectionDepthExceeded));
                         }
 
+                        path.push(section);
+
                         // The path must already exist in the config.
                         if config.contains_key(section) != Ok(true) {
-                            let mut path = path.to_config_path();
-                            path.0.push(section.as_ref().to_owned().into());
-                            return Err(self.error_offset(InvalidParentSection(path)));
+                            return Err(
+                                self.error_offset(InvalidParentSection(path.to_config_path()))
+                            );
                         }
 
-                        // Try to add the section to the config at the current path.
-                        skip_section = self.start_section(config, section, &path)?;
+                        // Start the parent section in the config.
+                        config.start_section(section, false);
 
-                        path.push(section);
                         buffer.clear();
+
+                        self.state = IniParserState::BeforeSection;
 
                     // Escaped char (if supported) - keep parsing the section name.
                     } else if self.is_escape_char(c) {
@@ -490,19 +505,9 @@ impl<'s> IniParser<'s> {
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
 
-                    // Whitespace after section name (new lines handle above) - skip it, finish the section name, parse the section end delimiter.
+                    // Whitespace after section name (new lines handled above) - skip it,
+                    // parse the nested section separator or the section end delimiter.
                     } else if c.is_whitespace() {
-                        // Must succeed - section name is not empty if we got here.
-                        debug_assert!(!buffer.is_empty());
-                        let section =
-                            unwrap_unchecked_msg(NonEmptyStr::new(&buffer), "empty section name");
-
-                        // Try to add the section to the config at the current path.
-                        skip_section = self.start_section(config, section, &path)?;
-
-                        path.push(section);
-                        buffer.clear();
-
                         self.state = IniParserState::AfterSection;
 
                     // Else an error.
@@ -518,21 +523,11 @@ impl<'s> IniParser<'s> {
                     if self.is_new_line(c) {
                         return Err(self.error_offset(UnexpectedNewLineInSectionName));
 
-                    // Closing quotes - finish the quoted section, keep parsing until the nested section or section delimiter.
+                    // Closing quotes - keep parsing until the nested section separator or section end delimiter.
                     } else if c == cur_quote {
                         quote.take();
 
-                        // Empty section names not allowed.
-                        let section = NonEmptyStr::new(&buffer)
-                            .ok_or(self.error(EmptySectionName(path.to_config_path())))?;
-
-                        // Try to add the section to the config at the current path.
-                        skip_section = self.start_section(config, section, &path)?;
-
-                        path.push(section);
-                        buffer.clear();
-
-                        self.state = IniParserState::AfterQuotedSection;
+                        self.state = IniParserState::AfterSection;
 
                     // Escaped char (if supported) - keep parsing the section name.
                     } else if self.is_escape_char(c) {
@@ -559,9 +554,6 @@ impl<'s> IniParser<'s> {
                     }
                 }
                 IniParserState::AfterSection => {
-                    debug_assert!(buffer.is_empty());
-                    debug_assert!(!path.is_empty());
-
                     // Skip whitespace.
                     if c.is_whitespace() {
                         // Unless it's a new line.
@@ -571,33 +563,41 @@ impl<'s> IniParser<'s> {
 
                     // Section end delimiter - skip the rest of the line.
                     } else if self.is_section_end(c) {
+                        // Empty section names are not allowed.
+                        let section = NonEmptyStr::new(&buffer)
+                            .ok_or(self.error_offset(EmptySectionName(path.to_config_path())))?;
+
+                        // Try to add the section to the config at the current path.
+                        skip_section = self.start_section(config, section, &path)?;
+
+                        path.push(section);
+                        buffer.clear();
+
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
 
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterAfterSectionName(c)));
-                    }
-                }
-                IniParserState::AfterQuotedSection => {
-                    debug_assert!(buffer.is_empty());
-                    debug_assert!(!path.is_empty());
-
-                    // Skip whitespace.
-                    if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(UnexpectedNewLineInSectionName));
-                        }
-
-                    // Section end delimiter - skip the rest of the line.
-                    } else if self.is_section_end(c) {
-                        self.state = IniParserState::SkipLineWhitespaceOrComments;
-
-                    // Nested section separator (if supported) - start parsing the section name.
+                    // Nested section separator (if supported) - start parsing the nested section name.
                     } else if self.is_nested_section_separator(c) {
                         if (path.len() + 1) >= self.options.nested_section_depth {
                             return Err(self.error(NestedSectionDepthExceeded));
                         }
+
+                        // Empty section names are not allowed.
+                        let section = NonEmptyStr::new(&buffer)
+                            .ok_or(self.error(EmptySectionName(path.to_config_path())))?;
+
+                        path.push(section);
+
+                        // The path must already exist in the config.
+                        if config.contains_key(section) != Ok(true) {
+                            return Err(
+                                self.error_offset(InvalidParentSection(path.to_config_path()))
+                            );
+                        }
+
+                        // Start the parent section in the config.
+                        config.start_section(section, false);
+
+                        buffer.clear();
 
                         self.state = IniParserState::BeforeSection;
 
@@ -1208,8 +1208,7 @@ impl<'s> IniParser<'s> {
             IniParserState::BeforeSection
             | IniParserState::Section
             | IniParserState::QuotedSection
-            | IniParserState::AfterSection
-            | IniParserState::AfterQuotedSection => {
+            | IniParserState::AfterSection => {
                 return Err(self.error(UnexpectedEndOfFileInSectionName))
             }
             IniParserState::Key | IniParserState::QuotedKey | IniParserState::KeyValueSeparator => {

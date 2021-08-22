@@ -1,10 +1,5 @@
 use {
-    super::{
-        array_or_table::*,
-        config::*,
-        util::*,
-        value::*,
-    },
+    super::{array_or_table::*, config::*, util::*, value::*},
     crate::*,
     std::{
         collections::{hash_map::Entry, HashMap},

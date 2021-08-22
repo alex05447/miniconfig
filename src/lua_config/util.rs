@@ -1,10 +1,5 @@
 use {
-    crate::{
-        lua_config::error::config_key_from_lua_value,
-        util::unwrap_unchecked,
-        value::*,
-        *,
-    },
+    crate::{lua_config::error::config_key_from_lua_value, util::unwrap_unchecked, value::*, *},
     rlua::Value as LuaValue,
     rlua_ext::value_type,
 };
