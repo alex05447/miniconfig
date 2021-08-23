@@ -34,7 +34,8 @@ enum IniParserState {
     /// non-matching string quotes (if supported),
     /// spaces (' '),
     /// valid key chars.
-    QuotedSection,
+    /// Contains the opening quote.
+    QuotedSection(char),
     /// We finished parsing a (maybe quoted) section name and expect a nested section separator or a section end delimiter.
     /// Accept whitespace (except new lines),
     /// section end delimiters (']') (-> SkipLineWhitespaceOrComments),
@@ -61,7 +62,8 @@ enum IniParserState {
     /// non-matching string quotes (if supported),
     /// spaces (' '),
     /// matching string quotes ('"' / '\'') (-> KeyValueSeparator).
-    QuotedKey,
+    /// Contains the opening quote.
+    QuotedKey(char),
     /// We finished parsing a key and expect a key-value separator.
     /// Accept key-value separators ('=' / ':') (-> BeforeValue),
     /// whitespace (except new lines).
@@ -87,7 +89,8 @@ enum IniParserState {
     /// non-matching string quotes (if supported),
     /// escape sequences (if supported),
     /// valid value chars.
-    QuotedValue,
+    /// Contains the opening quote.
+    QuotedValue(char),
     /// We started parsing an array, or finished parsing a previous array value and separator,
     /// and expect the new value or the end of the array.
     /// Accept whitespace (except new lines),
@@ -109,7 +112,8 @@ enum IniParserState {
     /// non-matching string quotes (if supported),
     /// escape sequences (if supported),
     /// valid value chars.
-    QuotedArrayValue,
+    /// Contains the opening quote.
+    QuotedArrayValue(char),
     /// We finished parsing a previous array value
     /// and expect the array value separator or the end of the array.
     /// Accept whitespace (except new lines),
@@ -296,9 +300,6 @@ impl<'s> IniParser<'s> {
         // Whether the key is unique in its table (root or section).
         let mut is_key_unique = true;
 
-        // Current opening string quote, if any.
-        let mut quote: Option<char> = None;
-
         // Whether we need to skip all key/value pairs in the current section
         // (i.e., when we encountered a duplicate section instance and we use the `First` duplicate section policy).
         let mut skip_section = false;
@@ -354,10 +355,7 @@ impl<'s> IniParser<'s> {
 
                     // String quote (if supported) - parse the key in quotes, expecting the matching quotes.
                     } else if self.is_string_quote_char(c) {
-                        debug_assert!(quote.is_none());
-                        quote.replace(c);
-
-                        self.state = IniParserState::QuotedKey;
+                        self.state = IniParserState::QuotedKey(c);
 
                     // Escaped char (if supported) - parse the escape sequence as the key.
                     } else if self.is_escape_char(c) {
@@ -376,7 +374,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid key start - parse the key.
-                    } else if self.is_key_or_value_char(c, false, quote) {
+                    } else if self.is_key_or_value_char(c, false, None) {
                         debug_assert!(buffer.is_empty());
                         buffer.push(c);
 
@@ -404,10 +402,7 @@ impl<'s> IniParser<'s> {
 
                     // String quote - parse the section name in quotes, expecting the matching quotes.
                     } else if self.is_string_quote_char(c) {
-                        debug_assert!(quote.is_none());
-                        quote.replace(c);
-
-                        self.state = IniParserState::QuotedSection;
+                        self.state = IniParserState::QuotedSection(c);
 
                     // Nested section separator (if supported) - empty parent section names are not allowed.
                     } else if self.is_nested_section_separator(c) {
@@ -427,7 +422,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid section name char (same rules as key chars) - start parsing the section name.
-                    } else if self.is_key_or_value_char(c, false, quote) {
+                    } else if self.is_key_or_value_char(c, false, None) {
                         buffer.push(c);
 
                         self.state = IniParserState::Section;
@@ -442,8 +437,6 @@ impl<'s> IniParser<'s> {
                     }
                 }
                 IniParserState::Section => {
-                    debug_assert!(quote.is_none());
-
                     // New line before the section delimiter - error.
                     if self.is_new_line(c) {
                         return Err(self.error_offset(UnexpectedNewLineInSectionName));
@@ -486,7 +479,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid section name char - keep parsing the section name.
-                    } else if self.is_key_or_value_char(c, true, quote) {
+                    } else if self.is_key_or_value_char(c, true, None) {
                         buffer.push(c);
 
                     // Section end delimiter - finish the section name, skip the rest of the line.
@@ -515,18 +508,13 @@ impl<'s> IniParser<'s> {
                         return Err(self.error(InvalidCharacterInSectionName(c)));
                     }
                 }
-                IniParserState::QuotedSection => {
-                    // Must succeed - we only enter this state after encountering a quote.
-                    let cur_quote = unwrap_unchecked(quote);
-
+                IniParserState::QuotedSection(quote) => {
                     // New line before the closing quotes - error.
                     if self.is_new_line(c) {
                         return Err(self.error_offset(UnexpectedNewLineInSectionName));
 
                     // Closing quotes - keep parsing until the nested section separator or section end delimiter.
-                    } else if c == cur_quote {
-                        quote.take();
-
+                    } else if c == quote {
                         self.state = IniParserState::AfterSection;
 
                     // Escaped char (if supported) - keep parsing the section name.
@@ -541,11 +529,11 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Non-matching quotes - keep parsing the section.
-                    } else if self.is_non_matching_string_quote_char(cur_quote, c) {
+                    } else if self.is_non_matching_string_quote_char(quote, c) {
                         buffer.push(c);
 
                     // Space or valid value char - keep parsing the section.
-                    } else if c == ' ' || self.is_key_or_value_char(c, true, quote) {
+                    } else if c == ' ' || self.is_key_or_value_char(c, true, Some(quote)) {
                         buffer.push(c);
 
                     // Else an error.
@@ -687,7 +675,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid key char - keep parsing the key.
-                    } else if self.is_key_or_value_char(c, false, quote) {
+                    } else if self.is_key_or_value_char(c, false, None) {
                         buffer.push(c);
 
                     // Else an error.
@@ -695,20 +683,15 @@ impl<'s> IniParser<'s> {
                         return Err(self.error(InvalidCharacterInKey(c)));
                     }
                 }
-                IniParserState::QuotedKey => {
+                IniParserState::QuotedKey(quote) => {
                     debug_assert!(key.is_empty());
-
-                    // Must succeed - we only enter this state after encountering a quote.
-                    let cur_quote = unwrap_unchecked(quote);
 
                     // New line before the closing quotes - error.
                     if self.is_new_line(c) {
                         return Err(self.error_offset(UnexpectedNewLineInKey));
 
                     // Closing quotes - finish the key, parse the separator.
-                    } else if c == cur_quote {
-                        quote.take();
-
+                    } else if c == quote {
                         std::mem::swap(&mut key, &mut buffer);
 
                         // Empty keys are not allowed.
@@ -736,11 +719,11 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Non-matching quotes - keep parsing the key.
-                    } else if self.is_non_matching_string_quote_char(cur_quote, c) {
+                    } else if self.is_non_matching_string_quote_char(quote, c) {
                         buffer.push(c);
 
                     // Space or valid key char - keep parsing the key.
-                    } else if c == ' ' || self.is_key_or_value_char(c, false, quote) {
+                    } else if c == ' ' || self.is_key_or_value_char(c, false, Some(quote)) {
                         buffer.push(c);
 
                     // Else an error.
@@ -807,10 +790,7 @@ impl<'s> IniParser<'s> {
 
                     // String quote - parse the string value in quotes, expecting the matching quotes.
                     } else if self.is_string_quote_char(c) {
-                        debug_assert!(quote.is_none());
-                        quote.replace(c);
-
-                        self.state = IniParserState::QuotedValue;
+                        self.state = IniParserState::QuotedValue(c);
 
                     // Escaped char (if supported) - parse the escape sequence, start parsing the value.
                     } else if self.is_escape_char(c) {
@@ -842,7 +822,7 @@ impl<'s> IniParser<'s> {
                         self.state = IniParserState::BeforeArrayValue;
 
                     // Valid value char - start parsing the unquoted value.
-                    } else if self.is_key_or_value_char(c, false, quote) {
+                    } else if self.is_key_or_value_char(c, false, None) {
                         buffer.push(c);
 
                         self.state = IniParserState::Value;
@@ -908,7 +888,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - keep parsing the value.
-                    } else if self.is_key_or_value_char(c, false, quote) {
+                    } else if self.is_key_or_value_char(c, false, None) {
                         buffer.push(c);
 
                     // Else an error.
@@ -916,19 +896,16 @@ impl<'s> IniParser<'s> {
                         return Err(self.error(InvalidCharacterInValue(c)));
                     }
                 }
-                IniParserState::QuotedValue => {
+                IniParserState::QuotedValue(quote) => {
                     // We have at least one key character already parsed.
                     debug_assert!(!key.is_empty());
-
-                    // Must succeed - we only enter this state after encountering a quote.
-                    let cur_quote = unwrap_unchecked(quote);
 
                     // New line before the closing quotes - error.
                     if self.is_new_line(c) {
                         return Err(self.error_offset(UnexpectedNewLineInQuotedValue));
 
                     // Closing quotes - finish the value (may be empty), skip the rest of the line.
-                    } else if c == cur_quote {
+                    } else if c == quote {
                         self.add_value_to_config(
                             config,
                             // Must succeed.
@@ -940,8 +917,6 @@ impl<'s> IniParser<'s> {
                         )?;
                         buffer.clear();
                         key.clear();
-
-                        quote.take();
 
                         self.state = IniParserState::SkipLineWhitespaceOrComments;
 
@@ -957,11 +932,11 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Non-matching quotes - keep parsing the value.
-                    } else if self.is_non_matching_string_quote_char(cur_quote, c) {
+                    } else if self.is_non_matching_string_quote_char(quote, c) {
                         buffer.push(c);
 
                     // Space or valid value char - keep parsing the value.
-                    } else if c == ' ' || self.is_key_or_value_char(c, false, quote) {
+                    } else if c == ' ' || self.is_key_or_value_char(c, false, Some(quote)) {
                         buffer.push(c);
 
                     // Else an error.
@@ -1004,10 +979,7 @@ impl<'s> IniParser<'s> {
                             }
                         }
 
-                        debug_assert!(quote.is_none());
-                        quote.replace(c);
-
-                        self.state = IniParserState::QuotedArrayValue;
+                        self.state = IniParserState::QuotedArrayValue(c);
 
                     // Escaped char (if supported) - parse the escape sequence, start parsing the array value.
                     } else if self.is_escape_char(c) {
@@ -1023,7 +995,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - start parsing the unquoted array value.
-                    } else if self.is_key_or_value_char(c, false, quote) {
+                    } else if self.is_key_or_value_char(c, false, None) {
                         buffer.push(c);
 
                         self.state = IniParserState::ArrayValue;
@@ -1110,7 +1082,7 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Valid value char - keep parsing the array value.
-                    } else if self.is_key_or_value_char(c, false, quote) {
+                    } else if self.is_key_or_value_char(c, false, None) {
                         buffer.push(c);
 
                     // Else an error.
@@ -1118,17 +1090,14 @@ impl<'s> IniParser<'s> {
                         return Err(self.error(InvalidCharacterInValue(c)));
                     }
                 }
-                IniParserState::QuotedArrayValue => {
-                    // Must succeed - we only enter this state after encountering a quote.
-                    let cur_quote = unwrap_unchecked(quote);
-
+                IniParserState::QuotedArrayValue(quote) => {
                     // New line before the closing quotes - error.
                     if self.is_new_line(c) {
                         return Err(self.error_offset(UnexpectedNewLineInQuotedValue));
 
                     // Closing quotes - finish the array value (may be empty),
                     // parse the array value separator / array end delimiter.
-                    } else if c == cur_quote {
+                    } else if c == quote {
                         self.add_value_to_array(
                             config,
                             &mut array_type,
@@ -1137,8 +1106,6 @@ impl<'s> IniParser<'s> {
                             skip_value | skip_section,
                         )?;
                         buffer.clear();
-
-                        quote.take();
 
                         self.state = IniParserState::AfterArrayValue;
 
@@ -1154,11 +1121,11 @@ impl<'s> IniParser<'s> {
                         }
 
                     // Non-matching quotes - keep parsing the array value.
-                    } else if self.is_non_matching_string_quote_char(cur_quote, c) {
+                    } else if self.is_non_matching_string_quote_char(quote, c) {
                         buffer.push(c);
 
                     // Space or valid value char - keep parsing the array value.
-                    } else if c == ' ' || self.is_key_or_value_char(c, false, quote) {
+                    } else if c == ' ' || self.is_key_or_value_char(c, false, Some(quote)) {
                         buffer.push(c);
 
                     // Else an error.
@@ -1171,6 +1138,8 @@ impl<'s> IniParser<'s> {
                     debug_assert!(!key.is_empty());
                     // We have at least the array key in the path.
                     debug_assert!(!path.is_empty());
+
+                    debug_assert!(buffer.is_empty());
 
                     // Skip whitespace.
                     if c.is_whitespace() {
@@ -1207,14 +1176,16 @@ impl<'s> IniParser<'s> {
         match self.state {
             IniParserState::BeforeSection
             | IniParserState::Section
-            | IniParserState::QuotedSection
+            | IniParserState::QuotedSection(_)
             | IniParserState::AfterSection => {
                 return Err(self.error(UnexpectedEndOfFileInSectionName))
             }
-            IniParserState::Key | IniParserState::QuotedKey | IniParserState::KeyValueSeparator => {
+            IniParserState::Key
+            | IniParserState::QuotedKey(_)
+            | IniParserState::KeyValueSeparator => {
                 return Err(self.error(UnexpectedEndOfFileBeforeKeyValueSeparator))
             }
-            IniParserState::QuotedValue => {
+            IniParserState::QuotedValue(_) => {
                 return Err(self.error(UnexpectedEndOfFileInQuotedString))
             }
             // Add the last value if we were parsing it right before EOF.
@@ -1227,7 +1198,7 @@ impl<'s> IniParser<'s> {
                     // Must succeed.
                     unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
                     &buffer,
-                    quote.is_some(),
+                    false,
                     skip_section | skip_value,
                     is_key_unique,
                 )?;
@@ -1235,7 +1206,7 @@ impl<'s> IniParser<'s> {
             IniParserState::BeforeArrayValue
             | IniParserState::ArrayValue
             | IniParserState::AfterArrayValue => return Err(self.error(UnexpectedEndOfFileInArray)),
-            IniParserState::QuotedArrayValue => {
+            IniParserState::QuotedArrayValue(_) => {
                 return Err(self.error(IniErrorKind::UnexpectedEndOfFileInQuotedArrayValue))
             }
             IniParserState::StartLine

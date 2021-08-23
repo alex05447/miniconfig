@@ -331,9 +331,11 @@ impl IniPath {
 
     /// Pops a section name off the end of the path.
     /// NOTE - the caller guarantees that the path is not empty.
-    //#[cfg(any(feature = "bin", feature = "dyn", feature = "lua", test))]
     pub(crate) fn pop(&mut self) {
-        debug_assert!(!self.offsets.is_empty());
+        debug_assert!(
+            !self.offsets.is_empty(),
+            "tried to pop an empty `.ini` path"
+        );
 
         self.offsets.pop();
 
