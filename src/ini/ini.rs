@@ -143,6 +143,9 @@ impl IniParserFSMState {
 
         Ok(match self {
             IniParserFSMState::StartLine => {
+                debug_assert!(state.key.is_empty());
+                debug_assert!(state.buffer.is_empty());
+
                 state.is_key_unique = true;
                 state.skip_value = false;
 
@@ -190,7 +193,6 @@ impl IniParserFSMState {
                     )? {
                         // Parsed an escaped char - start parsing the key.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
-                            debug_assert!(state.buffer.is_empty());
                             state.buffer.push(c);
 
                             IniParserFSMState::Key
@@ -203,7 +205,6 @@ impl IniParserFSMState {
 
                 // Valid key start - parse the key.
                 } else if options.is_key_or_value_char(c, false, None) {
-                    debug_assert!(state.buffer.is_empty());
                     state.buffer.push(c);
 
                     IniParserFSMState::Key
@@ -218,6 +219,7 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::BeforeSection => {
+                debug_assert!(state.key.is_empty());
                 debug_assert!(state.buffer.is_empty());
                 debug_assert!(options.nested_sections() || state.path.is_empty());
 
@@ -272,6 +274,9 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::Section => {
+                debug_assert!(state.key.is_empty());
+                debug_assert!(!state.buffer.is_empty());
+
                 // New line before the section delimiter - error.
                 if options.is_new_line(c) {
                     return Err((UnexpectedNewLineInSectionName, true));
@@ -351,6 +356,9 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::QuotedSection(quote) => {
+                debug_assert!(options.is_string_quote_char(quote));
+                debug_assert!(state.key.is_empty());
+
                 // New line before the closing quotes - error.
                 if options.is_new_line(c) {
                     return Err((UnexpectedNewLineInSectionName, true));
@@ -395,6 +403,8 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::AfterSection => {
+                debug_assert!(state.key.is_empty());
+
                 // Skip whitespace.
                 if c.is_whitespace() {
                     // Unless it's a new line.
@@ -448,6 +458,7 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::SkipLine => {
+                debug_assert!(state.key.is_empty());
                 debug_assert!(state.buffer.is_empty());
 
                 // If it's a new line, start parsing the next line.
@@ -459,6 +470,7 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::SkipLineWhitespaceOrComments => {
+                debug_assert!(state.key.is_empty());
                 debug_assert!(state.buffer.is_empty());
 
                 // If it's a new line, start parsing the next line.
@@ -550,6 +562,7 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::QuotedKey(quote) => {
+                debug_assert!(options.is_string_quote_char(quote));
                 debug_assert!(state.key.is_empty());
 
                 // New line before the closing quotes - error.
@@ -610,6 +623,7 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::KeyValueSeparator => {
+                debug_assert!(!state.key.is_empty());
                 debug_assert!(state.buffer.is_empty());
 
                 // Key-value separator - parse the value (key already finished).
@@ -631,9 +645,8 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::BeforeValue => {
-                debug_assert!(state.buffer.is_empty());
-                // We have at least one key character already parsed.
                 debug_assert!(!state.key.is_empty());
+                debug_assert!(state.buffer.is_empty());
 
                 // Skip the whitespace before the value.
                 if c.is_whitespace() {
@@ -724,9 +737,8 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::Value => {
-                debug_assert!(!state.buffer.is_empty());
-                // We have at least one key character already parsed.
                 debug_assert!(!state.key.is_empty());
+                debug_assert!(!state.buffer.is_empty());
 
                 // Whitespace - finish the value.
                 if c.is_whitespace() {
@@ -801,7 +813,7 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::QuotedValue(quote) => {
-                // We have at least one key character already parsed.
+                debug_assert!(options.is_string_quote_char(quote));
                 debug_assert!(!state.key.is_empty());
 
                 // New line before the closing quotes - error.
@@ -862,9 +874,8 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::BeforeArrayValue(array_type) => {
-                debug_assert!(state.buffer.is_empty());
-                // We have at least one key character already parsed.
                 debug_assert!(!state.key.is_empty());
+                debug_assert!(state.buffer.is_empty());
                 // We have at least the array key in the path.
                 debug_assert!(!state.path.is_empty());
 
@@ -879,11 +890,13 @@ impl IniParserFSMState {
 
                 // Array end delimiter - finish the array, skip the rest of the line.
                 } else if options.is_array_end(c) {
-                    config.end_array(unwrap_unchecked_msg(state.path.last(), "missing array key"));
+                    config.end_array(unwrap_unchecked_msg(
+                        NonEmptyStr::new(&state.key),
+                        "missing array key",
+                    ));
 
                     // Pop the array key off the path.
                     state.path.pop();
-
                     state.key.clear();
 
                     IniParserFSMState::SkipLineWhitespaceOrComments
@@ -929,9 +942,8 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::ArrayValue(mut array_type) => {
-                debug_assert!(!state.buffer.is_empty());
-                // We have at least one key character already parsed.
                 debug_assert!(!state.key.is_empty());
+                debug_assert!(!state.buffer.is_empty());
                 // We have at least the array key in the path.
                 debug_assert!(!state.path.is_empty());
 
@@ -986,16 +998,13 @@ impl IniParserFSMState {
                     state.buffer.clear();
 
                     // Must succeed.
-                    config.end_array(unwrap_unchecked_msg(state.path.last(), "empty key"));
-
-                    debug_assert_eq!(
-                        unwrap_unchecked_msg(state.path.last(), "empty key").as_ref(),
-                        state.key
-                    );
+                    config.end_array(unwrap_unchecked_msg(
+                        NonEmptyStr::new(&state.key),
+                        "missing array key",
+                    ));
 
                     // Pop the array key off the path.
                     state.path.pop();
-
                     state.key.clear();
 
                     IniParserFSMState::SkipLineWhitespaceOrComments
@@ -1030,6 +1039,9 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::QuotedArrayValue(quote, mut array_type) => {
+                debug_assert!(options.is_string_quote_char(quote));
+                debug_assert!(!state.key.is_empty());
+
                 // New line before the closing quotes - error.
                 if options.is_new_line(c) {
                     return Err((UnexpectedNewLineInQuotedValue, true));
@@ -1085,12 +1097,10 @@ impl IniParserFSMState {
                 }
             }
             IniParserFSMState::AfterArrayValue(array_type) => {
-                // We have at least one key character already parsed.
                 debug_assert!(!state.key.is_empty());
+                debug_assert!(state.buffer.is_empty());
                 // We have at least the array key in the path.
                 debug_assert!(!state.path.is_empty());
-
-                debug_assert!(state.buffer.is_empty());
 
                 // Skip whitespace.
                 if c.is_whitespace() {
@@ -1113,14 +1123,8 @@ impl IniParserFSMState {
                         "empty key",
                     ));
 
-                    debug_assert_eq!(
-                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key").as_ref(),
-                        state.key
-                    );
-
                     // Pop the array key off the path.
                     state.path.pop();
-
                     state.key.clear();
 
                     IniParserFSMState::SkipLineWhitespaceOrComments
