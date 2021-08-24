@@ -1240,7 +1240,13 @@ fn parse_escape_sequence<'a, F: FnMut() -> Option<char>>(
                     Some('\n') | Some('\r') => {
                         return Err((UnexpectedNewLineInASCIIEscapeSequence, true))
                     }
-                    Some(c) => escape_sequence_buffer.push(c),
+                    Some(c) => {
+                        if !c.is_digit(16) {
+                            return Err((InvalidASCIIEscapeSequence, false));
+                        }
+
+                        escape_sequence_buffer.push(c);
+                    }
                 }
             }
 
@@ -1263,7 +1269,13 @@ fn parse_escape_sequence<'a, F: FnMut() -> Option<char>>(
                     Some('\n') | Some('\r') => {
                         return Err((UnexpectedNewLineInUnicodeEscapeSequence, true))
                     }
-                    Some(c) => escape_sequence_buffer.push(c),
+                    Some(c) => {
+                        if !c.is_digit(16) {
+                            return Err((InvalidUnicodeEscapeSequence, false));
+                        }
+
+                        escape_sequence_buffer.push(c);
+                    }
                 }
             }
 

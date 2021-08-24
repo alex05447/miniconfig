@@ -1443,7 +1443,7 @@ fn InvalidASCIIEscapeSequence() {
             .unwrap(),
         IniError {
             line: 1,
-            column: 6,
+            column: 5,
             error: IniErrorKind::InvalidASCIIEscapeSequence
         }
     );
