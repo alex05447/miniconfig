@@ -41,6 +41,23 @@ fn InvalidCharacterAtLineStart() {
             error: IniErrorKind::InvalidCharacterAtLineStart('#')
         }
     );
+    // CRLF handling - CRLF ("\r\n") is treated as one newline.
+    assert_eq!(
+        dyn_config_error("foo = 7\r\n # "),
+        IniError {
+            line: 2,
+            column: 2,
+            error: IniErrorKind::InvalidCharacterAtLineStart('#')
+        }
+    );
+    assert_eq!(
+        dyn_config_error("foo = 7\n # "),
+        IniError {
+            line: 2,
+            column: 2,
+            error: IniErrorKind::InvalidCharacterAtLineStart('#')
+        }
+    );
 
     // But this succeeds.
 

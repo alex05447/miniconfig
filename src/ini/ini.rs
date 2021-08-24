@@ -1602,6 +1602,7 @@ pub struct IniParser<'s> {
     line: u32,
     column: u32,
     new_line: bool,
+    cr: bool,
 
     /// Parsing options as provided by the user.
     options: IniOptions,
@@ -1616,6 +1617,7 @@ impl<'s> IniParser<'s> {
             line: 1,
             column: 0,
             new_line: false,
+            cr: false,
             options: Default::default(),
         }
     }
@@ -1806,7 +1808,17 @@ impl<'s> IniParser<'s> {
         }
 
         match next {
-            Some('\n') | Some('\r') => {
+            // Eat a line feed if the previous char was a carriage return.
+            Some('\n') if self.cr => {
+                self.cr = false;
+            }
+            Some('\r') => {
+                self.column += 1;
+                self.new_line = true;
+
+                self.cr = true;
+            }
+            Some('\n') => {
                 self.column += 1;
                 self.new_line = true;
             }
