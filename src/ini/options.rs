@@ -170,6 +170,129 @@ impl Default for IniOptions {
     }
 }
 
+impl IniOptions {
+    /// Is the character a supported comment delimiter?
+    pub(super) fn is_comment_char(&self, val: char) -> bool {
+        ((val == ';') && self.comments.contains(IniCommentDelimiter::Semicolon))
+            || ((val == '#') && self.comments.contains(IniCommentDelimiter::NumberSign))
+    }
+
+    /// Are inline comments enabled and is the character a supported comment delimiter?
+    pub(super) fn is_inline_comment_char(&self, val: char) -> bool {
+        self.inline_comments && self.is_comment_char(val)
+    }
+
+    /// Is the character a supported key-value separator?
+    pub(super) fn is_key_value_separator_char(&self, val: char) -> bool {
+        ((val == '=')
+            && self
+                .key_value_separator
+                .contains(IniKeyValueSeparator::Equals))
+            || ((val == ':')
+                && self
+                    .key_value_separator
+                    .contains(IniKeyValueSeparator::Colon))
+    }
+
+    /// Is the character a supported string quote?
+    pub(super) fn is_string_quote_char(&self, val: char) -> bool {
+        ((val == '"') && self.string_quotes.contains(IniStringQuote::Double))
+            || ((val == '\'') && self.string_quotes.contains(IniStringQuote::Single))
+    }
+
+    /// Is the character a supported string quote which does not match `quote`?
+    /// NOTE - only ever returns `true` if both single and double quotes are supported.
+    pub(super) fn is_non_matching_string_quote_char(&self, quote: char, other: char) -> bool {
+        self.is_string_quote_char(other) && (other != quote)
+    }
+
+    /// Is the character a supported escape character?
+    pub(super) fn is_escape_char(&self, val: char) -> bool {
+        self.escape && (val == '\\')
+    }
+
+    /// Is the character a section start delimiter?
+    pub(super) fn is_section_start(&self, val: char) -> bool {
+        val == '['
+    }
+
+    /// Is the character a section end delimiter?
+    pub(super) fn is_section_end(&self, val: char) -> bool {
+        val == ']'
+    }
+
+    pub(super) fn nested_sections(&self) -> bool {
+        self.nested_section_depth > 1
+    }
+
+    /// Is the character a nested section separator?
+    pub(super) fn is_nested_section_separator(&self, val: char) -> bool {
+        self.nested_sections() && val == '/'
+    }
+
+    /// Is the character an array start delimiter?
+    pub(super) fn is_array_start(&self, val: char) -> bool {
+        self.arrays && (val == '[')
+    }
+
+    /// Is the character an array end delimiter?
+    pub(super) fn is_array_end(&self, val: char) -> bool {
+        debug_assert!(self.arrays);
+        val == ']'
+    }
+
+    /// Is the character an array value separator?
+    pub(super) fn is_array_value_separator(&self, val: char) -> bool {
+        val == ','
+    }
+
+    /// Is the character a recognized new line character?
+    pub(super) fn is_new_line(&self, val: char) -> bool {
+        matches!(val, '\n' | '\r')
+    }
+
+    pub(super) fn is_key_or_value_char(
+        &self,
+        val: char,
+        in_section: bool,
+        quote: Option<char>,
+    ) -> bool {
+        Self::is_key_or_value_char_impl(val, self.escape, self.nested_sections(), in_section, quote)
+    }
+
+    /// Returns `true` if the `val` character is a valid key/value/section name character and does not have to be escaped.
+    /// Otherwise, `val` must be escaped (preceded by a backslash) when used in keys/values/section names.
+    pub(super) fn is_key_or_value_char_impl(
+        val: char,
+        escape: bool,
+        nested_sections: bool,
+        in_section: bool,
+        quote: Option<char>,
+    ) -> bool {
+        if let Some(quote) = quote {
+            debug_assert!(quote == '"' || quote == '\'', "invalid quote character");
+        }
+
+        match val {
+            // Escape char (backslash) must be escaped if escape sequences are supported.
+            '\\' if escape => false,
+
+            // Non-matching quotes don't need to be escaped in quoted strings.
+            '"' => quote == Some('\''),
+            '\'' => quote == Some('"'),
+
+            // Space and special `.ini` characters in key/value/section strings
+            // (except string quotes, handled above) don't need to be escaped in quoted strings.
+            ' ' | '[' | ']' | '=' | ':' | ';' | '#' => quote.is_some(),
+
+            // Nested section separators, if supported, must be escaped in unquoted section names.
+            '/' if (nested_sections && in_section) => quote.is_some(),
+
+            val => (val.is_alphanumeric() || val.is_ascii_punctuation()),
+        }
+    }
+}
+
 /// Configuration options for serializing a config to an `.ini` string.
 #[derive(Clone, Copy, Debug)]
 pub struct ToIniStringOptions {
@@ -200,5 +323,138 @@ impl Default for ToIniStringOptions {
 impl ToIniStringOptions {
     pub(crate) fn nested_sections(&self) -> bool {
         self.nested_section_depth > 1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_key_or_value_char() {
+        // Alphanumeric characters are always valid key/value chars.
+
+        // Digits.
+        for c in (b'0'..b'9').map(|c| char::from(c)) {
+            assert!(IniOptions::is_key_or_value_char_impl(
+                c, /* escape */ false, /* nested_sections */ false,
+                /* in_section */ false, /* quote */ None
+            ));
+        }
+
+        // ASCII chars.
+        for c in (b'a'..b'z').map(|c| char::from(c)) {
+            assert!(IniOptions::is_key_or_value_char_impl(
+                c, /* escape */ false, /* nested_sections */ false,
+                /* in_section */ false, /* quote */ None
+            ));
+        }
+
+        for c in (b'A'..b'Z').map(|c| char::from(c)) {
+            assert!(IniOptions::is_key_or_value_char_impl(
+                c, /* escape */ false, /* nested_sections */ false,
+                /* in_section */ false, /* quote */ None
+            ));
+        }
+
+        // Other alphabetic chars.
+        assert!(IniOptions::is_key_or_value_char_impl(
+            'á', /* escape */ false, /* nested_sections */ false,
+            /* in_section */ false, /* quote */ None
+        ));
+        assert!(IniOptions::is_key_or_value_char_impl(
+            '愛', /* escape */ false, /* nested_sections */ false,
+            /* in_section */ false, /* quote */ None
+        ));
+
+        // Double quotes are only valid when single-quoted.
+        assert!(!IniOptions::is_key_or_value_char_impl(
+            '"', /* escape */ false, /* nested_sections */ false,
+            /* in_section */ false, /* quote */ None
+        ));
+        assert!(IniOptions::is_key_or_value_char_impl(
+            '"',
+            /* escape */ false,
+            /* nested_sections */ false,
+            /* in_section */ false,
+            /* quote */ Some('\'')
+        ));
+
+        // Single quotes are only valid when double-quoted.
+        assert!(!IniOptions::is_key_or_value_char_impl(
+            '\'', /* escape */ false, /* nested_sections */ false,
+            /* in_section */ false, /* quote */ None
+        ));
+        assert!(IniOptions::is_key_or_value_char_impl(
+            '\'',
+            /* escape */ false,
+            /* nested_sections */ false,
+            /* in_section */ false,
+            /* quote */ Some('"')
+        ));
+
+        // .ini special chars are only valid when quoted.
+        let assert_ini_char = |c| {
+            assert!(!IniOptions::is_key_or_value_char_impl(
+                c, /* escape */ false, /* nested_sections */ false,
+                /* in_section */ false, None
+            ));
+            assert!(IniOptions::is_key_or_value_char_impl(
+                c,
+                /* escape */ false,
+                /* nested_sections */ false,
+                /* in_section */ false,
+                /* quote */ Some('"')
+            ));
+            assert!(IniOptions::is_key_or_value_char_impl(
+                c,
+                /* escape */ false,
+                /* nested_sections */ false,
+                /* in_section */ false,
+                /* quote */ Some('\'')
+            ));
+        };
+
+        assert_ini_char(' ');
+        assert_ini_char('[');
+        assert_ini_char(']');
+        assert_ini_char('=');
+        assert_ini_char(':');
+        assert_ini_char(';');
+        assert_ini_char('#');
+
+        // `/` is a valid key/value char when not using nested sections.
+        assert!(IniOptions::is_key_or_value_char_impl(
+            '/', /* escape */ false, /* nested_sections */ false,
+            /* in_section */ false, /* quote */ None
+        ));
+
+        // Valid outside of section names ...
+        assert!(IniOptions::is_key_or_value_char_impl(
+            '/', /* escape */ false, /* nested_sections */ true,
+            /* in_section */ false, /* quote */ None
+        ));
+
+        // ... but invalid in unquoted section names ...
+        assert!(!IniOptions::is_key_or_value_char_impl(
+            '/', /* escape */ false, /* nested_sections */ true,
+            /* in_section */ true, /* quote */ None
+        ));
+
+        // ... and valid in quoted section names.
+        assert!(IniOptions::is_key_or_value_char_impl(
+            '/',
+            /* escape */ false,
+            /* nested_sections */ true,
+            /* in_section */ true,
+            /* quote */ Some('"')
+        ));
+        assert!(IniOptions::is_key_or_value_char_impl(
+            '/',
+            /* escape */ false,
+            /* nested_sections */ true,
+            /* in_section */ true,
+            /* quote */ Some('\'')
+        ));
     }
 }

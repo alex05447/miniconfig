@@ -1,12 +1,12 @@
 use {
     super::util::IniPath,
-    crate::{util::unwrap_unchecked, *},
+    crate::*,
     std::{iter::Iterator, str::Chars},
 };
 
 /// `.ini` parser FSM states.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum IniParserState {
+enum IniParserFSMState {
     /// We started parsing a new line in the current section or the root.
     /// Accept whitespace (including new lines),
     /// section start delimiters ('[') (-> BeforeSection),
@@ -98,28 +98,1486 @@ enum IniParserState {
     /// string quotes ('"' / '\'') (if supported) (-> QuotedArrayValue),
     /// escape sequences (if supported) (-> ArrayValue),
     /// valid value chars (-> ArrayValue).
-    BeforeArrayValue,
+    /// Contains the current array type, if any.
+    BeforeArrayValue(Option<IniValueType>),
     /// We started parsing an unquoted array value.
     /// Accept whitespace (except new lines) (-> AfterArrayValue),
     /// array value separators (-> BeforeArrayValue),
     /// array end delimiters (-> SkipLineWhitespaceOrComments),
     /// escape sequences (if supported) (-> ArrayValue),
     /// valid value chars (-> ArrayValue).
-    ArrayValue,
+    /// Contains the current array type, if any.
+    ArrayValue(Option<IniValueType>),
     /// We started parsing a quoted array value.
     /// Accept matching string quotes ('"' / '\'') (-> AfterArrayValue),
     /// spaces (' '),
     /// non-matching string quotes (if supported),
     /// escape sequences (if supported),
     /// valid value chars.
-    /// Contains the opening quote.
-    QuotedArrayValue(char),
+    /// Contains the opening quote and the current array type, if any.
+    QuotedArrayValue(char, Option<IniValueType>),
     /// We finished parsing a previous array value
     /// and expect the array value separator or the end of the array.
     /// Accept whitespace (except new lines),
     /// array value separators (-> BeforeArrayValue),
     /// array end delimiters (-> SkipLineWhitespaceOrComments).
-    AfterArrayValue,
+    /// Contains the current array type, if any.
+    AfterArrayValue(Option<IniValueType>),
+}
+
+impl IniParserFSMState {
+    /// Processes the next char `c`.
+    /// May call `next` to request up to 4 new chars if ASCII / Unicode hex escape sequences are supported.
+    /// Returns the new parser state or an error.
+    /// The error tuple contains a boolean, which, if `true`, indicates the error location column must be offset
+    /// one character back from the current location in the source.
+    fn process<'a, C: IniConfig, F: FnMut() -> Option<char>>(
+        self,
+        c: char,
+        next: F,
+        config: &mut C,
+        state: &mut IniParserPersistentState,
+        options: &IniOptions,
+    ) -> Result<IniParserFSMState, (IniErrorKind<'a>, bool)> {
+        use IniErrorKind::*;
+
+        Ok(match self {
+            IniParserFSMState::StartLine => {
+                state.is_key_unique = true;
+                state.skip_value = false;
+
+                // Skip whitespace at the start of the line (including new lines).
+                if c.is_whitespace() {
+                    self
+
+                // Section start delimiter - parse the section name.
+                } else if options.is_section_start(c) {
+                    // Return an error if we don't support sections.
+                    if options.nested_section_depth == 0 {
+                        return Err((NestedSectionDepthExceeded, false));
+                    }
+
+                    // Clear the current path.
+                    while let Some(section) = state.path.last() {
+                        // We didn't call `start_section()` if we skipped it, so don't call `end_section`.
+                        if !state.skip_section {
+                            config.end_section(section);
+                        } else {
+                            state.skip_section = false;
+                        }
+                        state.path.pop();
+                    }
+
+                    state.skip_section = false;
+
+                    IniParserFSMState::BeforeSection
+
+                // Line comment (if supported) - skip the rest of the line.
+                } else if options.is_comment_char(c) {
+                    IniParserFSMState::SkipLine
+
+                // String quote (if supported) - parse the key in quotes, expecting the matching quotes.
+                } else if options.is_string_quote_char(c) {
+                    IniParserFSMState::QuotedKey(c)
+
+                // Escaped char (if supported) - parse the escape sequence as the key.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - start parsing the key.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            debug_assert!(state.buffer.is_empty());
+                            state.buffer.push(c);
+
+                            IniParserFSMState::Key
+                        }
+                        // Line continuation - error.
+                        ParseEscapeSequenceResult::LineContinuation => {
+                            return Err((UnexpectedNewLineInKey, false))
+                        }
+                    }
+
+                // Valid key start - parse the key.
+                } else if options.is_key_or_value_char(c, false, None) {
+                    debug_assert!(state.buffer.is_empty());
+                    state.buffer.push(c);
+
+                    IniParserFSMState::Key
+
+                // Key-value separator - it's an empty key.
+                } else if options.is_key_value_separator_char(c) {
+                    return Err((EmptyKey, true));
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterAtLineStart(c), false));
+                }
+            }
+            IniParserFSMState::BeforeSection => {
+                debug_assert!(state.buffer.is_empty());
+                debug_assert!(options.nested_sections() || state.path.is_empty());
+
+                // Skip whitespace.
+                if c.is_whitespace() {
+                    // Unless it's a new line.
+                    if options.is_new_line(c) {
+                        return Err((UnexpectedNewLineInSectionName, true));
+                    } else {
+                        self
+                    }
+
+                // String quote - parse the section name in quotes, expecting the matching quotes.
+                } else if options.is_string_quote_char(c) {
+                    IniParserFSMState::QuotedSection(c)
+
+                // Nested section separator (if supported) - empty parent section names are not allowed.
+                } else if options.is_nested_section_separator(c) {
+                    return Err((EmptySectionName(state.path.to_config_path()), false));
+
+                // Escaped char (if supported) - start parsing the section name.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the section name.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+
+                            IniParserFSMState::Section
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => self,
+                    }
+
+                // Valid section name char (same rules as key chars) - start parsing the section name.
+                } else if options.is_key_or_value_char(c, false, None) {
+                    state.buffer.push(c);
+
+                    IniParserFSMState::Section
+
+                // Section end delimiter - empty section names not allowed.
+                } else if options.is_section_end(c) {
+                    return Err((EmptySectionName(state.path.to_config_path()), false));
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInSectionName(c), false));
+                }
+            }
+            IniParserFSMState::Section => {
+                // New line before the section delimiter - error.
+                if options.is_new_line(c) {
+                    return Err((UnexpectedNewLineInSectionName, true));
+
+                // Nested section separator (if supported) - finish the current section, keep parsing the nested section.
+                } else if options.is_nested_section_separator(c) {
+                    // Empty section names are not allowed.
+                    let section = NonEmptyStr::new(&state.buffer)
+                        .ok_or((EmptySectionName(state.path.to_config_path()), false))?;
+
+                    if state.path.len() + 1 >= options.nested_section_depth {
+                        return Err((NestedSectionDepthExceeded, false));
+                    }
+
+                    state.path.push(section);
+
+                    // The path must already exist in the config.
+                    if config.contains_key(section) != Ok(true) {
+                        return Err((InvalidParentSection(state.path.to_config_path()), true));
+                    }
+
+                    // Start the parent section in the config.
+                    config.start_section(section, false);
+
+                    state.buffer.clear();
+
+                    IniParserFSMState::BeforeSection
+
+                // Escaped char (if supported) - keep parsing the section name.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        true,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the section name.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Valid section name char - keep parsing the section name.
+                } else if options.is_key_or_value_char(c, true, None) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Section end delimiter - finish the section name, skip the rest of the line.
+                } else if options.is_section_end(c) {
+                    debug_assert!(state.path.len() <= options.nested_section_depth);
+
+                    // Empty section names not allowed.
+                    let section = NonEmptyStr::new(&state.buffer)
+                        .ok_or((EmptySectionName(state.path.to_config_path()), false))?;
+
+                    // Try to add the section to the config at the current path.
+                    state.skip_section = start_section(config, section, &state.path, options)?;
+
+                    state.path.push(section);
+                    state.buffer.clear();
+
+                    IniParserFSMState::SkipLineWhitespaceOrComments
+
+                // Whitespace after section name (new lines handled above) - skip it,
+                // parse the nested section separator or the section end delimiter.
+                } else if c.is_whitespace() {
+                    IniParserFSMState::AfterSection
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInSectionName(c), false));
+                }
+            }
+            IniParserFSMState::QuotedSection(quote) => {
+                // New line before the closing quotes - error.
+                if options.is_new_line(c) {
+                    return Err((UnexpectedNewLineInSectionName, true));
+
+                // Closing quotes - keep parsing until the nested section separator or section end delimiter.
+                } else if c == quote {
+                    IniParserFSMState::AfterSection
+
+                // Escaped char (if supported) - keep parsing the section name.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the section name.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Non-matching quotes - keep parsing the section.
+                } else if options.is_non_matching_string_quote_char(quote, c) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Space or valid value char - keep parsing the section.
+                } else if c == ' ' || options.is_key_or_value_char(c, true, Some(quote)) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInSectionName(c), false));
+                }
+            }
+            IniParserFSMState::AfterSection => {
+                // Skip whitespace.
+                if c.is_whitespace() {
+                    // Unless it's a new line.
+                    if options.is_new_line(c) {
+                        return Err((UnexpectedNewLineInSectionName, true));
+                    } else {
+                        self
+                    }
+
+                // Section end delimiter - skip the rest of the line.
+                } else if options.is_section_end(c) {
+                    // Empty section names are not allowed.
+                    let section = NonEmptyStr::new(&state.buffer)
+                        .ok_or((EmptySectionName(state.path.to_config_path()), true))?;
+
+                    // Try to add the section to the config at the current path.
+                    state.skip_section = start_section(config, section, &state.path, options)?;
+
+                    state.path.push(section);
+                    state.buffer.clear();
+
+                    IniParserFSMState::SkipLineWhitespaceOrComments
+
+                // Nested section separator (if supported) - start parsing the nested section name.
+                } else if options.is_nested_section_separator(c) {
+                    if (state.path.len() + 1) >= options.nested_section_depth {
+                        return Err((NestedSectionDepthExceeded, false));
+                    }
+
+                    // Empty section names are not allowed.
+                    let section = NonEmptyStr::new(&state.buffer)
+                        .ok_or((EmptySectionName(state.path.to_config_path()), true))?;
+
+                    state.path.push(section);
+
+                    // The path must already exist in the config.
+                    if config.contains_key(section) != Ok(true) {
+                        return Err((InvalidParentSection(state.path.to_config_path()), true));
+                    }
+
+                    // Start the parent section in the config.
+                    config.start_section(section, false);
+
+                    state.buffer.clear();
+
+                    IniParserFSMState::BeforeSection
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterAfterSectionName(c), false));
+                }
+            }
+            IniParserFSMState::SkipLine => {
+                debug_assert!(state.buffer.is_empty());
+
+                // If it's a new line, start parsing the next line.
+                // Skip everything else.
+                if options.is_new_line(c) {
+                    IniParserFSMState::StartLine
+                } else {
+                    self
+                }
+            }
+            IniParserFSMState::SkipLineWhitespaceOrComments => {
+                debug_assert!(state.buffer.is_empty());
+
+                // If it's a new line, start parsing the next line.
+                if options.is_new_line(c) {
+                    IniParserFSMState::StartLine
+
+                // Skip other whitespace.
+                } else if c.is_whitespace() {
+                    self
+
+                // Inline comment (if supported) - skip the rest of the line.
+                } else if options.is_inline_comment_char(c) {
+                    IniParserFSMState::SkipLine
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterAtLineEnd(c), false));
+                }
+            }
+            IniParserFSMState::Key => {
+                // We have at least one key character already parsed.
+                debug_assert!(!state.buffer.is_empty());
+                debug_assert!(state.key.is_empty());
+
+                // Key-value separator - finish the key, parse the value.
+                if options.is_key_value_separator_char(c) {
+                    std::mem::swap(&mut state.key, &mut state.buffer);
+
+                    check_is_key_duplicate(
+                        config,
+                        // Must succeed.
+                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                        state.skip_section,
+                        &mut state.skip_value,
+                        &mut state.is_key_unique,
+                        options.duplicate_keys,
+                    )?;
+
+                    IniParserFSMState::BeforeValue
+
+                // Whitespace between the key and the separator - skip it, finish the key, parse the separator.
+                } else if c.is_whitespace() {
+                    // Unless it's a new line.
+                    if options.is_new_line(c) {
+                        return Err((UnexpectedNewLineInKey, true));
+                    }
+
+                    std::mem::swap(&mut state.key, &mut state.buffer);
+
+                    check_is_key_duplicate(
+                        config,
+                        // Must succeed.
+                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                        state.skip_section,
+                        &mut state.skip_value,
+                        &mut state.is_key_unique,
+                        options.duplicate_keys,
+                    )?;
+
+                    IniParserFSMState::KeyValueSeparator
+
+                // Escaped char (if supported) - keep parsing the key.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the key.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Valid key char - keep parsing the key.
+                } else if options.is_key_or_value_char(c, false, None) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInKey(c), false));
+                }
+            }
+            IniParserFSMState::QuotedKey(quote) => {
+                debug_assert!(state.key.is_empty());
+
+                // New line before the closing quotes - error.
+                if options.is_new_line(c) {
+                    return Err((UnexpectedNewLineInKey, true));
+
+                // Closing quotes - finish the key, parse the separator.
+                } else if c == quote {
+                    std::mem::swap(&mut state.key, &mut state.buffer);
+
+                    // Empty keys are not allowed.
+                    let key = NonEmptyStr::new(&state.key).ok_or((EmptyKey, false))?;
+
+                    check_is_key_duplicate(
+                        config,
+                        key,
+                        state.skip_section,
+                        &mut state.skip_value,
+                        &mut state.is_key_unique,
+                        options.duplicate_keys,
+                    )?;
+
+                    IniParserFSMState::KeyValueSeparator
+
+                // Escaped char (if supported) - keep parsing the key.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the key.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Non-matching quotes - keep parsing the key.
+                } else if options.is_non_matching_string_quote_char(quote, c) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Space or valid key char - keep parsing the key.
+                } else if c == ' ' || options.is_key_or_value_char(c, false, Some(quote)) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInKey(c), false));
+                }
+            }
+            IniParserFSMState::KeyValueSeparator => {
+                debug_assert!(state.buffer.is_empty());
+
+                // Key-value separator - parse the value (key already finished).
+                if options.is_key_value_separator_char(c) {
+                    IniParserFSMState::BeforeValue
+
+                // Skip the whitespace between the key and the separator.
+                } else if c.is_whitespace() {
+                    // Unless it's a new line.
+                    if options.is_new_line(c) {
+                        return Err((UnexpectedNewLineInKey, true));
+                    } else {
+                        self
+                    }
+
+                // Else an error.
+                } else {
+                    return Err((InvalidKeyValueSeparator(c), false));
+                }
+            }
+            IniParserFSMState::BeforeValue => {
+                debug_assert!(state.buffer.is_empty());
+                // We have at least one key character already parsed.
+                debug_assert!(!state.key.is_empty());
+
+                // Skip the whitespace before the value.
+                if c.is_whitespace() {
+                    // Unless it's a new line - the value is empty.
+                    if options.is_new_line(c) {
+                        add_value_to_config(
+                            config,
+                            // Must succeed.
+                            unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                            "",
+                            false,
+                            state.skip_section | state.skip_value,
+                            state.is_key_unique,
+                            options.unquoted_strings,
+                        )
+                        .map_err(|error_kind| (error_kind, false))?;
+                        state.key.clear();
+
+                        IniParserFSMState::StartLine
+                    } else {
+                        self
+                    }
+
+                // Inline comment (if supported) - the value is empty, skip the rest of the line.
+                } else if options.is_inline_comment_char(c) {
+                    add_value_to_config(
+                        config,
+                        // Must succeed.
+                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                        "",
+                        false,
+                        state.skip_section | state.skip_value,
+                        state.is_key_unique,
+                        options.unquoted_strings,
+                    )
+                    .map_err(|error_kind| (error_kind, false))?;
+                    state.key.clear();
+
+                    IniParserFSMState::SkipLine
+
+                // String quote - parse the string value in quotes, expecting the matching quotes.
+                } else if options.is_string_quote_char(c) {
+                    IniParserFSMState::QuotedValue(c)
+
+                // Escaped char (if supported) - parse the escape sequence, start parsing the value.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - start parsing the value.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+
+                            IniParserFSMState::Value
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => self,
+                    }
+
+                // Array start delimiter (if supported) - start parsing the array.
+                } else if options.is_array_start(c) {
+                    // Must succeed.
+                    let array_key = unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key");
+
+                    add_array_to_config(
+                        config,
+                        array_key,
+                        state.skip_section | state.skip_value,
+                        state.is_key_unique,
+                    );
+
+                    state.path.push(array_key);
+
+                    IniParserFSMState::BeforeArrayValue(None)
+
+                // Valid value char - start parsing the unquoted value.
+                } else if options.is_key_or_value_char(c, false, None) {
+                    state.buffer.push(c);
+
+                    IniParserFSMState::Value
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInValue(c), false));
+                }
+            }
+            IniParserFSMState::Value => {
+                debug_assert!(!state.buffer.is_empty());
+                // We have at least one key character already parsed.
+                debug_assert!(!state.key.is_empty());
+
+                // Whitespace - finish the value.
+                if c.is_whitespace() {
+                    add_value_to_config(
+                        config,
+                        // Must succeed.
+                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                        &state.buffer,
+                        false,
+                        state.skip_section | state.skip_value,
+                        state.is_key_unique,
+                        options.unquoted_strings,
+                    )
+                    .map_err(|error_kind| (error_kind, false))?;
+                    state.buffer.clear();
+                    state.key.clear();
+
+                    // New line - start a new line.
+                    if options.is_new_line(c) {
+                        IniParserFSMState::StartLine
+
+                    // Not a new line - skip the rest of the line.
+                    } else {
+                        IniParserFSMState::SkipLineWhitespaceOrComments
+                    }
+
+                // Inline comment (if supported) - finish the value, skip the rest of the line.
+                } else if options.is_inline_comment_char(c) {
+                    add_value_to_config(
+                        config,
+                        // Must succeed.
+                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                        &state.buffer,
+                        false,
+                        state.skip_section | state.skip_value,
+                        state.is_key_unique,
+                        options.unquoted_strings,
+                    )
+                    .map_err(|error_kind| (error_kind, false))?;
+                    state.buffer.clear();
+                    state.key.clear();
+
+                    IniParserFSMState::SkipLine
+
+                // Escaped char (if supported) - parse the escape sequence.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the value.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Valid value char - keep parsing the value.
+                } else if options.is_key_or_value_char(c, false, None) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInValue(c), false));
+                }
+            }
+            IniParserFSMState::QuotedValue(quote) => {
+                // We have at least one key character already parsed.
+                debug_assert!(!state.key.is_empty());
+
+                // New line before the closing quotes - error.
+                if options.is_new_line(c) {
+                    return Err((UnexpectedNewLineInQuotedValue, true));
+
+                // Closing quotes - finish the value (may be empty), skip the rest of the line.
+                } else if c == quote {
+                    add_value_to_config(
+                        config,
+                        // Must succeed.
+                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                        &state.buffer,
+                        true,
+                        state.skip_section | state.skip_value,
+                        state.is_key_unique,
+                        options.unquoted_strings,
+                    )
+                    .map_err(|error_kind| (error_kind, false))?;
+                    state.buffer.clear();
+                    state.key.clear();
+
+                    IniParserFSMState::SkipLineWhitespaceOrComments
+
+                // Escaped char (if supported) - parse the escape sequence.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the value.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Non-matching quotes - keep parsing the value.
+                } else if options.is_non_matching_string_quote_char(quote, c) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Space or valid value char - keep parsing the value.
+                } else if c == ' ' || options.is_key_or_value_char(c, false, Some(quote)) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInValue(c), false));
+                }
+            }
+            IniParserFSMState::BeforeArrayValue(array_type) => {
+                debug_assert!(state.buffer.is_empty());
+                // We have at least one key character already parsed.
+                debug_assert!(!state.key.is_empty());
+                // We have at least the array key in the path.
+                debug_assert!(!state.path.is_empty());
+
+                // Skip the whitespace before the array value.
+                if c.is_whitespace() {
+                    // Unless it's a new line.
+                    if options.is_new_line(c) {
+                        return Err((UnexpectedNewLineInArray, true));
+                    } else {
+                        self
+                    }
+
+                // Array end delimiter - finish the array, skip the rest of the line.
+                } else if options.is_array_end(c) {
+                    config.end_array(unwrap_unchecked_msg(state.path.last(), "missing array key"));
+
+                    // Pop the array key off the path.
+                    state.path.pop();
+
+                    state.key.clear();
+
+                    IniParserFSMState::SkipLineWhitespaceOrComments
+
+                // String quote - parse the string array value in quotes, expecting the matching quotes.
+                } else if options.is_string_quote_char(c) {
+                    // Make sure the array is empty or contains strings (is not mixed).
+                    if let Some(array_type) = array_type {
+                        if !array_type.is_compatible(IniValueType::String) {
+                            return Err((IniErrorKind::MixedArray, false));
+                        }
+                    }
+
+                    IniParserFSMState::QuotedArrayValue(c, array_type)
+
+                // Escaped char (if supported) - parse the escape sequence, start parsing the array value.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the value.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+
+                            IniParserFSMState::ArrayValue(array_type)
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => self,
+                    }
+
+                // Valid value char - start parsing the unquoted array value.
+                } else if options.is_key_or_value_char(c, false, None) {
+                    state.buffer.push(c);
+
+                    IniParserFSMState::ArrayValue(array_type)
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInArray(c), false));
+                }
+            }
+            IniParserFSMState::ArrayValue(mut array_type) => {
+                debug_assert!(!state.buffer.is_empty());
+                // We have at least one key character already parsed.
+                debug_assert!(!state.key.is_empty());
+                // We have at least the array key in the path.
+                debug_assert!(!state.path.is_empty());
+
+                // Whitespace - finish the current array value,
+                // parse the array value separator / array end delimiter.
+                if c.is_whitespace() {
+                    // Unless it's a new line.
+                    if options.is_new_line(c) {
+                        return Err((IniErrorKind::UnexpectedNewLineInArray, true));
+                    }
+
+                    add_value_to_array(
+                        config,
+                        &state.buffer,
+                        false,
+                        state.skip_value | state.skip_section,
+                        &mut array_type,
+                        options.unquoted_strings,
+                    )?;
+
+                    state.buffer.clear();
+
+                    IniParserFSMState::AfterArrayValue(array_type)
+
+                // Array value separator - finish the current array value,
+                // parse the next array value / array end delimiter.
+                } else if options.is_array_value_separator(c) {
+                    add_value_to_array(
+                        config,
+                        &state.buffer,
+                        false,
+                        state.skip_value | state.skip_section,
+                        &mut array_type,
+                        options.unquoted_strings,
+                    )?;
+
+                    state.buffer.clear();
+
+                    IniParserFSMState::BeforeArrayValue(array_type)
+
+                // Array end delimiter - add the value to the array, finish the array, skip the rest of the line.
+                } else if options.is_array_end(c) {
+                    add_value_to_array(
+                        config,
+                        &state.buffer,
+                        false,
+                        state.skip_value | state.skip_section,
+                        &mut array_type,
+                        options.unquoted_strings,
+                    )?;
+
+                    state.buffer.clear();
+
+                    // Must succeed.
+                    config.end_array(unwrap_unchecked_msg(state.path.last(), "empty key"));
+
+                    debug_assert_eq!(
+                        unwrap_unchecked_msg(state.path.last(), "empty key").as_ref(),
+                        state.key
+                    );
+
+                    // Pop the array key off the path.
+                    state.path.pop();
+
+                    state.key.clear();
+
+                    IniParserFSMState::SkipLineWhitespaceOrComments
+
+                // Escaped char (if supported) - parse the escape sequence.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the array value.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Valid value char - keep parsing the array value.
+                } else if options.is_key_or_value_char(c, false, None) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInValue(c), false));
+                }
+            }
+            IniParserFSMState::QuotedArrayValue(quote, mut array_type) => {
+                // New line before the closing quotes - error.
+                if options.is_new_line(c) {
+                    return Err((UnexpectedNewLineInQuotedValue, true));
+
+                // Closing quotes - finish the array value (may be empty),
+                // parse the array value separator / array end delimiter.
+                } else if c == quote {
+                    add_value_to_array(
+                        config,
+                        &state.buffer,
+                        true,
+                        state.skip_value | state.skip_section,
+                        &mut array_type,
+                        options.unquoted_strings,
+                    )?;
+                    state.buffer.clear();
+
+                    IniParserFSMState::AfterArrayValue(array_type)
+
+                // Escaped char (if supported) - parse the escape sequence.
+                } else if options.is_escape_char(c) {
+                    match parse_escape_sequence(
+                        next,
+                        &mut state.escape_sequence_buffer,
+                        false,
+                        options,
+                    )? {
+                        // Parsed an escaped char - keep parsing the array value.
+                        ParseEscapeSequenceResult::EscapedChar(c) => {
+                            state.buffer.push(c);
+                        }
+                        // Line continuation - keep parsing.
+                        ParseEscapeSequenceResult::LineContinuation => {}
+                    }
+
+                    self
+
+                // Non-matching quotes - keep parsing the array value.
+                } else if options.is_non_matching_string_quote_char(quote, c) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Space or valid value char - keep parsing the array value.
+                } else if c == ' ' || options.is_key_or_value_char(c, false, Some(quote)) {
+                    state.buffer.push(c);
+
+                    self
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInValue(c), false));
+                }
+            }
+            IniParserFSMState::AfterArrayValue(array_type) => {
+                // We have at least one key character already parsed.
+                debug_assert!(!state.key.is_empty());
+                // We have at least the array key in the path.
+                debug_assert!(!state.path.is_empty());
+
+                debug_assert!(state.buffer.is_empty());
+
+                // Skip whitespace.
+                if c.is_whitespace() {
+                    // Unless it's a new line.
+                    if options.is_new_line(c) {
+                        return Err((UnexpectedNewLineInArray, true));
+                    } else {
+                        self
+                    }
+
+                // Array value separator - parse the next array value / array end delimiter.
+                } else if options.is_array_value_separator(c) {
+                    IniParserFSMState::BeforeArrayValue(array_type)
+
+                // Array end delimiter - finish the array, skip the rest of the line.
+                } else if options.is_array_end(c) {
+                    // Must succeed.
+                    config.end_array(unwrap_unchecked_msg(
+                        NonEmptyStr::new(&state.key),
+                        "empty key",
+                    ));
+
+                    debug_assert_eq!(
+                        unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key").as_ref(),
+                        state.key
+                    );
+
+                    // Pop the array key off the path.
+                    state.path.pop();
+
+                    state.key.clear();
+
+                    IniParserFSMState::SkipLineWhitespaceOrComments
+
+                // Else an error.
+                } else {
+                    return Err((InvalidCharacterInArray(c), false));
+                }
+            }
+        })
+    }
+
+    /// Called after EOF for cleanup and error reporting if the EOF was unexpected for the current parser state.
+    fn finish<'a, C: IniConfig>(
+        self,
+        config: &mut C,
+        state: &IniParserPersistentState,
+        options: &IniOptions,
+    ) -> Result<(), IniErrorKind<'a>> {
+        use IniErrorKind::*;
+        use IniParserFSMState::*;
+
+        match self {
+            BeforeSection | Section | QuotedSection(_) | AfterSection => {
+                return Err(UnexpectedEndOfFileInSectionName)
+            }
+            Key | QuotedKey(_) | KeyValueSeparator => {
+                return Err(UnexpectedEndOfFileBeforeKeyValueSeparator)
+            }
+            QuotedValue(_) => return Err(UnexpectedEndOfFileInQuotedString),
+            // Add the last value if we were parsing it right before EOF.
+            Value | BeforeValue => {
+                // We have at least one key character already parsed.
+                debug_assert!(!state.key.is_empty());
+
+                add_value_to_config(
+                    config,
+                    // Must succeed.
+                    unwrap_unchecked_msg(NonEmptyStr::new(&state.key), "empty key"),
+                    &state.buffer,
+                    false,
+                    state.skip_section | state.skip_value,
+                    state.is_key_unique,
+                    options.unquoted_strings,
+                )
+            }
+            BeforeArrayValue(_) | ArrayValue(_) | AfterArrayValue(_) => {
+                return Err(UnexpectedEndOfFileInArray)
+            }
+            QuotedArrayValue(_, _) => return Err(UnexpectedEndOfFileInQuotedArrayValue),
+            StartLine | SkipLine | SkipLineWhitespaceOrComments => Ok(()),
+        }
+    }
+}
+
+/// Reads up to 4 following characters and tries to parse them as an escape sequence.
+/// `in_unquoted_section` is `true` if we are parsing an unquoted `.ini` section name.
+fn parse_escape_sequence<'a, F: FnMut() -> Option<char>>(
+    mut next: F,
+    escape_sequence_buffer: &mut String,
+    in_unquoted_section: bool,
+    options: &IniOptions,
+) -> Result<ParseEscapeSequenceResult, (IniErrorKind<'a>, bool)> {
+    use IniErrorKind::*;
+    use ParseEscapeSequenceResult::*;
+
+    debug_assert!(options.escape);
+
+    match next() {
+        None => Err((UnexpectedEndOfFileInEscapeSequence, false)),
+
+        // Backslash followed by a new line is a line continuation, if supported.
+        Some('\n') | Some('\r') => {
+            if options.line_continuation {
+                Ok(LineContinuation)
+            } else {
+                Err((UnexpectedNewLineInEscapeSequence, true))
+            }
+        }
+
+        // Standard escaped characters.
+        Some('\\') => Ok(EscapedChar('\\')),
+        Some('\'') => Ok(EscapedChar('\'')),
+        Some('"') => Ok(EscapedChar('"')),
+        Some('0') => Ok(EscapedChar('\0')),
+        Some('a') => Ok(EscapedChar('\x07')),
+        Some('b') => Ok(EscapedChar('\x08')),
+        Some('t') => Ok(EscapedChar('\t')),
+        Some('r') => Ok(EscapedChar('\r')),
+        Some('n') => Ok(EscapedChar('\n')),
+        Some('v') => Ok(EscapedChar('\x0b')),
+        Some('f') => Ok(EscapedChar('\x0c')),
+
+        // Escaped space.
+        Some(' ') => Ok(EscapedChar(' ')),
+
+        // Escaped `.ini` special characters, disallowed otherwise.
+        Some('[') => Ok(EscapedChar('[')),
+        Some(']') => Ok(EscapedChar(']')),
+        Some(';') => Ok(EscapedChar(';')),
+        Some('#') => Ok(EscapedChar('#')),
+        Some('=') => Ok(EscapedChar('=')),
+        Some(':') => Ok(EscapedChar(':')),
+
+        // `.ini` nested section separator, if supported, must be escaped in unquoted section names.
+        // If nested sections are unsupported, or if in a key, value or a quoted section,
+        // it's just a normal character and must not be escaped.
+        Some('/') if (options.nested_sections() && in_unquoted_section) => Ok(EscapedChar('/')),
+
+        // 2 hexadecimal ASCII values.
+        Some('x') => {
+            escape_sequence_buffer.clear();
+
+            for _ in 0..2 {
+                match next() {
+                    None => return Err((UnexpectedEndOfFileInASCIIEscapeSequence, false)),
+                    Some('\n') | Some('\r') => {
+                        return Err((UnexpectedNewLineInASCIIEscapeSequence, true))
+                    }
+                    Some(c) => escape_sequence_buffer.push(c),
+                }
+            }
+
+            Ok(EscapedChar(
+                std::char::from_u32(
+                    u32::from_str_radix(&escape_sequence_buffer, 16)
+                        .map_err(|_| (InvalidASCIIEscapeSequence, false))?,
+                )
+                .ok_or((InvalidASCIIEscapeSequence, false))?,
+            ))
+        }
+
+        // 4 hexadecimal Unicode values.
+        Some('u') => {
+            escape_sequence_buffer.clear();
+
+            for _ in 0..4 {
+                match next() {
+                    None => return Err((UnexpectedEndOfFileInUnicodeEscapeSequence, false)),
+                    Some('\n') | Some('\r') => {
+                        return Err((UnexpectedNewLineInUnicodeEscapeSequence, true))
+                    }
+                    Some(c) => escape_sequence_buffer.push(c),
+                }
+            }
+
+            Ok(EscapedChar(
+                std::char::from_u32(
+                    u32::from_str_radix(&escape_sequence_buffer, 16)
+                        .map_err(|_| (InvalidUnicodeEscapeSequence, false))?,
+                )
+                .ok_or((InvalidUnicodeEscapeSequence, false))?,
+            ))
+        }
+
+        Some(c) => Err((InvalidEscapeCharacter(c), false)),
+    }
+}
+
+/// Returns `Ok(true)` if we need to skip the current section;
+/// else returns `Ok(false)`.
+fn start_section<'a, C: IniConfig>(
+    config: &mut C,
+    section: NonEmptyStr<'_>,
+    path: &IniPath,
+    options: &IniOptions,
+) -> Result<bool, (IniErrorKind<'a>, bool)> {
+    let key_already_exists = config.contains_key(section);
+
+    // Section already exists.
+    if let Ok(true) = key_already_exists {
+        match options.duplicate_sections {
+            // We don't support duplicate sections - error.
+            IniDuplicateSections::Forbid => {
+                let mut path = path.to_config_path();
+                path.0.push(section.as_ref().to_owned().into());
+
+                return Err((IniErrorKind::DuplicateSection(path), false));
+            }
+            // Skip this section.
+            IniDuplicateSections::First => Ok(true),
+            // Overwrite the previous instance of the section with the new one.
+            IniDuplicateSections::Last => {
+                config.start_section(section, true);
+                Ok(false)
+            }
+            // Just add the new key/value pairs to the existing section.
+            IniDuplicateSections::Merge => {
+                config.start_section(section, false);
+                Ok(false)
+            }
+        }
+
+    // Section does not exist in the config.
+    } else {
+        // Key already exists.
+        if let Ok(false) = key_already_exists {
+            match options.duplicate_keys {
+                // We don't support duplicate keys - error.
+                IniDuplicateKeys::Forbid => {
+                    let mut path = path.to_config_path();
+                    path.0.push(section.as_ref().to_owned().into());
+
+                    return Err((
+                        IniErrorKind::DuplicateKey(section.as_ref().to_owned().into()),
+                        true,
+                    ));
+                }
+                // Skip this section.
+                IniDuplicateKeys::First => Ok(true),
+                // Overwrite the previous value with the new one.
+                IniDuplicateKeys::Last => {
+                    config.start_section(section, true);
+                    Ok(false)
+                }
+            }
+        // Key does not exist - add the section.
+        } else {
+            config.start_section(section, false);
+            Ok(false)
+        }
+    }
+}
+
+/// Sets `skip_value` to `true` if we need to skip the current value;
+/// sets `is_key_unique` to `true` if the key is not contained in `config`'s current section.
+fn check_is_key_duplicate<'a, 'k, C: IniConfig>(
+    config: &C,
+    key: NonEmptyStr<'k>,
+    skip_section: bool,
+    skip_value: &mut bool,
+    is_key_unique: &mut bool,
+    duplicate_keys: IniDuplicateKeys,
+) -> Result<(), (IniErrorKind<'a>, bool)> {
+    use IniErrorKind::*;
+
+    if skip_section {
+        *skip_value = true;
+        *is_key_unique = false;
+
+        return Ok(());
+    }
+
+    let is_unique = config.contains_key(key).is_err();
+
+    match duplicate_keys {
+        IniDuplicateKeys::Forbid => {
+            if is_unique {
+                *skip_value = false;
+                *is_key_unique = true;
+
+                Ok(())
+            } else {
+                Err((DuplicateKey(key.as_ref().to_string().into()), true))
+            }
+        }
+        // If `is_unique == true`, it's the first key and we must process it -> return `false` (don't skip).
+        IniDuplicateKeys::First => {
+            *skip_value = !is_unique;
+            *is_key_unique = is_unique;
+
+            Ok(())
+        }
+        // Never skip keys when we're interested in the last one.
+        IniDuplicateKeys::Last => {
+            *skip_value = false;
+            *is_key_unique = is_unique;
+
+            Ok(())
+        }
+    }
+}
+
+/// Parses a string `value` and adds it to the `config`'s current section at `key`.
+/// If `quoted` is `true`, `value` is always treated as a string,
+/// else it is first interpreted as a bool / integer / float.
+/// Empty `value`'s are treated as strings.
+fn add_value_to_config<'a, C: IniConfig>(
+    config: &mut C,
+    key: NonEmptyStr<'_>,
+    value: &str,
+    quoted: bool,
+    skip: bool,
+    is_key_unique: bool,
+    unquoted_strings: bool,
+) -> Result<(), IniErrorKind<'a>> {
+    if !skip {
+        config.add_value(
+            key,
+            parse_value_string(value, quoted, unquoted_strings)?,
+            !is_key_unique,
+        );
+    }
+
+    Ok(())
+}
+
+/// Adds an empty array to the `config`'s current section at `key`.
+fn add_array_to_config<C: IniConfig>(
+    config: &mut C,
+    key: NonEmptyStr<'_>,
+    skip: bool,
+    is_key_unique: bool,
+) {
+    if !skip {
+        config.start_array(key, !is_key_unique);
+    }
+}
+
+/// Parses a string `value` and adds it to the `config`'s current array.
+/// If `quoted` is `true`, `value` is always treated as a string,
+/// else it is first interpreted as a bool / integer / float.
+/// Empty `value`'s are treated as strings.
+/// Updates the `array_type`.
+fn add_value_to_array<'a, C: IniConfig>(
+    config: &mut C,
+    value: &str,
+    quoted: bool,
+    skip: bool,
+    array_type: &mut Option<IniValueType>,
+    unquoted_strings: bool,
+) -> Result<(), (IniErrorKind<'a>, bool)> {
+    if skip {
+        return Ok(());
+    }
+
+    let value = parse_value_string(value, quoted, unquoted_strings)
+        .map_err(|error_kind| (error_kind, false))?;
+    let value_type = value.get_ini_type();
+
+    // Make sure the array is not mixed.
+    if let Some(array_type) = array_type {
+        if !array_type.is_compatible(value_type) {
+            return Err((IniErrorKind::MixedArray, true));
+        }
+    } else {
+        array_type.replace(value_type);
+    }
+
+    config.add_array_value(value);
+
+    Ok(())
+}
+
+/// Parses a string `value`.
+/// If `quoted` is `true`, `value` is always treated as a string,
+/// else it is first interpreted as a bool / integer / float.
+/// Empty `value`'s are treated as strings.
+fn parse_value_string<'a>(
+    value: &str,
+    quoted: bool,
+    unquoted_strings: bool,
+) -> Result<IniValue<&str>, IniErrorKind<'a>> {
+    use IniErrorKind::*;
+    use IniValue::*;
+
+    // Empty and quoted values are treated as strings.
+    let value = if value.is_empty() || quoted {
+        String(value)
+
+    // Check if it's a bool.
+    } else if value == "true" {
+        Bool(true)
+    } else if value == "false" {
+        Bool(false)
+
+    // Check if it's an integer.
+    } else if let Some(value) = try_parse_integer(value) {
+        I64(value)
+
+    // Else check if it's a float.
+    } else if let Ok(value) = value.parse::<f64>() {
+        F64(value)
+
+    // Else we assume it's an unquoted string.
+    } else {
+        // Unless we don't allow unquoted strings.
+        if !unquoted_strings {
+            return Err(UnquotedString);
+        }
+
+        String(value)
+    };
+
+    Ok(value)
+}
+
+fn try_parse_integer(value: &str) -> Option<i64> {
+    if value.is_empty() {
+        None
+    } else {
+        // Explicit sign.
+        let (sign, value) = {
+            if let Some(value) = value.strip_prefix("+") {
+                (1, value)
+            } else if let Some(value) = value.strip_prefix("-") {
+                (-1, value)
+            } else {
+                (1, value)
+            }
+        };
+
+        // Radix.
+        let (radix, value) = {
+            // Hexadecimal.
+            if let Some(value) = value.strip_prefix("0x") {
+                (16, value)
+            // Octal.
+            } else if let Some(value) = value.strip_prefix("0o") {
+                (8, value)
+            // Else assume decimal.
+            } else {
+                (10, value)
+            }
+        };
+
+        i64::from_str_radix(value, radix).ok().map(|int| sign * int)
+    }
+}
+
+/// Persistent state used to communicate information between parser FSM states.
+struct IniParserPersistentState {
+    // Scratch buffer for sections / keys / values.
+    pub buffer: String,
+    // Current nested section path, if any.
+    // Contains at most one section name if nested sections are not supported.
+    pub path: IniPath,
+    // Current key, if any.
+    pub key: String,
+    // Whether the key is unique in its table (root or section).
+    pub is_key_unique: bool,
+    // Whether we need to skip all key/value pairs in the current section
+    // (i.e., when we encountered a duplicate section instance and we use the `First` duplicate section policy).
+    pub skip_section: bool,
+    // Whether we need to skip the current value
+    // (i.e., when we encountered a duplicate key and we use the `First` duplicate key policy).
+    pub skip_value: bool,
+    // Scratch buffer for ASCII / Unicode escape sequences, if supported.
+    pub escape_sequence_buffer: String,
+}
+
+impl IniParserPersistentState {
+    fn new(escape: bool) -> Self {
+        Self {
+            buffer: String::new(),
+            path: IniPath::new(),
+            key: String::new(),
+            is_key_unique: true,
+            skip_section: false,
+            skip_value: false,
+            escape_sequence_buffer: if escape {
+                String::with_capacity(4)
+            } else {
+                String::new()
+            },
+        }
+    }
 }
 
 /// Parses the `.ini` config string, using the user-provided parsing options
@@ -133,9 +1591,6 @@ pub struct IniParser<'s> {
     column: u32,
     new_line: bool,
 
-    /// Current parser FSM state.
-    state: IniParserState,
-
     /// Parsing options as provided by the user.
     options: IniOptions,
 }
@@ -146,7 +1601,6 @@ impl<'s> IniParser<'s> {
     pub fn new(string: &'s str) -> Self {
         Self {
             reader: string.chars(),
-            state: IniParserState::StartLine,
             line: 1,
             column: 0,
             new_line: false,
@@ -283,945 +1737,33 @@ impl<'s> IniParser<'s> {
 
     /// Consumes the parser and tries to parse the `.ini` config string, filling the passed `config` event handler.
     pub fn parse<'a, C: IniConfig>(mut self, config: &mut C) -> Result<(), IniError<'a>> {
-        use IniErrorKind::*;
-
         self.validate_options();
 
-        // Scratch buffer for sections / keys / values.
-        let mut buffer = String::new();
+        let mut persistent_state = IniParserPersistentState::new(self.options.escape);
 
-        // Current nested section path, if any.
-        // Contains at most one section name if nested sections are not supported.
-        let mut path = IniPath::new();
+        let options = self.options;
 
-        // Current key, if any.
-        let mut key = String::new();
-
-        // Whether the key is unique in its table (root or section).
-        let mut is_key_unique = true;
-
-        // Whether we need to skip all key/value pairs in the current section
-        // (i.e., when we encountered a duplicate section instance and we use the `First` duplicate section policy).
-        let mut skip_section = false;
-
-        // Whether we need to skip the current value
-        // (i.e., when we encountered a duplicate key and we use the `First` duplicate key policy).
-        let mut skip_value = false;
-
-        // Scratch buffer for ASCII / Unicode escape sequences, if supported.
-        let mut escape_sequence_buffer = if self.options.escape {
-            String::with_capacity(4)
-        } else {
-            String::new()
-        };
-
-        let mut array_type: Option<IniValueType> = None;
+        let mut fsm_state = IniParserFSMState::StartLine;
 
         // Read the chars until EOF, process according to current state.
         while let Some(c) = self.next() {
-            match self.state {
-                IniParserState::StartLine => {
-                    is_key_unique = true;
-                    skip_value = false;
-
-                    // Skip whitespace at the start of the line (including new lines).
-                    if c.is_whitespace() {
-
-                        // Section start delimiter - parse the section name.
-                    } else if self.is_section_start(c) {
-                        // Return an error if we don't support sections.
-                        if self.options.nested_section_depth == 0 {
-                            return Err(self.error(IniErrorKind::NestedSectionDepthExceeded));
-                        }
-
-                        // Clear the current path.
-                        while let Some(section) = path.last() {
-                            // We didn't call `start_section()` if we skipped it, so don't call `end_section`.
-                            if !skip_section {
-                                config.end_section(section);
-                            } else {
-                                skip_section = false;
-                            }
-                            path.pop();
-                        }
-
-                        skip_section = false;
-
-                        self.state = IniParserState::BeforeSection;
-
-                    // Line comment (if supported) - skip the rest of the line.
-                    } else if self.is_comment_char(c) {
-                        self.state = IniParserState::SkipLine;
-
-                    // String quote (if supported) - parse the key in quotes, expecting the matching quotes.
-                    } else if self.is_string_quote_char(c) {
-                        self.state = IniParserState::QuotedKey(c);
-
-                    // Escaped char (if supported) - parse the escape sequence as the key.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - start parsing the key.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                debug_assert!(buffer.is_empty());
-                                buffer.push(c);
-
-                                self.state = IniParserState::Key;
-                            }
-                            // Line continuation - error.
-                            ParseEscapeSequenceResult::LineContinuation => {
-                                return Err(self.error(UnexpectedNewLineInKey));
-                            }
-                        }
-
-                    // Valid key start - parse the key.
-                    } else if self.is_key_or_value_char(c, false, None) {
-                        debug_assert!(buffer.is_empty());
-                        buffer.push(c);
-
-                        self.state = IniParserState::Key;
-
-                    // Key-value separator - it's an empty key.
-                    } else if self.is_key_value_separator_char(c) {
-                        return Err(self.error_offset(EmptyKey));
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterAtLineStart(c)));
-                    }
-                }
-                IniParserState::BeforeSection => {
-                    debug_assert!(buffer.is_empty());
-                    debug_assert!(self.nested_sections() || path.is_empty());
-
-                    // Skip whitespace.
-                    if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(UnexpectedNewLineInSectionName));
-                        }
-
-                    // String quote - parse the section name in quotes, expecting the matching quotes.
-                    } else if self.is_string_quote_char(c) {
-                        self.state = IniParserState::QuotedSection(c);
-
-                    // Nested section separator (if supported) - empty parent section names are not allowed.
-                    } else if self.is_nested_section_separator(c) {
-                        return Err(self.error(EmptySectionName(path.to_config_path())));
-
-                    // Escaped char (if supported) - start parsing the section name.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the section name.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-
-                                self.state = IniParserState::Section;
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Valid section name char (same rules as key chars) - start parsing the section name.
-                    } else if self.is_key_or_value_char(c, false, None) {
-                        buffer.push(c);
-
-                        self.state = IniParserState::Section;
-
-                    // Section end delimiter - empty section names not allowed.
-                    } else if self.is_section_end(c) {
-                        return Err(self.error(EmptySectionName(path.to_config_path())));
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInSectionName(c)));
-                    }
-                }
-                IniParserState::Section => {
-                    // New line before the section delimiter - error.
-                    if self.is_new_line(c) {
-                        return Err(self.error_offset(UnexpectedNewLineInSectionName));
-
-                    // Nested section separator (if supported) - finish the current section, keep parsing the nested section.
-                    } else if self.is_nested_section_separator(c) {
-                        // Empty section names are not allowed.
-                        let section = NonEmptyStr::new(&buffer)
-                            .ok_or(self.error(EmptySectionName(path.to_config_path())))?;
-
-                        if path.len() + 1 >= self.options.nested_section_depth {
-                            return Err(self.error(NestedSectionDepthExceeded));
-                        }
-
-                        path.push(section);
-
-                        // The path must already exist in the config.
-                        if config.contains_key(section) != Ok(true) {
-                            return Err(
-                                self.error_offset(InvalidParentSection(path.to_config_path()))
-                            );
-                        }
-
-                        // Start the parent section in the config.
-                        config.start_section(section, false);
-
-                        buffer.clear();
-
-                        self.state = IniParserState::BeforeSection;
-
-                    // Escaped char (if supported) - keep parsing the section name.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(true, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the section name.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Valid section name char - keep parsing the section name.
-                    } else if self.is_key_or_value_char(c, true, None) {
-                        buffer.push(c);
-
-                    // Section end delimiter - finish the section name, skip the rest of the line.
-                    } else if self.is_section_end(c) {
-                        debug_assert!(path.len() <= self.options.nested_section_depth);
-
-                        // Empty section names not allowed.
-                        let section = NonEmptyStr::new(&buffer)
-                            .ok_or(self.error(EmptySectionName(path.to_config_path())))?;
-
-                        // Try to add the section to the config at the current path.
-                        skip_section = self.start_section(config, section, &path)?;
-
-                        path.push(section);
-                        buffer.clear();
-
-                        self.state = IniParserState::SkipLineWhitespaceOrComments;
-
-                    // Whitespace after section name (new lines handled above) - skip it,
-                    // parse the nested section separator or the section end delimiter.
-                    } else if c.is_whitespace() {
-                        self.state = IniParserState::AfterSection;
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInSectionName(c)));
-                    }
-                }
-                IniParserState::QuotedSection(quote) => {
-                    // New line before the closing quotes - error.
-                    if self.is_new_line(c) {
-                        return Err(self.error_offset(UnexpectedNewLineInSectionName));
-
-                    // Closing quotes - keep parsing until the nested section separator or section end delimiter.
-                    } else if c == quote {
-                        self.state = IniParserState::AfterSection;
-
-                    // Escaped char (if supported) - keep parsing the section name.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the section name.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Non-matching quotes - keep parsing the section.
-                    } else if self.is_non_matching_string_quote_char(quote, c) {
-                        buffer.push(c);
-
-                    // Space or valid value char - keep parsing the section.
-                    } else if c == ' ' || self.is_key_or_value_char(c, true, Some(quote)) {
-                        buffer.push(c);
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInSectionName(c)));
-                    }
-                }
-                IniParserState::AfterSection => {
-                    // Skip whitespace.
-                    if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(UnexpectedNewLineInSectionName));
-                        }
-
-                    // Section end delimiter - skip the rest of the line.
-                    } else if self.is_section_end(c) {
-                        // Empty section names are not allowed.
-                        let section = NonEmptyStr::new(&buffer)
-                            .ok_or(self.error_offset(EmptySectionName(path.to_config_path())))?;
-
-                        // Try to add the section to the config at the current path.
-                        skip_section = self.start_section(config, section, &path)?;
-
-                        path.push(section);
-                        buffer.clear();
-
-                        self.state = IniParserState::SkipLineWhitespaceOrComments;
-
-                    // Nested section separator (if supported) - start parsing the nested section name.
-                    } else if self.is_nested_section_separator(c) {
-                        if (path.len() + 1) >= self.options.nested_section_depth {
-                            return Err(self.error(NestedSectionDepthExceeded));
-                        }
-
-                        // Empty section names are not allowed.
-                        let section = NonEmptyStr::new(&buffer)
-                            .ok_or(self.error(EmptySectionName(path.to_config_path())))?;
-
-                        path.push(section);
-
-                        // The path must already exist in the config.
-                        if config.contains_key(section) != Ok(true) {
-                            return Err(
-                                self.error_offset(InvalidParentSection(path.to_config_path()))
-                            );
-                        }
-
-                        // Start the parent section in the config.
-                        config.start_section(section, false);
-
-                        buffer.clear();
-
-                        self.state = IniParserState::BeforeSection;
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterAfterSectionName(c)));
-                    }
-                }
-                IniParserState::SkipLine => {
-                    debug_assert!(buffer.is_empty());
-
-                    // If it's a new line, start parsing the next line.
-                    // Skip everything else.
-                    if self.is_new_line(c) {
-                        self.state = IniParserState::StartLine;
-                    }
-                }
-                IniParserState::SkipLineWhitespaceOrComments => {
-                    debug_assert!(buffer.is_empty());
-
-                    // If it's a new line, start parsing the next line.
-                    if self.is_new_line(c) {
-                        self.state = IniParserState::StartLine;
-
-                    // Skip other whitespace.
-                    } else if c.is_whitespace() {
-                        // continue
-
-                        // Inline comment (if supported) - skip the rest of the line.
-                    } else if self.is_inline_comment_char(c) {
-                        self.state = IniParserState::SkipLine;
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterAtLineEnd(c)));
-                    }
-                }
-                IniParserState::Key => {
-                    // We have at least one key character already parsed.
-                    debug_assert!(!buffer.is_empty());
-                    debug_assert!(key.is_empty());
-
-                    // Key-value separator - finish the key, parse the value.
-                    if self.is_key_value_separator_char(c) {
-                        std::mem::swap(&mut key, &mut buffer);
-
-                        self.check_is_key_duplicate(
-                            config,
-                            // Must succeed.
-                            unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                            skip_section,
-                            &mut skip_value,
-                            &mut is_key_unique,
-                        )?;
-
-                        self.state = IniParserState::BeforeValue;
-
-                    // Whitespace between the key and the separator - skip it, finish the key, parse the separator.
-                    } else if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(UnexpectedNewLineInKey));
-                        }
-
-                        std::mem::swap(&mut key, &mut buffer);
-
-                        self.check_is_key_duplicate(
-                            config,
-                            // Must succeed.
-                            unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                            skip_section,
-                            &mut skip_value,
-                            &mut is_key_unique,
-                        )?;
-
-                        self.state = IniParserState::KeyValueSeparator;
-
-                    // Escaped char (if supported) - keep parsing the key.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the key.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Valid key char - keep parsing the key.
-                    } else if self.is_key_or_value_char(c, false, None) {
-                        buffer.push(c);
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInKey(c)));
-                    }
-                }
-                IniParserState::QuotedKey(quote) => {
-                    debug_assert!(key.is_empty());
-
-                    // New line before the closing quotes - error.
-                    if self.is_new_line(c) {
-                        return Err(self.error_offset(UnexpectedNewLineInKey));
-
-                    // Closing quotes - finish the key, parse the separator.
-                    } else if c == quote {
-                        std::mem::swap(&mut key, &mut buffer);
-
-                        // Empty keys are not allowed.
-                        let key = NonEmptyStr::new(&key).ok_or(self.error(EmptyKey))?;
-
-                        self.check_is_key_duplicate(
-                            config,
-                            key,
-                            skip_section,
-                            &mut skip_value,
-                            &mut is_key_unique,
-                        )?;
-
-                        self.state = IniParserState::KeyValueSeparator;
-
-                    // Escaped char (if supported) - keep parsing the key.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the key.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Non-matching quotes - keep parsing the key.
-                    } else if self.is_non_matching_string_quote_char(quote, c) {
-                        buffer.push(c);
-
-                    // Space or valid key char - keep parsing the key.
-                    } else if c == ' ' || self.is_key_or_value_char(c, false, Some(quote)) {
-                        buffer.push(c);
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInKey(c)));
-                    }
-                }
-                IniParserState::KeyValueSeparator => {
-                    debug_assert!(buffer.is_empty());
-
-                    // Key-value separator - parse the value (key already finished).
-                    if self.is_key_value_separator_char(c) {
-                        self.state = IniParserState::BeforeValue;
-
-                    // Skip the whitespace between the key and the separator.
-                    } else if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(UnexpectedNewLineInKey));
-                        }
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidKeyValueSeparator(c)));
-                    }
-                }
-                IniParserState::BeforeValue => {
-                    debug_assert!(buffer.is_empty());
-                    // We have at least one key character already parsed.
-                    debug_assert!(!key.is_empty());
-
-                    // Skip the whitespace before the value.
-                    if c.is_whitespace() {
-                        // Unless it's a new line - the value is empty.
-                        if self.is_new_line(c) {
-                            self.add_value_to_config(
-                                config,
-                                // Must succeed.
-                                unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                                "",
-                                false,
-                                skip_section | skip_value,
-                                is_key_unique,
-                            )?;
-                            key.clear();
-
-                            self.state = IniParserState::StartLine;
-                        }
-
-                    // Inline comment (if supported) - the value is empty, skip the rest of the line.
-                    } else if self.is_inline_comment_char(c) {
-                        self.add_value_to_config(
-                            config,
-                            // Must succeed.
-                            unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                            "",
-                            false,
-                            skip_section | skip_value,
-                            is_key_unique,
-                        )?;
-                        key.clear();
-
-                        self.state = IniParserState::SkipLine;
-
-                    // String quote - parse the string value in quotes, expecting the matching quotes.
-                    } else if self.is_string_quote_char(c) {
-                        self.state = IniParserState::QuotedValue(c);
-
-                    // Escaped char (if supported) - parse the escape sequence, start parsing the value.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - start parsing the value.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-
-                                self.state = IniParserState::Value;
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Array start delimiter (if supported) - start parsing the array.
-                    } else if self.is_array_start(c) {
-                        // Must succeed.
-                        let array_key = unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key");
-
-                        Self::add_array_to_config(
-                            config,
-                            array_key,
-                            skip_section | skip_value,
-                            is_key_unique,
-                        );
-
-                        path.push(array_key);
-
-                        self.state = IniParserState::BeforeArrayValue;
-
-                    // Valid value char - start parsing the unquoted value.
-                    } else if self.is_key_or_value_char(c, false, None) {
-                        buffer.push(c);
-
-                        self.state = IniParserState::Value;
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInValue(c)));
-                    }
-                }
-                IniParserState::Value => {
-                    debug_assert!(!buffer.is_empty());
-                    // We have at least one key character already parsed.
-                    debug_assert!(!key.is_empty());
-
-                    // Whitespace - finish the value.
-                    if c.is_whitespace() {
-                        self.add_value_to_config(
-                            config,
-                            // Must succeed.
-                            unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                            &buffer,
-                            false,
-                            skip_section | skip_value,
-                            is_key_unique,
-                        )?;
-                        buffer.clear();
-                        key.clear();
-
-                        // New line - start a new line.
-                        if self.is_new_line(c) {
-                            self.state = IniParserState::StartLine;
-
-                        // Not a new line - skip the rest of the line.
-                        } else {
-                            self.state = IniParserState::SkipLineWhitespaceOrComments;
-                        }
-
-                    // Inline comment (if supported) - finish the value, skip the rest of the line.
-                    } else if self.is_inline_comment_char(c) {
-                        self.add_value_to_config(
-                            config,
-                            // Must succeed.
-                            unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                            &buffer,
-                            false,
-                            skip_section | skip_value,
-                            is_key_unique,
-                        )?;
-                        buffer.clear();
-                        key.clear();
-
-                        self.state = IniParserState::SkipLine;
-
-                    // Escaped char (if supported) - parse the escape sequence.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the value.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Valid value char - keep parsing the value.
-                    } else if self.is_key_or_value_char(c, false, None) {
-                        buffer.push(c);
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInValue(c)));
-                    }
-                }
-                IniParserState::QuotedValue(quote) => {
-                    // We have at least one key character already parsed.
-                    debug_assert!(!key.is_empty());
-
-                    // New line before the closing quotes - error.
-                    if self.is_new_line(c) {
-                        return Err(self.error_offset(UnexpectedNewLineInQuotedValue));
-
-                    // Closing quotes - finish the value (may be empty), skip the rest of the line.
-                    } else if c == quote {
-                        self.add_value_to_config(
-                            config,
-                            // Must succeed.
-                            unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                            &buffer,
-                            true,
-                            skip_section | skip_value,
-                            is_key_unique,
-                        )?;
-                        buffer.clear();
-                        key.clear();
-
-                        self.state = IniParserState::SkipLineWhitespaceOrComments;
-
-                    // Escaped char (if supported) - parse the escape sequence.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the value.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Non-matching quotes - keep parsing the value.
-                    } else if self.is_non_matching_string_quote_char(quote, c) {
-                        buffer.push(c);
-
-                    // Space or valid value char - keep parsing the value.
-                    } else if c == ' ' || self.is_key_or_value_char(c, false, Some(quote)) {
-                        buffer.push(c);
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInValue(c)));
-                    }
-                }
-                IniParserState::BeforeArrayValue => {
-                    debug_assert!(buffer.is_empty());
-                    // We have at least one key character already parsed.
-                    debug_assert!(!key.is_empty());
-                    // We have at least the array key in the path.
-                    debug_assert!(!path.is_empty());
-
-                    // Skip the whitespace before the array value.
-                    if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(UnexpectedNewLineInArray));
-                        }
-
-                    // Array end delimiter - finish the array, skip the rest of the line.
-                    } else if self.is_array_end(c) {
-                        config.end_array(unwrap_unchecked(path.last()));
-
-                        // Pop the array key off the path, reset the array type.
-                        path.pop();
-                        array_type.take();
-
-                        key.clear();
-
-                        self.state = IniParserState::SkipLineWhitespaceOrComments;
-
-                    // String quote - parse the string array value in quotes, expecting the matching quotes.
-                    } else if self.is_string_quote_char(c) {
-                        // Make sure the array is empty or contains strings (is not mixed).
-                        if let Some(array_type) = array_type {
-                            if !array_type.is_compatible(IniValueType::String) {
-                                return Err(self.error(IniErrorKind::MixedArray));
-                            }
-                        }
-
-                        self.state = IniParserState::QuotedArrayValue(c);
-
-                    // Escaped char (if supported) - parse the escape sequence, start parsing the array value.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the value.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-
-                                self.state = IniParserState::ArrayValue;
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Valid value char - start parsing the unquoted array value.
-                    } else if self.is_key_or_value_char(c, false, None) {
-                        buffer.push(c);
-
-                        self.state = IniParserState::ArrayValue;
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInArray(c)));
-                    }
-                }
-                IniParserState::ArrayValue => {
-                    debug_assert!(!buffer.is_empty());
-                    // We have at least one key character already parsed.
-                    debug_assert!(!key.is_empty());
-                    // We have at least the array key in the path.
-                    debug_assert!(!path.is_empty());
-
-                    // Whitespace - finish the current array value,
-                    // parse the array value separator / array end delimiter.
-                    if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(IniErrorKind::UnexpectedNewLineInArray));
-                        }
-
-                        self.add_value_to_array(
-                            config,
-                            &mut array_type,
-                            &buffer,
-                            false,
-                            skip_value | skip_section,
-                        )?;
-
-                        buffer.clear();
-
-                        self.state = IniParserState::AfterArrayValue;
-
-                    // Array value separator - finish the current array value,
-                    // parse the next array value / array end delimiter.
-                    } else if self.is_array_value_separator(c) {
-                        self.add_value_to_array(
-                            config,
-                            &mut array_type,
-                            &buffer,
-                            false,
-                            skip_value | skip_section,
-                        )?;
-
-                        buffer.clear();
-
-                        self.state = IniParserState::BeforeArrayValue;
-
-                    // Array end delimiter - add the value to the array, finish the array, skip the rest of the line.
-                    } else if self.is_array_end(c) {
-                        self.add_value_to_array(
-                            config,
-                            &mut array_type,
-                            &buffer,
-                            false,
-                            skip_value | skip_section,
-                        )?;
-
-                        buffer.clear();
-
-                        // Must succeed.
-                        config.end_array(unwrap_unchecked_msg(path.last(), "empty key"));
-
-                        // Pop the array key off the path, reset the array type.
-                        path.pop();
-                        array_type.take();
-
-                        key.clear();
-
-                        self.state = IniParserState::SkipLineWhitespaceOrComments;
-
-                    // Escaped char (if supported) - parse the escape sequence.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the array value.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Valid value char - keep parsing the array value.
-                    } else if self.is_key_or_value_char(c, false, None) {
-                        buffer.push(c);
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInValue(c)));
-                    }
-                }
-                IniParserState::QuotedArrayValue(quote) => {
-                    // New line before the closing quotes - error.
-                    if self.is_new_line(c) {
-                        return Err(self.error_offset(UnexpectedNewLineInQuotedValue));
-
-                    // Closing quotes - finish the array value (may be empty),
-                    // parse the array value separator / array end delimiter.
-                    } else if c == quote {
-                        self.add_value_to_array(
-                            config,
-                            &mut array_type,
-                            &buffer,
-                            true,
-                            skip_value | skip_section,
-                        )?;
-                        buffer.clear();
-
-                        self.state = IniParserState::AfterArrayValue;
-
-                    // Escaped char (if supported) - parse the escape sequence.
-                    } else if self.is_escape_char(c) {
-                        match self.parse_escape_sequence(false, &mut escape_sequence_buffer)? {
-                            // Parsed an escaped char - keep parsing the array value.
-                            ParseEscapeSequenceResult::EscapedChar(c) => {
-                                buffer.push(c);
-                            }
-                            // Line continuation - keep parsing.
-                            ParseEscapeSequenceResult::LineContinuation => {}
-                        }
-
-                    // Non-matching quotes - keep parsing the array value.
-                    } else if self.is_non_matching_string_quote_char(quote, c) {
-                        buffer.push(c);
-
-                    // Space or valid value char - keep parsing the array value.
-                    } else if c == ' ' || self.is_key_or_value_char(c, false, Some(quote)) {
-                        buffer.push(c);
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInValue(c)));
-                    }
-                }
-                IniParserState::AfterArrayValue => {
-                    // We have at least one key character already parsed.
-                    debug_assert!(!key.is_empty());
-                    // We have at least the array key in the path.
-                    debug_assert!(!path.is_empty());
-
-                    debug_assert!(buffer.is_empty());
-
-                    // Skip whitespace.
-                    if c.is_whitespace() {
-                        // Unless it's a new line.
-                        if self.is_new_line(c) {
-                            return Err(self.error_offset(UnexpectedNewLineInArray));
-                        }
-
-                    // Array value separator - parse the next array value / array end delimiter.
-                    } else if self.is_array_value_separator(c) {
-                        self.state = IniParserState::BeforeArrayValue;
-
-                    // Array end delimiter - finish the array, skip the rest of the line.
-                    } else if self.is_array_end(c) {
-                        // Must succeed.
-                        config.end_array(unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"));
-
-                        key.clear();
-
-                        // Pop the array key off the path, reset the array type.
-                        path.pop();
-                        array_type.take();
-
-                        self.state = IniParserState::SkipLineWhitespaceOrComments;
-
-                    // Else an error.
-                    } else {
-                        return Err(self.error(InvalidCharacterInArray(c)));
-                    }
-                }
-            }
+            fsm_state = fsm_state
+                .process(c, || self.next(), config, &mut persistent_state, &options)
+                .map_err(|(error_kind, offset)| self.error(error_kind, offset))?;
         }
 
-        match self.state {
-            IniParserState::BeforeSection
-            | IniParserState::Section
-            | IniParserState::QuotedSection(_)
-            | IniParserState::AfterSection => {
-                return Err(self.error(UnexpectedEndOfFileInSectionName))
-            }
-            IniParserState::Key
-            | IniParserState::QuotedKey(_)
-            | IniParserState::KeyValueSeparator => {
-                return Err(self.error(UnexpectedEndOfFileBeforeKeyValueSeparator))
-            }
-            IniParserState::QuotedValue(_) => {
-                return Err(self.error(UnexpectedEndOfFileInQuotedString))
-            }
-            // Add the last value if we were parsing it right before EOF.
-            IniParserState::Value | IniParserState::BeforeValue => {
-                // We have at least one key character already parsed.
-                debug_assert!(!key.is_empty());
+        fsm_state
+            .finish(config, &persistent_state, &options)
+            .map_err(|error_kind| self.error(error_kind, false))?;
 
-                self.add_value_to_config(
-                    config,
-                    // Must succeed.
-                    unwrap_unchecked_msg(NonEmptyStr::new(&key), "empty key"),
-                    &buffer,
-                    false,
-                    skip_section | skip_value,
-                    is_key_unique,
-                )?;
-            }
-            IniParserState::BeforeArrayValue
-            | IniParserState::ArrayValue
-            | IniParserState::AfterArrayValue => return Err(self.error(UnexpectedEndOfFileInArray)),
-            IniParserState::QuotedArrayValue(_) => {
-                return Err(self.error(IniErrorKind::UnexpectedEndOfFileInQuotedArrayValue))
-            }
-            IniParserState::StartLine
-            | IniParserState::SkipLine
-            | IniParserState::SkipLineWhitespaceOrComments => {}
-        }
-
-        while let Some(section) = path.last() {
+        while let Some(section) = persistent_state.path.last() {
             // We didn't call `start_section()` if we skipped it, so don't call `end_section`.
-            if !skip_section {
+            if !persistent_state.skip_section {
                 config.end_section(section);
             } else {
-                skip_section = false;
+                persistent_state.skip_section = false;
             }
-            path.pop();
+            persistent_state.path.pop();
         }
 
         Ok(())
@@ -1266,511 +1808,15 @@ impl<'s> IniParser<'s> {
     }
 
     /// Error helper method.
-    fn error<'a>(&self, error: IniErrorKind<'a>) -> IniError<'a> {
-        IniError {
-            line: self.line,
-            column: self.column,
-            error,
+    fn error<'a>(&self, error: IniErrorKind<'a>, offset: bool) -> IniError<'a> {
+        if offset {
+            debug_assert!(self.column > 0);
         }
-    }
-
-    /// Error helper method.
-    fn error_offset<'a>(&self, error: IniErrorKind<'a>) -> IniError<'a> {
-        debug_assert!(self.column > 0);
 
         IniError {
             line: self.line,
-            column: self.column - 1,
+            column: if offset { self.column - 1 } else { self.column },
             error,
-        }
-    }
-
-    /// Is the character a supported comment delimiter?
-    fn is_comment_char(&self, val: char) -> bool {
-        ((val == ';')
-            && self
-                .options
-                .comments
-                .contains(IniCommentDelimiter::Semicolon))
-            || ((val == '#')
-                && self
-                    .options
-                    .comments
-                    .contains(IniCommentDelimiter::NumberSign))
-    }
-
-    /// Are inline comments enabled and is the character a supported comment delimiter?
-    fn is_inline_comment_char(&self, val: char) -> bool {
-        self.options.inline_comments && self.is_comment_char(val)
-    }
-
-    /// Is the character a supported key-value separator?
-    fn is_key_value_separator_char(&self, val: char) -> bool {
-        ((val == '=')
-            && self
-                .options
-                .key_value_separator
-                .contains(IniKeyValueSeparator::Equals))
-            || ((val == ':')
-                && self
-                    .options
-                    .key_value_separator
-                    .contains(IniKeyValueSeparator::Colon))
-    }
-
-    /// Is the character a supported string quote?
-    fn is_string_quote_char(&self, val: char) -> bool {
-        ((val == '"') && self.options.string_quotes.contains(IniStringQuote::Double))
-            || ((val == '\'') && self.options.string_quotes.contains(IniStringQuote::Single))
-    }
-
-    /// Is the character a supported string quote which does not match `quote`?
-    /// NOTE - only ever returns `true` if both single and double quotes are supported.
-    fn is_non_matching_string_quote_char(&self, quote: char, other: char) -> bool {
-        self.is_string_quote_char(other) && (other != quote)
-    }
-
-    /// Is the character a supported escape character?
-    fn is_escape_char(&self, val: char) -> bool {
-        self.options.escape && (val == '\\')
-    }
-
-    /// Is the character a section start delimiter?
-    fn is_section_start(&self, val: char) -> bool {
-        val == '['
-    }
-
-    /// Is the character a section end delimiter?
-    fn is_section_end(&self, val: char) -> bool {
-        val == ']'
-    }
-
-    fn nested_sections(&self) -> bool {
-        self.options.nested_section_depth > 1
-    }
-
-    /// Is the character a nested section separator?
-    fn is_nested_section_separator(&self, val: char) -> bool {
-        self.nested_sections() && val == '/'
-    }
-
-    /// Is the character an array start delimiter?
-    fn is_array_start(&self, val: char) -> bool {
-        self.options.arrays && (val == '[')
-    }
-
-    /// Is the character an array end delimiter?
-    fn is_array_end(&self, val: char) -> bool {
-        debug_assert!(self.options.arrays);
-        val == ']'
-    }
-
-    /// Is the character an array value separator?
-    fn is_array_value_separator(&self, val: char) -> bool {
-        val == ','
-    }
-
-    /// Is the character a recognized new line character?
-    fn is_new_line(&self, val: char) -> bool {
-        matches!(val, '\n' | '\r')
-    }
-
-    /// Reads up to 4 following characters and tries to parse them as an escape sequence.
-    /// `in_unquoted_section` is `true` if we are parsing an unquoted ini section.
-    fn parse_escape_sequence<'a>(
-        &mut self,
-        in_unquoted_section: bool,
-        escape_sequence_buffer: &mut String,
-    ) -> Result<ParseEscapeSequenceResult, IniError<'a>> {
-        use IniErrorKind::*;
-        use ParseEscapeSequenceResult::*;
-
-        debug_assert!(self.options.escape);
-
-        match self.next() {
-            None => Err(self.error(UnexpectedEndOfFileInEscapeSequence)),
-
-            // Backslash followed by a new line is a line continuation, if supported.
-            Some('\n') | Some('\r') => {
-                if self.options.line_continuation {
-                    Ok(LineContinuation)
-                } else {
-                    Err(self.error_offset(UnexpectedNewLineInEscapeSequence))
-                }
-            }
-
-            // Standard escaped characters.
-            Some('\\') => Ok(EscapedChar('\\')),
-            Some('\'') => Ok(EscapedChar('\'')),
-            Some('"') => Ok(EscapedChar('"')),
-            Some('0') => Ok(EscapedChar('\0')),
-            Some('a') => Ok(EscapedChar('\x07')),
-            Some('b') => Ok(EscapedChar('\x08')),
-            Some('t') => Ok(EscapedChar('\t')),
-            Some('r') => Ok(EscapedChar('\r')),
-            Some('n') => Ok(EscapedChar('\n')),
-            Some('v') => Ok(EscapedChar('\x0b')),
-            Some('f') => Ok(EscapedChar('\x0c')),
-
-            // Escaped space.
-            Some(' ') => Ok(EscapedChar(' ')),
-
-            // Escaped `.ini` special characters, disallowed otherwise.
-            Some('[') => Ok(EscapedChar('[')),
-            Some(']') => Ok(EscapedChar(']')),
-            Some(';') => Ok(EscapedChar(';')),
-            Some('#') => Ok(EscapedChar('#')),
-            Some('=') => Ok(EscapedChar('=')),
-            Some(':') => Ok(EscapedChar(':')),
-
-            // `.ini` nested section separator, if supported, must be escaped in unquoted section names.
-            // If nested sections are unsupported, or if in a key, value or a quoted section,
-            // it's just a normal character and must not be escaped.
-            Some('/') if (self.nested_sections() && in_unquoted_section) => Ok(EscapedChar('/')),
-
-            // 2 hexadecimal ASCII values.
-            Some('x') => {
-                escape_sequence_buffer.clear();
-
-                for _ in 0..2 {
-                    match self.next() {
-                        None => return Err(self.error(UnexpectedEndOfFileInASCIIEscapeSequence)),
-                        Some('\n') | Some('\r') => {
-                            return Err(self.error_offset(UnexpectedNewLineInASCIIEscapeSequence))
-                        }
-                        Some(c) => escape_sequence_buffer.push(c),
-                    }
-                }
-
-                Ok(EscapedChar(
-                    std::char::from_u32(
-                        u32::from_str_radix(&escape_sequence_buffer, 16)
-                            .map_err(|_| self.error(InvalidASCIIEscapeSequence))?,
-                    )
-                    .ok_or(self.error(InvalidASCIIEscapeSequence))?,
-                ))
-            }
-
-            // 4 hexadecimal Unicode values.
-            Some('u') => {
-                escape_sequence_buffer.clear();
-
-                for _ in 0..4 {
-                    match self.next() {
-                        None => return Err(self.error(UnexpectedEndOfFileInUnicodeEscapeSequence)),
-                        Some('\n') | Some('\r') => {
-                            return Err(self.error_offset(UnexpectedNewLineInUnicodeEscapeSequence))
-                        }
-                        Some(c) => escape_sequence_buffer.push(c),
-                    }
-                }
-
-                Ok(EscapedChar(
-                    std::char::from_u32(
-                        u32::from_str_radix(&escape_sequence_buffer, 16)
-                            .map_err(|_| self.error(InvalidUnicodeEscapeSequence))?,
-                    )
-                    .ok_or(self.error(InvalidUnicodeEscapeSequence))?,
-                ))
-            }
-
-            Some(c) => Err(self.error(InvalidEscapeCharacter(c))),
-        }
-    }
-
-    /// Returns `Ok(true)` if we need to skip the current section;
-    /// else returns `Ok(false)`.
-    fn start_section<'a, C: IniConfig>(
-        &self,
-        config: &mut C,
-        section: NonEmptyStr<'_>,
-        path: &IniPath,
-    ) -> Result<bool, IniError<'a>> {
-        let key_already_exists = config.contains_key(section);
-
-        // Section already exists.
-        if let Ok(true) = key_already_exists {
-            match self.options.duplicate_sections {
-                // We don't support duplicate sections - error.
-                IniDuplicateSections::Forbid => {
-                    let mut path = path.to_config_path();
-                    path.0.push(section.as_ref().to_owned().into());
-
-                    return Err(self.error(IniErrorKind::DuplicateSection(path)));
-                }
-                // Skip this section.
-                IniDuplicateSections::First => Ok(true),
-                // Overwrite the previous instance of the section with the new one.
-                IniDuplicateSections::Last => {
-                    config.start_section(section, true);
-                    Ok(false)
-                }
-                // Just add the new key/value pairs to the existing section.
-                IniDuplicateSections::Merge => {
-                    config.start_section(section, false);
-                    Ok(false)
-                }
-            }
-
-        // Section does not exist in the config.
-        } else {
-            // Key already exists.
-            if let Ok(false) = key_already_exists {
-                match self.options.duplicate_keys {
-                    // We don't support duplicate keys - error.
-                    IniDuplicateKeys::Forbid => {
-                        let mut path = path.to_config_path();
-                        path.0.push(section.as_ref().to_owned().into());
-
-                        return Err(self.error_offset(IniErrorKind::DuplicateKey(
-                            section.as_ref().to_owned().into(),
-                        )));
-                    }
-                    // Skip this section.
-                    IniDuplicateKeys::First => Ok(true),
-                    // Overwrite the previous value with the new one.
-                    IniDuplicateKeys::Last => {
-                        config.start_section(section, true);
-                        Ok(false)
-                    }
-                }
-            // Key does not exist - add the section.
-            } else {
-                config.start_section(section, false);
-                Ok(false)
-            }
-        }
-    }
-
-    /// Parses a string `value` and adds it to the `config`'s current section at `key`.
-    /// If `quoted` is `true`, `value` is always treated as a string,
-    /// else it is first interpreted as a bool / integer / float.
-    /// Empty `value`'s are treated as strings.
-    fn add_value_to_config<'a, C: IniConfig>(
-        &self,
-        config: &mut C,
-        key: NonEmptyStr<'_>,
-        value: &str,
-        quoted: bool,
-        skip: bool,
-        is_key_unique: bool,
-    ) -> Result<(), IniError<'a>> {
-        if !skip {
-            config.add_value(key, self.parse_value_string(value, quoted)?, !is_key_unique);
-        }
-
-        Ok(())
-    }
-
-    /// Adds an empty array to the `config`'s current section at `key`.
-    fn add_array_to_config<C: IniConfig>(
-        config: &mut C,
-        key: NonEmptyStr<'_>,
-        skip: bool,
-        is_key_unique: bool,
-    ) {
-        if !skip {
-            config.start_array(key, !is_key_unique);
-        }
-    }
-
-    /// Parses a string `value` and adds it to the `config`'s current array.
-    /// If `quoted` is `true`, `value` is always treated as a string,
-    /// else it is first interpreted as a bool / integer / float.
-    /// Empty `value`'s are treated as strings.
-    fn add_value_to_array<'a, C: IniConfig>(
-        &self,
-        config: &mut C,
-        array_type: &mut Option<IniValueType>,
-        value: &'s str,
-        quoted: bool,
-        skip: bool,
-    ) -> Result<(), IniError<'a>> {
-        if skip {
-            return Ok(());
-        }
-
-        let value = self.parse_value_string(value, quoted)?;
-        let value_type = value.get_ini_type();
-
-        // Make sure the array is not mixed.
-        if let Some(array_type) = array_type {
-            if !array_type.is_compatible(value_type) {
-                return Err(self.error_offset(IniErrorKind::MixedArray));
-            }
-        } else {
-            array_type.replace(value_type);
-        }
-
-        config.add_array_value(value);
-
-        Ok(())
-    }
-
-    fn try_parse_integer(value: &str) -> Option<i64> {
-        if value.is_empty() {
-            None
-        } else {
-            // Explicit sign.
-            let (sign, value) = {
-                if value.starts_with("+") {
-                    (1, &value[1..])
-                } else if value.starts_with("-") {
-                    (-1, &value[1..])
-                } else {
-                    (1, value)
-                }
-            };
-
-            // Radix.
-            let (radix, value) = {
-                // Hexadecimal.
-                if let Some(value) = value.strip_prefix("0x") {
-                    (16, value)
-                // Octal.
-                } else if let Some(value) = value.strip_prefix("0o") {
-                    (8, value)
-                // Else assume decimal.
-                } else {
-                    (10, value)
-                }
-            };
-
-            i64::from_str_radix(value, radix).ok().map(|int| sign * int)
-        }
-    }
-
-    /// Parses a string `value`.
-    /// If `quoted` is `true`, `value` is always treated as a string,
-    /// else it is first interpreted as a bool / integer / float.
-    /// Empty `value`'s are treated as strings.
-    fn parse_value_string<'a, 'v>(
-        &self,
-        value: &'v str,
-        quoted: bool,
-    ) -> Result<IniValue<&'v str>, IniError<'a>> {
-        use IniErrorKind::*;
-        use IniValue::*;
-
-        // Empty and quoted values are treated as strings.
-        let value = if value.is_empty() || quoted {
-            String(value)
-
-        // Check if it's a bool.
-        } else if value == "true" {
-            Bool(true)
-        } else if value == "false" {
-            Bool(false)
-
-        // Check if it's an integer.
-        } else if let Some(value) = { Self::try_parse_integer(value) } {
-            I64(value)
-
-        // Else check if it's a float.
-        } else if let Ok(value) = value.parse::<f64>() {
-            F64(value)
-
-        // Else it's a string.
-        } else {
-            // Unless we don't allow unquoted strings.
-            if !self.options.unquoted_strings {
-                return Err(self.error(UnquotedString));
-            }
-
-            String(value)
-        };
-
-        Ok(value)
-    }
-
-    /// Sets `skip_value` to `true` if we need to skip the current value;
-    /// sets `is_key_unique` to `true` if the key is not contained in `config`'s current section.
-    fn check_is_key_duplicate<'a, 'k, C: IniConfig>(
-        &self,
-        config: &C,
-        key: NonEmptyStr<'k>,
-        skip_section: bool,
-        skip_value: &mut bool,
-        is_key_unique: &mut bool,
-    ) -> Result<(), IniError<'a>> {
-        use IniErrorKind::*;
-
-        if skip_section {
-            *skip_value = true;
-            *is_key_unique = false;
-
-            return Ok(());
-        }
-
-        let is_unique = config.contains_key(key).is_err();
-
-        match self.options.duplicate_keys {
-            IniDuplicateKeys::Forbid => {
-                if is_unique {
-                    *skip_value = false;
-                    *is_key_unique = true;
-
-                    Ok(())
-                } else {
-                    Err(self.error_offset(DuplicateKey(key.as_ref().to_string().into())))
-                }
-            }
-            // If `is_unique == true`, it's the first key and we must process it -> return `false` (don't skip).
-            IniDuplicateKeys::First => {
-                *skip_value = !is_unique;
-                *is_key_unique = is_unique;
-
-                Ok(())
-            }
-            // Never skip keys when we're interested in the last one.
-            IniDuplicateKeys::Last => {
-                *skip_value = false;
-                *is_key_unique = is_unique;
-
-                Ok(())
-            }
-        }
-    }
-
-    fn is_key_or_value_char(&self, val: char, in_section: bool, quote: Option<char>) -> bool {
-        Self::is_key_or_value_char_impl(
-            val,
-            self.options.escape,
-            self.nested_sections(),
-            in_section,
-            quote,
-        )
-    }
-
-    /// Returns `true` if the `val` character is a valid key/value/section name character and does not have to be escaped.
-    /// Otherwise, `val` must be escaped (preceded by a backslash) when used in keys/values/section names.
-    fn is_key_or_value_char_impl(
-        val: char,
-        escape: bool,
-        nested_sections: bool,
-        in_section: bool,
-        quote: Option<char>,
-    ) -> bool {
-        if let Some(quote) = quote {
-            debug_assert!(quote == '"' || quote == '\'', "invalid quote character");
-        }
-
-        match val {
-            // Escape char (backslash) must be escaped if escape sequences are supported.
-            '\\' if escape => false,
-
-            // Non-matching quotes don't need to be escaped in quoted strings.
-            '"' => quote == Some('\''),
-            '\'' => quote == Some('"'),
-
-            // Space and special `.ini` characters in key/value/section strings
-            // (except string quotes, handled above) don't need to be escaped in quoted strings.
-            ' ' | '[' | ']' | '=' | ':' | ';' | '#' => quote.is_some(),
-
-            // Nested section separators, if supported, must be escaped in unquoted section names.
-            '/' if (nested_sections && in_section) => quote.is_some(),
-
-            val => (val.is_alphanumeric() || val.is_ascii_punctuation()),
         }
     }
 }
@@ -1890,167 +1936,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_key_or_value_char() {
-        // Alphanumeric characters are always valid key/value chars.
+    fn try_parse_integer_test() {
+        assert_eq!(try_parse_integer("7").unwrap(), 7);
+        assert_eq!(try_parse_integer("+7").unwrap(), 7);
+        assert_eq!(try_parse_integer("-7").unwrap(), -7);
 
-        // Digits.
-        for c in (b'0'..b'9').map(|c| char::from(c)) {
-            assert!(IniParser::is_key_or_value_char_impl(
-                c, /* escape */ false, /* nested_sections */ false,
-                /* in_section */ false, /* quote */ None
-            ));
-        }
+        assert_eq!(try_parse_integer("0x17").unwrap(), 23);
+        assert_eq!(try_parse_integer("+0x17").unwrap(), 23);
+        assert_eq!(try_parse_integer("-0x17").unwrap(), -23);
 
-        // ASCII chars.
-        for c in (b'a'..b'z').map(|c| char::from(c)) {
-            assert!(IniParser::is_key_or_value_char_impl(
-                c, /* escape */ false, /* nested_sections */ false,
-                /* in_section */ false, /* quote */ None
-            ));
-        }
+        assert_eq!(try_parse_integer("0o17").unwrap(), 15);
+        assert_eq!(try_parse_integer("+0o17").unwrap(), 15);
+        assert_eq!(try_parse_integer("-0o17").unwrap(), -15);
 
-        for c in (b'A'..b'Z').map(|c| char::from(c)) {
-            assert!(IniParser::is_key_or_value_char_impl(
-                c, /* escape */ false, /* nested_sections */ false,
-                /* in_section */ false, /* quote */ None
-            ));
-        }
+        assert!(try_parse_integer("-").is_none());
+        assert!(try_parse_integer("+").is_none());
+        assert!(try_parse_integer("0x").is_none());
+        assert!(try_parse_integer("+0x").is_none());
+        assert!(try_parse_integer("-0x").is_none());
+        assert!(try_parse_integer("0o").is_none());
+        assert!(try_parse_integer("+0o").is_none());
+        assert!(try_parse_integer("-0o").is_none());
 
-        // Other alphabetic chars.
-        assert!(IniParser::is_key_or_value_char_impl(
-            'á', /* escape */ false, /* nested_sections */ false,
-            /* in_section */ false, /* quote */ None
-        ));
-        assert!(IniParser::is_key_or_value_char_impl(
-            '愛', /* escape */ false, /* nested_sections */ false,
-            /* in_section */ false, /* quote */ None
-        ));
-
-        // Double quotes are only valid when single-quoted.
-        assert!(!IniParser::is_key_or_value_char_impl(
-            '"', /* escape */ false, /* nested_sections */ false,
-            /* in_section */ false, /* quote */ None
-        ));
-        assert!(IniParser::is_key_or_value_char_impl(
-            '"',
-            /* escape */ false,
-            /* nested_sections */ false,
-            /* in_section */ false,
-            /* quote */ Some('\'')
-        ));
-
-        // Single quotes are only valid when double-quoted.
-        assert!(!IniParser::is_key_or_value_char_impl(
-            '\'', /* escape */ false, /* nested_sections */ false,
-            /* in_section */ false, /* quote */ None
-        ));
-        assert!(IniParser::is_key_or_value_char_impl(
-            '\'',
-            /* escape */ false,
-            /* nested_sections */ false,
-            /* in_section */ false,
-            /* quote */ Some('"')
-        ));
-
-        // .ini special chars are only valid when quoted.
-        let assert_ini_char = |c| {
-            assert!(!IniParser::is_key_or_value_char_impl(
-                c, /* escape */ false, /* nested_sections */ false,
-                /* in_section */ false, None
-            ));
-            assert!(IniParser::is_key_or_value_char_impl(
-                c,
-                /* escape */ false,
-                /* nested_sections */ false,
-                /* in_section */ false,
-                /* quote */ Some('"')
-            ));
-            assert!(IniParser::is_key_or_value_char_impl(
-                c,
-                /* escape */ false,
-                /* nested_sections */ false,
-                /* in_section */ false,
-                /* quote */ Some('\'')
-            ));
-        };
-
-        assert_ini_char(' ');
-        assert_ini_char('[');
-        assert_ini_char(']');
-        assert_ini_char('=');
-        assert_ini_char(':');
-        assert_ini_char(';');
-        assert_ini_char('#');
-
-        // `/` is a valid key/value char when not using nested sections.
-        assert!(IniParser::is_key_or_value_char_impl(
-            '/', /* escape */ false, /* nested_sections */ false,
-            /* in_section */ false, /* quote */ None
-        ));
-
-        // Valid outside of section names ...
-        assert!(IniParser::is_key_or_value_char_impl(
-            '/', /* escape */ false, /* nested_sections */ true,
-            /* in_section */ false, /* quote */ None
-        ));
-
-        // ... but invalid in unquoted section names ...
-        assert!(!IniParser::is_key_or_value_char_impl(
-            '/', /* escape */ false, /* nested_sections */ true,
-            /* in_section */ true, /* quote */ None
-        ));
-
-        // ... and valid in quoted section names.
-        assert!(IniParser::is_key_or_value_char_impl(
-            '/',
-            /* escape */ false,
-            /* nested_sections */ true,
-            /* in_section */ true,
-            /* quote */ Some('"')
-        ));
-        assert!(IniParser::is_key_or_value_char_impl(
-            '/',
-            /* escape */ false,
-            /* nested_sections */ true,
-            /* in_section */ true,
-            /* quote */ Some('\'')
-        ));
-    }
-
-    #[test]
-    fn try_parse_integer() {
-        assert_eq!(IniParser::try_parse_integer("7").unwrap(), 7);
-        assert_eq!(IniParser::try_parse_integer("+7").unwrap(), 7);
-        assert_eq!(IniParser::try_parse_integer("-7").unwrap(), -7);
-
-        assert_eq!(IniParser::try_parse_integer("0x17").unwrap(), 23);
-        assert_eq!(IniParser::try_parse_integer("+0x17").unwrap(), 23);
-        assert_eq!(IniParser::try_parse_integer("-0x17").unwrap(), -23);
-
-        assert_eq!(IniParser::try_parse_integer("0o17").unwrap(), 15);
-        assert_eq!(IniParser::try_parse_integer("+0o17").unwrap(), 15);
-        assert_eq!(IniParser::try_parse_integer("-0o17").unwrap(), -15);
-
-        assert!(IniParser::try_parse_integer("-").is_none());
-        assert!(IniParser::try_parse_integer("+").is_none());
-        assert!(IniParser::try_parse_integer("0x").is_none());
-        assert!(IniParser::try_parse_integer("+0x").is_none());
-        assert!(IniParser::try_parse_integer("-0x").is_none());
-        assert!(IniParser::try_parse_integer("0o").is_none());
-        assert!(IniParser::try_parse_integer("+0o").is_none());
-        assert!(IniParser::try_parse_integer("-0o").is_none());
-
-        assert!(IniParser::try_parse_integer("+7.").is_none());
-        assert!(IniParser::try_parse_integer("-7.").is_none());
-        assert!(IniParser::try_parse_integer("7.").is_none());
-        assert!(IniParser::try_parse_integer(".0").is_none());
-        assert!(IniParser::try_parse_integer("+.0").is_none());
-        assert!(IniParser::try_parse_integer("-.0").is_none());
-        assert!(IniParser::try_parse_integer("7e2").is_none());
-        assert!(IniParser::try_parse_integer("7e+2").is_none());
-        assert!(IniParser::try_parse_integer("7e-2").is_none());
-        assert!(IniParser::try_parse_integer("7.0e2").is_none());
-        assert!(IniParser::try_parse_integer("7.0e+2").is_none());
-        assert!(IniParser::try_parse_integer("7.0e-2").is_none());
+        assert!(try_parse_integer("+7.").is_none());
+        assert!(try_parse_integer("-7.").is_none());
+        assert!(try_parse_integer("7.").is_none());
+        assert!(try_parse_integer(".0").is_none());
+        assert!(try_parse_integer("+.0").is_none());
+        assert!(try_parse_integer("-.0").is_none());
+        assert!(try_parse_integer("7e2").is_none());
+        assert!(try_parse_integer("7e+2").is_none());
+        assert!(try_parse_integer("7e-2").is_none());
+        assert!(try_parse_integer("7.0e2").is_none());
+        assert!(try_parse_integer("7.0e+2").is_none());
+        assert!(try_parse_integer("7.0e-2").is_none());
     }
 }
