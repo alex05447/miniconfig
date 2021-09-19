@@ -170,6 +170,12 @@ impl Default for IniOptions {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum StringQuote {
+    Single,
+    Double,
+}
+
 impl IniOptions {
     /// Is the character a supported comment delimiter?
     pub(super) fn is_comment_char(&self, val: char) -> bool {
@@ -195,15 +201,33 @@ impl IniOptions {
     }
 
     /// Is the character a supported string quote?
-    pub(super) fn is_string_quote_char(&self, val: char) -> bool {
-        ((val == '"') && self.string_quotes.contains(IniStringQuote::Double))
-            || ((val == '\'') && self.string_quotes.contains(IniStringQuote::Single))
+    pub(super) fn is_string_quote_char(&self, val: char) -> Option<StringQuote> {
+        if (val == '"') && self.string_quotes.contains(IniStringQuote::Double) {
+            Some(StringQuote::Double)
+        } else if (val == '\'') && self.string_quotes.contains(IniStringQuote::Single) {
+            Some(StringQuote::Single)
+        } else {
+            None
+        }
+    }
+
+    /// Is the character a supported string quote which matches `quote`?
+    pub(super) fn is_matching_string_quote_char(&self, quote: StringQuote, other: char) -> bool {
+        self.is_string_quote_char(other) == Some(quote)
     }
 
     /// Is the character a supported string quote which does not match `quote`?
     /// NOTE - only ever returns `true` if both single and double quotes are supported.
-    pub(super) fn is_non_matching_string_quote_char(&self, quote: char, other: char) -> bool {
-        self.is_string_quote_char(other) && (other != quote)
+    pub(super) fn is_non_matching_string_quote_char(
+        &self,
+        quote: StringQuote,
+        other: char,
+    ) -> bool {
+        if let Some(other) = self.is_string_quote_char(other) {
+            other != quote
+        } else {
+            false
+        }
     }
 
     /// Is the character a supported escape character?
@@ -251,35 +275,33 @@ impl IniOptions {
         matches!(val, '\n' | '\r')
     }
 
+    /// Returns `true` if the `c` character is a valid key/value/section name character and does not have to be escaped.
+    /// Otherwise, `c` must be escaped (preceded by a backslash) when used in keys/values/section names.
     pub(super) fn is_key_or_value_char(
         &self,
-        val: char,
+        c: char,
         in_section: bool,
-        quote: Option<char>,
+        quote: Option<StringQuote>,
     ) -> bool {
-        Self::is_key_or_value_char_impl(val, self.escape, self.nested_sections(), in_section, quote)
+        Self::is_key_or_value_char_impl(c, self.escape, self.nested_sections(), in_section, quote)
     }
 
-    /// Returns `true` if the `val` character is a valid key/value/section name character and does not have to be escaped.
-    /// Otherwise, `val` must be escaped (preceded by a backslash) when used in keys/values/section names.
+    /// Returns `true` if the `c` character is a valid key/value/section name character and does not have to be escaped.
+    /// Otherwise, `c` must be escaped (preceded by a backslash) when used in keys/values/section names.
     pub(super) fn is_key_or_value_char_impl(
-        val: char,
+        c: char,
         escape: bool,
         nested_sections: bool,
         in_section: bool,
-        quote: Option<char>,
+        quote: Option<StringQuote>,
     ) -> bool {
-        if let Some(quote) = quote {
-            debug_assert!(quote == '"' || quote == '\'', "invalid quote character");
-        }
-
-        match val {
+        match c {
             // Escape char (backslash) must be escaped if escape sequences are supported.
             '\\' if escape => false,
 
             // Non-matching quotes don't need to be escaped in quoted strings.
-            '"' => quote == Some('\''),
-            '\'' => quote == Some('"'),
+            '"' => quote == Some(StringQuote::Single),
+            '\'' => quote == Some(StringQuote::Double),
 
             // Space and special `.ini` characters in key/value/section strings
             // (except string quotes, handled above) don't need to be escaped in quoted strings.
@@ -377,7 +399,7 @@ mod tests {
             /* escape */ false,
             /* nested_sections */ false,
             /* in_section */ false,
-            /* quote */ Some('\'')
+            /* quote */ Some(StringQuote::Single)
         ));
 
         // Single quotes are only valid when double-quoted.
@@ -390,7 +412,7 @@ mod tests {
             /* escape */ false,
             /* nested_sections */ false,
             /* in_section */ false,
-            /* quote */ Some('"')
+            /* quote */ Some(StringQuote::Double)
         ));
 
         // .ini special chars are only valid when quoted.
@@ -404,14 +426,14 @@ mod tests {
                 /* escape */ false,
                 /* nested_sections */ false,
                 /* in_section */ false,
-                /* quote */ Some('"')
+                /* quote */ Some(StringQuote::Double)
             ));
             assert!(IniOptions::is_key_or_value_char_impl(
                 c,
                 /* escape */ false,
                 /* nested_sections */ false,
                 /* in_section */ false,
-                /* quote */ Some('\'')
+                /* quote */ Some(StringQuote::Single)
             ));
         };
 
@@ -447,14 +469,14 @@ mod tests {
             /* escape */ false,
             /* nested_sections */ true,
             /* in_section */ true,
-            /* quote */ Some('"')
+            /* quote */ Some(StringQuote::Double)
         ));
         assert!(IniOptions::is_key_or_value_char_impl(
             '/',
             /* escape */ false,
             /* nested_sections */ true,
             /* in_section */ true,
-            /* quote */ Some('\'')
+            /* quote */ Some(StringQuote::Single)
         ));
     }
 }

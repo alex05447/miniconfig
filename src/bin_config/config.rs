@@ -15,7 +15,7 @@ use {
 #[cfg(feature = "dyn")]
 use std::ops::DerefMut;
 
-/// Represents an immutable config with a root hashmap [`table`].
+/// Represents an immutable config with a root [`table`].
 ///
 /// [`table`]: struct.BinTable.html
 pub struct BinConfig(Box<[u8]>);
@@ -56,6 +56,7 @@ impl BinConfig {
     /// It's up to the user to ensure that `data` is a valid binary config data blob,
     /// e.g. returned by the binary config [`writer`].
     ///
+    /// [`new`]: #method.new
     /// [`writer`]: struct.BinConfigWriter.html
     pub unsafe fn new_unchecked(data: Box<[u8]>) -> Self {
         Self(data)
@@ -456,12 +457,14 @@ impl BinConfig {
         use BinConfigError::*;
 
         // Make sure the value type is valid.
-        let value_type = value.try_value_type().ok_or(InvalidBinaryConfigData)?;
+        let value_type = value
+            .try_value_type()
+            .ok_or_else(|| InvalidBinaryConfigData)?;
 
         match value_type {
             // Only `0` and `1` are valid for `bool` values.
             ValueType::Bool => {
-                value.try_bool().ok_or(InvalidBinaryConfigData)?;
+                value.try_bool().ok_or_else(|| InvalidBinaryConfigData)?;
             }
             ValueType::I64 | ValueType::F64 => {}
             ValueType::String => {
@@ -550,28 +553,24 @@ impl BinConfig {
     }
 
     #[cfg(feature = "dyn")]
-    fn value_to_dyn_table(
-        key: NonEmptyStr<'_>,
-        value: BinConfigValue<'_>,
-        dyn_table: &mut DynTable,
-    ) {
+    fn value_to_dyn_table(key: &NonEmptyStr, value: BinConfigValue<'_>, dyn_table: &mut DynTable) {
         use crate::Value::*;
 
         // Must succeed - we are only adding values to the dyn table.
         if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set_impl(key, Some(Bool(value))),
-            I64(value) => dyn_table.set_impl(key, Some(I64(value))),
-            F64(value) => dyn_table.set_impl(key, Some(F64(value))),
-            String(value) => dyn_table.set_impl(key, Some(String(value.into()))),
+            Bool(value) => dyn_table.set_impl(&key, Some(Bool(value))),
+            I64(value) => dyn_table.set_impl(&key, Some(I64(value))),
+            F64(value) => dyn_table.set_impl(&key, Some(F64(value))),
+            String(value) => dyn_table.set_impl(&key, Some(String(value.into()))),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set_impl(key, Some(Array(array)))
+                dyn_table.set_impl(&key, Some(Array(array)))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set_impl(key, Some(Table(table)))
+                dyn_table.set_impl(&key, Some(Table(table)))
             }
         } {
             debug_assert!(
@@ -700,7 +699,7 @@ impl BinConfigHeader {
 mod tests {
     #![allow(non_snake_case)]
 
-    use crate::*;
+    use {crate::*, ministr_macro::nestr};
 
     #[test]
     fn GetPathError_EmptyKey() {

@@ -8,7 +8,7 @@ use {
     },
 };
 
-/// Represents an immutable map of [`Value`]'s with (non-empty) string keys.
+/// Represents an immutable hash map / table of [`Value`]'s with (non-empty) string keys.
 ///
 /// [`Value`]: enum.Value.html
 pub struct BinTable<'t>(pub(super) BinArrayOrTable<'t>);
@@ -111,7 +111,7 @@ impl<'t> BinTable<'t> {
     pub fn get_bool<'a>(&self, key: TableKey<'a>) -> Result<bool, TableError> {
         let val = self.get(key)?;
         val.bool()
-            .ok_or(TableError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -147,7 +147,7 @@ impl<'t> BinTable<'t> {
     {
         let val = self.get_path(path)?;
         val.bool()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -162,7 +162,7 @@ impl<'t> BinTable<'t> {
     pub fn get_i64<'a>(&self, key: TableKey<'a>) -> Result<i64, TableError> {
         let val = self.get(key)?;
         val.i64()
-            .ok_or(TableError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -200,7 +200,7 @@ impl<'t> BinTable<'t> {
     {
         let val = self.get_path(path)?;
         val.i64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -215,7 +215,7 @@ impl<'t> BinTable<'t> {
     pub fn get_f64<'a>(&self, key: TableKey<'a>) -> Result<f64, TableError> {
         let val = self.get(key)?;
         val.f64()
-            .ok_or(TableError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -253,7 +253,7 @@ impl<'t> BinTable<'t> {
     {
         let val = self.get_path(path)?;
         val.f64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -267,7 +267,8 @@ impl<'t> BinTable<'t> {
     pub fn get_string<'a>(&self, key: TableKey<'a>) -> Result<&'t str, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.string().ok_or(TableError::IncorrectValueType(val_type))
+        val.string()
+            .ok_or_else(|| TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -304,7 +305,7 @@ impl<'t> BinTable<'t> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -318,7 +319,8 @@ impl<'t> BinTable<'t> {
     pub fn get_array<'a>(&self, key: TableKey<'a>) -> Result<BinArray<'t>, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.array().ok_or(TableError::IncorrectValueType(val_type))
+        val.array()
+            .ok_or_else(|| TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -354,7 +356,7 @@ impl<'t> BinTable<'t> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -367,7 +369,8 @@ impl<'t> BinTable<'t> {
     pub fn get_table<'a>(&self, key: TableKey<'a>) -> Result<BinTable<'t>, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.table().ok_or(TableError::IncorrectValueType(val_type))
+        val.table()
+            .ok_or_else(|| TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -402,14 +405,14 @@ impl<'t> BinTable<'t> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an iterator over (`key`, [`value`]) pairs of the [`table`], in unspecified order.
     ///
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
-    pub fn iter<'i>(&'i self) -> impl Iterator<Item = (NonEmptyStr<'t>, BinConfigValue<'t>)> + 'i {
+    pub fn iter<'i>(&'i self) -> impl Iterator<Item = (&'t NonEmptyStr, BinConfigValue<'t>)> + 'i {
         BinTableIter::new(self)
     }
 
@@ -450,7 +453,7 @@ impl<'t> BinTable<'t> {
                     None
                 }
             })
-            .ok_or(KeyDoesNotExist)
+            .ok_or_else(|| KeyDoesNotExist)
     }
 
     fn get_value(&self, value: BinConfigUnpackedValue) -> BinConfigValue<'t> {
@@ -609,7 +612,7 @@ impl<'i, 't> BinTableIter<'i, 't> {
 }
 
 impl<'i, 't> Iterator for BinTableIter<'i, 't> {
-    type Item = (NonEmptyStr<'t>, BinConfigValue<'t>);
+    type Item = (&'t NonEmptyStr, BinConfigValue<'t>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index;
@@ -668,7 +671,7 @@ impl<'t> Display for BinTable<'t> {
 mod tests {
     #![allow(non_snake_case)]
 
-    use crate::*;
+    use {crate::*, ministr_macro::nestr};
 
     #[test]
     fn BinTableError_EmptyKey() {

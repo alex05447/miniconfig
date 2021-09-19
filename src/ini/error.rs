@@ -8,7 +8,7 @@ use {
 
 /// An actual concrete error kind returned by the [`.ini parser`](struct.IniParser.html).
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum IniErrorKind<'a> {
+pub enum IniErrorKind {
     /// Invalid character at the start of the line -
     /// expected a key, section name (if supported), or line comment (if supported).
     /// Contains the invalid character.
@@ -25,15 +25,15 @@ pub enum IniErrorKind<'a> {
     UnexpectedEndOfFileInSectionName,
     /// Empty section names are invalid.
     /// Contains the (maybe empty) path to the empty section.
-    EmptySectionName(ConfigPath<'a>),
-    /// Invalid (missing) parent section name.
+    EmptySectionName(IniConfigPath),
+    /// Invalid (missing or not a section) parent section name.
     /// Contains the (non-empty) path of the parent section.
-    InvalidParentSection(ConfigPath<'a>),
+    InvalidParentSection(IniConfigPath),
     /// Maximum allowed nested section depth exceeded.
     NestedSectionDepthExceeded,
     /// Duplicate section name encountered and is not allowed by options.
     /// Contains the (non-empty) path of the duplicate section.
-    DuplicateSection(ConfigPath<'a>),
+    DuplicateSection(IniConfigPath),
     /// Invalid character at the end of the line - expected whitespace or an inline comment (if supported).
     /// Contains the invalid character.
     InvalidCharacterAtLineEnd(char),
@@ -45,8 +45,8 @@ pub enum IniErrorKind<'a> {
     /// Empty keys are invalid.
     EmptyKey,
     /// Duplicate key encountered and is not allowed by options.
-    /// Contains the duplicate key.
-    DuplicateKey(TableKey<'a>),
+    /// Contains the path of the duplicate key.
+    DuplicateKey(IniConfigPath),
     /// Unexpected end of file encountered before a key-value separator.
     UnexpectedEndOfFileBeforeKeyValueSeparator,
     /// Invalid character encountered instead of the key-value separator.
@@ -93,7 +93,7 @@ pub enum IniErrorKind<'a> {
     UnexpectedEndOfFileInQuotedArrayValue,
 }
 
-impl<'a> Display for IniErrorKind<'a> {
+impl Display for IniErrorKind {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use IniErrorKind::*;
 
@@ -112,7 +112,7 @@ impl<'a> Display for IniErrorKind<'a> {
             UnexpectedNewLineInSectionName => "unexpected new line in a section name".fmt(f),
             UnexpectedEndOfFileInSectionName => "unexpected end of file in a section name".fmt(f),
             EmptySectionName(path) => write!(f, "empty section names are invalid (in {})", path),
-            InvalidParentSection(path) => write!(f, "invalid (missing) parent section {}", path),
+            InvalidParentSection(path) => write!(f, "invalid (missing or not a section) parent section {}", path),
             NestedSectionDepthExceeded => write!(f, "maximum allowed nested section depth exceeded"),
             DuplicateSection(path) => write!(
                 f,
@@ -170,18 +170,18 @@ impl<'a> Display for IniErrorKind<'a> {
 
 /// An error returned by the [`.ini parser`](struct.IniParser.html).
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct IniError<'a> {
+pub struct IniError {
     /// Line in the source string where the error occured.
     pub line: u32,
     /// Column in the source string where the error occured.
     pub column: u32,
     /// Actual error.
-    pub error: IniErrorKind<'a>,
+    pub error: IniErrorKind,
 }
 
-impl<'a> Error for IniError<'a> {}
+impl Error for IniError {}
 
-impl<'a> Display for IniError<'a> {
+impl Display for IniError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,

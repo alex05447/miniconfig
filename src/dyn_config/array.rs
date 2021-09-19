@@ -90,7 +90,7 @@ impl DynArray {
     pub fn get_bool(&self, index: u32) -> Result<bool, ArrayError> {
         let val = self.get(index)?;
         val.bool()
-            .ok_or(ArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`array`] at `path`.
@@ -114,7 +114,7 @@ impl DynArray {
     {
         let val = self.get_path(path)?;
         val.bool()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `index`.
@@ -129,7 +129,7 @@ impl DynArray {
     pub fn get_i64(&self, index: u32) -> Result<i64, ArrayError> {
         let val = self.get(index)?;
         val.i64()
-            .ok_or(ArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `path`.
@@ -154,7 +154,7 @@ impl DynArray {
     {
         let val = self.get_path(path)?;
         val.i64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `index`.
@@ -169,7 +169,7 @@ impl DynArray {
     pub fn get_f64(&self, index: u32) -> Result<f64, ArrayError> {
         let val = self.get(index)?;
         val.f64()
-            .ok_or(ArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `path`.
@@ -194,7 +194,7 @@ impl DynArray {
     {
         let val = self.get_path(path)?;
         val.f64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `index`.
@@ -208,7 +208,8 @@ impl DynArray {
     pub fn get_string(&self, index: u32) -> Result<&str, ArrayError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
-        val.string().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.string()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `path`.
@@ -233,7 +234,7 @@ impl DynArray {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
@@ -246,7 +247,8 @@ impl DynArray {
     pub fn get_array(&self, index: u32) -> Result<&DynArray, ArrayError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
-        val.array().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.array()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `path`.
@@ -270,7 +272,7 @@ impl DynArray {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `index`.
@@ -284,7 +286,8 @@ impl DynArray {
     pub fn get_table(&self, index: u32) -> Result<&DynTable, ArrayError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
-        val.table().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.table()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `path`.
@@ -308,7 +311,7 @@ impl DynArray {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an in-order iterator over [`values`] in the [`array`].
@@ -387,7 +390,8 @@ impl DynArray {
     pub fn get_array_mut(&mut self, index: u32) -> Result<&mut DynArray, ArrayError> {
         let val = self.get_mut(index)?;
         let val_type = val.get_type();
-        val.array().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.array()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `path`.
@@ -420,7 +424,7 @@ impl DynArray {
         let val = self.get_mut_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a mutable reference to a [`table`] [`value`] in the [`array`] at `index`.
@@ -440,7 +444,8 @@ impl DynArray {
     pub fn get_table_mut(&mut self, index: u32) -> Result<&mut DynTable, ArrayError> {
         let val = self.get_mut(index)?;
         let val_type = val.get_type();
-        val.table().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.table()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a mutable reference to a [`table`] [`value`] in the [`array`] at `path`.
@@ -473,7 +478,7 @@ impl DynArray {
         let val = self.get_mut_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Changes the [`value`] in the [`array`] at `index` to `value`.
@@ -622,7 +627,7 @@ impl DynArray {
     }
 
     fn pop_impl(&mut self) -> Result<DynConfigValue, ArrayError> {
-        self.0.pop().ok_or(ArrayError::ArrayEmpty)
+        self.0.pop().ok_or_else(|| ArrayError::ArrayEmpty)
     }
 
     fn fmt_lua_impl<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {

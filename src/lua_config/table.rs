@@ -109,7 +109,7 @@ impl<'lua> LuaTable<'lua> {
     pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, TableError> {
         let val = self.get(key)?;
         val.bool()
-            .ok_or(TableError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] at `path`.
@@ -133,7 +133,7 @@ impl<'lua> LuaTable<'lua> {
     {
         let val = self.get_path(path)?;
         val.bool()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -148,7 +148,7 @@ impl<'lua> LuaTable<'lua> {
     pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, TableError> {
         let val = self.get(key)?;
         val.i64()
-            .ok_or(TableError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] at `path`.
@@ -173,7 +173,7 @@ impl<'lua> LuaTable<'lua> {
     {
         let val = self.get_path(path)?;
         val.i64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -187,7 +187,7 @@ impl<'lua> LuaTable<'lua> {
     pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, TableError> {
         let val = self.get(key)?;
         val.f64()
-            .ok_or(TableError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] at `path`.
@@ -212,7 +212,7 @@ impl<'lua> LuaTable<'lua> {
     {
         let val = self.get_path(path)?;
         val.f64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -226,7 +226,8 @@ impl<'lua> LuaTable<'lua> {
     pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<LuaString<'lua>, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.string().ok_or(TableError::IncorrectValueType(val_type))
+        val.string()
+            .ok_or_else(|| TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] at `path`.
@@ -251,7 +252,7 @@ impl<'lua> LuaTable<'lua> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -265,7 +266,8 @@ impl<'lua> LuaTable<'lua> {
     pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<LuaArray<'lua>, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.array().ok_or(TableError::IncorrectValueType(val_type))
+        val.array()
+            .ok_or_else(|| TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] at `path`.
@@ -289,7 +291,7 @@ impl<'lua> LuaTable<'lua> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -302,7 +304,8 @@ impl<'lua> LuaTable<'lua> {
     pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<LuaTable<'lua>, TableError> {
         let val = self.get(key)?;
         let val_type = val.get_type();
-        val.table().ok_or(TableError::IncorrectValueType(val_type))
+        val.table()
+            .ok_or_else(|| TableError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] at `path`.
@@ -326,7 +329,7 @@ impl<'lua> LuaTable<'lua> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an iterator over ([`key`], [`value`]) pairs of the [`table`], in unspecified order.

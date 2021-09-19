@@ -21,6 +21,7 @@ pub enum LuaConfigError<'a> {
     /// Contains the path to the [`table`], or an empty path if the mixed keys are in the root [`table`].
     ///
     /// [`tables`]: struct.LuaTable.html
+    /// [`table`]: struct.LuaTable.html
     MixedKeys(ConfigPath<'a>),
     /// Mixed (and incompatible) type values are not allowed in Lua config [`arrays`].
     ///
@@ -63,6 +64,7 @@ pub enum LuaConfigError<'a> {
     /// Contains the path to the [`table`] containing the empty key, or an empty path for the root [`table`].
     ///
     /// [`tables`]: struct.LuaTable.html
+    /// [`table`]: struct.LuaTable.html
     EmptyKey(ConfigPath<'a>),
     /// Invalid index in Lua config [`array`].
     /// Contains the path to the invalid [`array`].

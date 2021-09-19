@@ -213,7 +213,7 @@ impl<'lua> LuaConfig<'lua> {
 
     #[cfg(feature = "dyn")]
     fn value_to_dyn_table(
-        key: NonEmptyStr<'_>,
+        key: &NonEmptyStr,
         value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
         dyn_table: &mut DynTable,
     ) {
@@ -221,19 +221,19 @@ impl<'lua> LuaConfig<'lua> {
 
         // Must succeed - we are only adding values to the dyn table.
         if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set_impl(key, Some(Value::Bool(value))),
-            I64(value) => dyn_table.set_impl(key, Some(Value::I64(value))),
-            F64(value) => dyn_table.set_impl(key, Some(Value::F64(value))),
-            String(value) => dyn_table.set_impl(key, Some(Value::String(value.as_ref().into()))),
+            Bool(value) => dyn_table.set_impl(&key, Some(Value::Bool(value))),
+            I64(value) => dyn_table.set_impl(&key, Some(Value::I64(value))),
+            F64(value) => dyn_table.set_impl(&key, Some(Value::F64(value))),
+            String(value) => dyn_table.set_impl(&key, Some(Value::String(value.as_ref().into()))),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set_impl(key, Some(Value::Array(array)))
+                dyn_table.set_impl(&key, Some(Value::Array(array)))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set_impl(key, Some(Value::Table(table)))
+                dyn_table.set_impl(&key, Some(Value::Table(table)))
             }
         } {
             debug_assert!(
@@ -376,7 +376,7 @@ fn array_to_bin_config(
 
 #[cfg(feature = "bin")]
 fn value_to_bin_config(
-    key: Option<NonEmptyStr<'_>>,
+    key: Option<&NonEmptyStr>,
     value: Value<LuaString<'_>, LuaArray<'_>, LuaTable<'_>>,
     writer: &mut BinConfigWriter,
 ) -> Result<(), BinConfigWriterError> {

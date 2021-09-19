@@ -53,3 +53,6 @@ pub use ini::*;
 
 #[cfg(all(feature = "bin", feature = "str_hash"))]
 pub use util::StringAndHash;
+
+#[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
+pub use ministr::{NonEmptyStr, NonEmptyString};

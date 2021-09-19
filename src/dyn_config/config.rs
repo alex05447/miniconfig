@@ -189,17 +189,19 @@ impl DynConfigIniConfig {
 }
 
 #[cfg(feature = "ini")]
-impl IniConfig for DynConfigIniConfig {
-    fn contains_key(&self, key: NonEmptyStr<'_>) -> Result<bool, ()> {
+impl<'s> IniConfig<'s> for DynConfigIniConfig {
+    fn contains_key(&self, key: NonEmptyIniStr<'s, '_>) -> Result<bool, ()> {
         let table = self.current_section.as_ref().unwrap_or(&self.root);
         table
-            .get_impl(key)
+            .get_impl(key.as_ne_str())
             .map_err(|_| ())
             .map(|val| val.table().is_some())
     }
 
-    fn add_value(&mut self, key: NonEmptyStr<'_>, value: IniValue<&str>, overwrite: bool) {
+    fn add_value(&mut self, key: NonEmptyIniStr<'s, '_>, value: IniValue<'s, '_>, overwrite: bool) {
         let table = self.current_section.as_mut().unwrap_or(&mut self.root);
+
+        let key = key.as_ne_str();
 
         if let Ok(already_existed) = match value {
             IniValue::Bool(value) => table.set_impl(key, Some(Value::Bool(value))),
@@ -216,12 +218,12 @@ impl IniConfig for DynConfigIniConfig {
         }
     }
 
-    fn start_section(&mut self, section: NonEmptyStr<'_>, overwrite: bool) {
+    fn start_section(&mut self, section: NonEmptyIniStr<'s, '_>, overwrite: bool) {
         let start_section_in_section =
             |parent: &mut DynTable, current_section: &mut Option<DynTable>| {
                 // Overwrite the previous value / section with this key in the parent section.
                 if overwrite {
-                    let previous = parent.remove(section);
+                    let previous = parent.remove(section.as_ne_str());
                     debug_assert!(
                         previous.is_some(),
                         "overwrite flag mismatch when starting a section"
@@ -231,7 +233,11 @@ impl IniConfig for DynConfigIniConfig {
                 // Add a new section or continue the previous section with this key in the parent section.
                 } else {
                     // Previous value at this key was a section - continue it.
-                    if let Some(previous) = parent.remove(section).map(Value::table).flatten() {
+                    if let Some(previous) = parent
+                        .remove(section.as_ne_str())
+                        .map(Value::table)
+                        .flatten()
+                    {
                         current_section.replace(previous);
 
                     // Else it was a value and we will overwrite it.
@@ -250,16 +256,17 @@ impl IniConfig for DynConfigIniConfig {
         }
     }
 
-    fn end_section(&mut self, section: NonEmptyStr<'_>) {
+    fn end_section(&mut self, section: NonEmptyIniStr<'s, '_>) {
         if let Some(current_section) = self.current_section.take() {
             if let Some(mut parent_section) = self.section_stack.pop() {
-                let existed = parent_section.set_impl(section, Some(Value::Table(current_section)));
+                let existed = parent_section
+                    .set_impl(section.as_ne_str(), Some(Value::Table(current_section)));
                 debug_assert_eq!(existed, Ok(false));
                 self.current_section.replace(parent_section);
             } else {
                 let existed = self
                     .root
-                    .set_impl(section, Some(Value::Table(current_section)));
+                    .set_impl(section.as_ne_str(), Some(Value::Table(current_section)));
                 debug_assert_eq!(existed, Ok(false));
             }
         } else {
@@ -270,11 +277,11 @@ impl IniConfig for DynConfigIniConfig {
         }
     }
 
-    fn start_array(&mut self, array: NonEmptyStr<'_>, overwrite: bool) {
+    fn start_array(&mut self, array: NonEmptyIniStr<'s, '_>, overwrite: bool) {
         let table = self.current_section.as_mut().unwrap_or(&mut self.root);
 
         if overwrite {
-            let previous = table.remove(array);
+            let previous = table.remove(array.as_ne_str());
             debug_assert!(previous.is_some());
         }
 
@@ -285,13 +292,13 @@ impl IniConfig for DynConfigIniConfig {
         self.current_array.replace(DynArray::new());
     }
 
-    fn add_array_value(&mut self, value: IniValue<&str>) {
+    fn add_array_value(&mut self, value: IniValue<'s, '_>) {
         if let Some(current_array) = self.current_array.as_mut() {
             let result = current_array.push(match value {
                 IniValue::Bool(value) => Value::Bool(value),
                 IniValue::I64(value) => Value::I64(value),
                 IniValue::F64(value) => Value::F64(value),
-                IniValue::String(value) => Value::String(value.to_owned()),
+                IniValue::String(value) => Value::String(value.into()),
             });
             debug_assert!(result.is_ok(), "incorrect array value type");
         } else {
@@ -302,12 +309,12 @@ impl IniConfig for DynConfigIniConfig {
         }
     }
 
-    fn end_array(&mut self, array: NonEmptyStr<'_>) {
+    fn end_array(&mut self, array: NonEmptyIniStr<'s, '_>) {
         if let Some(current_array) = self.current_array.take() {
             let root = &mut self.root;
             let table = self.current_section.as_mut().unwrap_or(root);
 
-            let existed = table.set_impl(array, Some(Value::Array(current_array)));
+            let existed = table.set_impl(array.as_ne_str(), Some(Value::Array(current_array)));
             debug_assert_eq!(existed, Ok(false));
         } else {
             debug_assert!(
@@ -358,7 +365,7 @@ fn array_to_bin_config(
 #[cfg(feature = "bin")]
 /// Writes the dyn config value with `key` recursively to the binary config writer.
 fn value_to_bin_config(
-    key: Option<NonEmptyStr<'_>>,
+    key: Option<&NonEmptyStr>,
     value: DynConfigValueRef<'_>,
     writer: &mut BinConfigWriter,
 ) -> Result<(), BinConfigWriterError> {

@@ -10,7 +10,7 @@ edition = "2018"
 default = []
 dyn = []
 bin = ["static_assertions"]
-str_hash = ["ministrhash", "mininestr"]
+str_hash = ["ministr_macro"]
 lua = ["rlua", "rlua_ext"]
 ini = ["bitflags"]
 
@@ -18,12 +18,12 @@ ini = ["bitflags"]
 rlua = { path = "../rlua", optional = true }
 rlua_ext = { path = "../rlua_ext", optional = true }
 bitflags = { version = "1.2.1", optional = true }
-ministrhash = { path = "../ministrhash", optional = true }
-mininestr = { path = "../mininestr", optional = true }
+ministr = { path = "../ministr" }
+ministr_macro = { path = "../ministr_macro", optional = true }
 static_assertions = { version = "1.1.0", optional = true }
 
 [dev-dependencies]
-mininestr = { path = "../mininestr" }
+ministr_macro = { path = "../ministr_macro" }
 
 [[example]]
 name = "example"

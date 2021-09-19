@@ -1,3 +1,11 @@
+mod ini_path;
+mod ini_string;
+mod parsed_ini_string;
+
+pub use ini_string::*;
+
+pub(crate) use {ini_path::*, parsed_ini_string::*};
+
 use {
     crate::{
         util::{write_char, WriteCharError},
@@ -141,13 +149,13 @@ fn write_ini_sections<W: Write>(
     for (index, section) in path.iter().enumerate() {
         let last = (index as u32) == (num_sections - 1);
 
-        let needs_quotes = string_needs_quotes(section.as_ref(), nested_sections);
+        let needs_quotes = string_needs_quotes(section.as_ne_str(), nested_sections);
 
         if needs_quotes {
             write!(w, "\"").map_err(|_| WriteError)?;
         }
 
-        write_ini_string(w, section.as_ref(), needs_quotes, escape)?;
+        write_ini_string(w, section.as_ne_str(), needs_quotes, escape)?;
 
         if needs_quotes {
             write!(w, "\"").map_err(|_| WriteError)?;
@@ -163,9 +171,9 @@ fn write_ini_sections<W: Write>(
 }
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-pub(crate) fn write_ini_array<'k, W: Write, A: Iterator<Item = I>, I: Borrow<V>, V: DisplayIni>(
+pub(crate) fn write_ini_array<W: Write, A: Iterator<Item = I>, I: Borrow<V>, V: DisplayIni>(
     w: &mut W,
-    key: NonEmptyStr<'k>,
+    key: &NonEmptyStr,
     array: A,
     array_len: usize,
     last: bool,
@@ -205,9 +213,9 @@ pub(crate) fn write_ini_array<'k, W: Write, A: Iterator<Item = I>, I: Borrow<V>,
 }
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-pub(crate) fn write_ini_table<'k, W: Write, V: DisplayIni>(
+pub(crate) fn write_ini_table<W: Write, V: DisplayIni>(
     w: &mut W,
-    key: NonEmptyStr<'k>,
+    key: &NonEmptyStr,
     key_index: u32,
     value: &V,
     value_len: u32,
@@ -226,7 +234,7 @@ pub(crate) fn write_ini_table<'k, W: Write, V: DisplayIni>(
         writeln!(w).map_err(|_| WriteError)?;
     }
 
-    path.push(key);
+    path.push(NonEmptyIniStr::Owned(key));
 
     write_ini_sections(w, path, options.escape, options.nested_sections())?;
 
@@ -245,9 +253,9 @@ pub(crate) fn write_ini_table<'k, W: Write, V: DisplayIni>(
 }
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-pub(crate) fn write_ini_value<'k, W: Write, V: DisplayIni>(
+pub(crate) fn write_ini_value<W: Write, V: DisplayIni>(
     w: &mut W,
-    key: NonEmptyStr<'k>,
+    key: &NonEmptyStr,
     value: &V,
     last: bool,
     level: u32,
@@ -277,9 +285,9 @@ pub(crate) fn write_ini_value<'k, W: Write, V: DisplayIni>(
 /// `.ini` special characters ('[', ']', ';', '#', '=', ':') or spaces (' '),
 /// it is additionally enclosed in double quotes ('"').
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-fn write_ini_key<'k, W: Write>(
+fn write_ini_key<W: Write>(
     w: &mut W,
-    key: NonEmptyStr<'k>,
+    key: &NonEmptyStr,
     escape: bool,
 ) -> Result<(), ToIniStringError> {
     use ToIniStringError::*;
@@ -297,218 +305,4 @@ fn write_ini_key<'k, W: Write>(
     }
 
     Ok(())
-}
-
-/// A simple wrapper around the nested `.ini` section path,
-/// used instead of `Vec<String>` to minimize the number of allocations.
-pub(crate) struct IniPath {
-    // Contains the contiguously stored nested section names.
-    // |foo|bill|bob|
-    path: String,
-    // Contains the offsets past the last byte of each section name in the path.
-    // | 3 |  7 | 10|
-    offsets: Vec<u32>,
-}
-
-impl IniPath {
-    pub(crate) fn new() -> Self {
-        Self {
-            path: String::new(),
-            offsets: Vec::new(),
-        }
-    }
-
-    /// Pushes a new section name to the end of the path.
-    pub(crate) fn push<'s>(&mut self, section: NonEmptyStr<'s>) {
-        let current_len = self.path.len() as u32;
-        let len = section.as_ref().len() as u32;
-
-        let offset = current_len + len;
-
-        self.path.push_str(section.as_ref());
-        self.offsets.push(offset);
-    }
-
-    /// Pops a section name off the end of the path.
-    /// NOTE - the caller guarantees that the path is not empty.
-    pub(crate) fn pop(&mut self) {
-        debug_assert!(
-            !self.offsets.is_empty(),
-            "tried to pop an empty `.ini` path"
-        );
-
-        self.offsets.pop();
-
-        if let Some(last) = self.offsets.last() {
-            self.path.truncate(*last as _);
-        } else {
-            self.path.clear();
-        }
-    }
-
-    pub(crate) fn last(&self) -> Option<NonEmptyStr<'_>> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(unsafe { self.slice(self.len() - 1) })
-        }
-    }
-
-    /// Returns the number of section names in the path.
-    pub(crate) fn len(&self) -> u32 {
-        self.offsets.len() as _
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns an iterator over nested section path parts, from parent to child.
-    pub(crate) fn iter(&self) -> impl std::iter::Iterator<Item = NonEmptyStr<'_>> {
-        IniPathIter::new(self)
-    }
-
-    pub(crate) fn to_config_path<'a>(&self) -> ConfigPath<'a> {
-        let mut path = ConfigPath::new();
-
-        for section in self.iter() {
-            path.0.push(ConfigKey::Table(TableKey::from(
-                section.as_ref().to_owned(),
-            )));
-        }
-
-        path
-    }
-
-    /// Returns the section name at `index` in the path.
-    /// NOTE - the caller guarantees `index` is valid.
-    /// Passing an invalid `index` is UB.
-    unsafe fn slice(&self, index: u32) -> NonEmptyStr<'_> {
-        debug_assert!(index < self.len());
-
-        let end = *(self.offsets.get_unchecked(index as usize)) as _;
-
-        debug_assert!(end > 0);
-
-        let start = if index == 0 {
-            0
-        } else {
-            *(self.offsets.get_unchecked((index - 1) as usize)) as _
-        };
-
-        debug_assert!(start < end);
-
-        unwrap_unchecked_msg(
-            NonEmptyStr::new(&self.path[start..end]),
-            "empty section name",
-        )
-    }
-}
-
-/// Iterates over the `IniPath` nested section path parts, parent to child.
-struct IniPathIter<'a> {
-    path: &'a IniPath,
-    index: u32,
-}
-
-impl<'a> IniPathIter<'a> {
-    fn new(path: &'a IniPath) -> Self {
-        Self { path, index: 0 }
-    }
-}
-
-impl<'a> std::iter::Iterator for IniPathIter<'a> {
-    type Item = NonEmptyStr<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.path.len() {
-            None
-        } else {
-            let index = self.index;
-            self.index += 1;
-            Some(unsafe { self.path.slice(index) })
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[allow(non_snake_case)]
-    #[test]
-    fn IniPath() {
-        let mut path = IniPath::new();
-
-        assert!(path.is_empty());
-        assert!(path.len() == 0);
-
-        path.push(nestr!("foo"));
-
-        assert!(!path.is_empty());
-        assert!(path.len() == 1);
-
-        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
-
-        path.push(nestr!("bill"));
-
-        assert!(!path.is_empty());
-        assert!(path.len() == 2);
-
-        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
-        assert_eq!(unsafe { path.slice(1) }, nestr!("bill"));
-
-        path.push(nestr!("bob"));
-
-        assert!(!path.is_empty());
-        assert!(path.len() == 3);
-
-        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
-        assert_eq!(unsafe { path.slice(1) }, nestr!("bill"));
-        assert_eq!(unsafe { path.slice(2) }, nestr!("bob"));
-
-        for (idx, path_part) in path.iter().enumerate() {
-            match idx {
-                0 => assert_eq!(path_part, nestr!("foo")),
-                1 => assert_eq!(path_part, nestr!("bill")),
-                2 => assert_eq!(path_part, nestr!("bob")),
-                _ => unreachable!(),
-            }
-        }
-
-        path.pop();
-
-        assert!(!path.is_empty());
-        assert!(path.len() == 2);
-
-        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
-        assert_eq!(unsafe { path.slice(1) }, nestr!("bill"));
-
-        for (idx, path_part) in path.iter().enumerate() {
-            match idx {
-                0 => assert_eq!(path_part, nestr!("foo")),
-                1 => assert_eq!(path_part, nestr!("bill")),
-                _ => unreachable!(),
-            }
-        }
-
-        path.pop();
-
-        assert!(!path.is_empty());
-        assert!(path.len() == 1);
-
-        assert_eq!(unsafe { path.slice(0) }, nestr!("foo"));
-
-        for (idx, path_part) in path.iter().enumerate() {
-            match idx {
-                0 => assert_eq!(path_part, nestr!("foo")),
-                _ => unreachable!(),
-            }
-        }
-
-        path.pop();
-
-        assert!(path.is_empty());
-        assert!(path.len() == 0);
-    }
 }

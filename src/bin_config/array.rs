@@ -54,7 +54,7 @@ impl<'a> BinArray<'a> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    /// [`table`]: struct.DynTable.html
+    /// [`type`]: enum.Value.html
     pub fn get_path<'b, K, P>(&self, path: P) -> Result<BinConfigValue<'_>, GetPathError<'b>>
     where
         K: Borrow<ConfigKey<'b>>,
@@ -76,7 +76,7 @@ impl<'a> BinArray<'a> {
     pub fn get_bool(&self, index: u32) -> Result<bool, BinArrayError> {
         let val = self.get(index)?;
         val.bool()
-            .ok_or(BinArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| BinArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`array`] at `path`.
@@ -100,7 +100,7 @@ impl<'a> BinArray<'a> {
     {
         let val = self.get_path(path)?;
         val.bool()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `index`.
@@ -115,7 +115,7 @@ impl<'a> BinArray<'a> {
     pub fn get_i64(&self, index: u32) -> Result<i64, BinArrayError> {
         let val = self.get(index)?;
         val.i64()
-            .ok_or(BinArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| BinArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `path`.
@@ -140,7 +140,7 @@ impl<'a> BinArray<'a> {
     {
         let val = self.get_path(path)?;
         val.i64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `index`.
@@ -155,7 +155,7 @@ impl<'a> BinArray<'a> {
     pub fn get_f64(&self, index: u32) -> Result<f64, BinArrayError> {
         let val = self.get(index)?;
         val.f64()
-            .ok_or(BinArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| BinArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `path`.
@@ -180,7 +180,7 @@ impl<'a> BinArray<'a> {
     {
         let val = self.get_path(path)?;
         val.f64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `index`.
@@ -195,7 +195,7 @@ impl<'a> BinArray<'a> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(BinArrayError::IncorrectValueType(val_type))
+            .ok_or_else(|| BinArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `path`.
@@ -220,7 +220,7 @@ impl<'a> BinArray<'a> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
@@ -234,7 +234,7 @@ impl<'a> BinArray<'a> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(BinArrayError::IncorrectValueType(val_type))
+            .ok_or_else(|| BinArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `path`.
@@ -258,7 +258,7 @@ impl<'a> BinArray<'a> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`] [`value`] in the [`array`] at `index`.
@@ -273,7 +273,7 @@ impl<'a> BinArray<'a> {
         let val = self.get(index)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(BinArrayError::IncorrectValueType(val_type))
+            .ok_or_else(|| BinArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `path`.
@@ -297,7 +297,7 @@ impl<'a> BinArray<'a> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an in-order iterator over [`values`] in the [`array`].
@@ -425,11 +425,12 @@ impl<'a> Display for BinArray<'a> {
 mod tests {
     #![allow(non_snake_case)]
 
-    use crate::*;
+    use {crate::*, ministr_macro::nestr};
 
     #[test]
     fn BinArrayError_IndexOutOfBounds() {
         let mut writer = BinConfigWriter::new(1).unwrap();
+
         writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, true).unwrap();
         writer.end().unwrap();

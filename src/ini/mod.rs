@@ -1,15 +1,11 @@
+mod config;
+mod config_path;
 mod error;
-
-#[allow(clippy::module_inception)]
-mod ini;
-
 mod options;
+mod parser;
 mod util;
 
 #[cfg(all(test, feature = "dyn"))]
 mod tests;
 
-#[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
-pub(crate) use util::*;
-
-pub use {error::*, ini::*, options::*};
+pub use {config::*, config_path::*, error::*, options::*, parser::*, util::*};

@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::*;
+use {crate::*, ministr_macro::nestr};
 
 fn dyn_config(string: &str) -> DynConfig {
     DynConfig::from_ini(IniParser::new(string)).expect("expected no error")
@@ -365,7 +365,7 @@ fn EmptySectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::EmptySectionName(ConfigPath::new())
+            error: IniErrorKind::EmptySectionName(IniConfigPath::new())
         }
     );
     assert_eq!(
@@ -373,7 +373,7 @@ fn EmptySectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::EmptySectionName(ConfigPath::new())
+            error: IniErrorKind::EmptySectionName(IniConfigPath::new())
         }
     );
     // Empty parent section.
@@ -384,7 +384,7 @@ fn EmptySectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::EmptySectionName(ConfigPath::new())
+            error: IniErrorKind::EmptySectionName(IniConfigPath::new())
         }
     );
     // Empty child section.
@@ -395,7 +395,7 @@ fn EmptySectionName() {
         IniError {
             line: 2,
             column: 4,
-            error: IniErrorKind::EmptySectionName(ConfigPath(vec!["a".into()]))
+            error: IniErrorKind::EmptySectionName(IniConfigPath(vec![nestr!("a").into()]))
         }
     );
     // Empty child section.
@@ -406,7 +406,10 @@ fn EmptySectionName() {
         IniError {
             line: 3,
             column: 6,
-            error: IniErrorKind::EmptySectionName(ConfigPath(vec!["a".into(), "b".into()]))
+            error: IniErrorKind::EmptySectionName(IniConfigPath(vec![
+                nestr!("a").into(),
+                nestr!("b").into()
+            ]))
         }
     );
 
@@ -434,7 +437,7 @@ fn InvalidParentSection() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidParentSection(ConfigPath(vec!["a".into()]))
+            error: IniErrorKind::InvalidParentSection(IniConfigPath(vec![nestr!("a").into()]))
         }
     );
     assert_eq!(
@@ -444,7 +447,7 @@ fn InvalidParentSection() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidParentSection(ConfigPath(vec!["a".into()]))
+            error: IniErrorKind::InvalidParentSection(IniConfigPath(vec![nestr!("a").into()]))
         }
     );
     assert_eq!(
@@ -454,7 +457,10 @@ fn InvalidParentSection() {
         IniError {
             line: 2,
             column: 4,
-            error: IniErrorKind::InvalidParentSection(ConfigPath(vec!["a".into(), "b".into()]))
+            error: IniErrorKind::InvalidParentSection(IniConfigPath(vec![
+                nestr!("a").into(),
+                nestr!("b").into()
+            ]))
         }
     );
 
@@ -577,7 +583,7 @@ fn DuplicateSection() {
         IniError {
             line: 3,
             column: 3,
-            error: IniErrorKind::DuplicateSection(ConfigPath(vec!["a".into()]))
+            error: IniErrorKind::DuplicateSection(IniConfigPath(vec![nestr!("a").into()]))
         }
     );
 
@@ -616,7 +622,10 @@ fn DuplicateSection() {
         IniError {
             line: 4,
             column: 1,
-            error: IniErrorKind::DuplicateKey("a".into())
+            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
+                nestr!("a").into(),
+                nestr!("a").into()
+            ]))
         }
     );
 
@@ -836,29 +845,35 @@ fn DuplicateKey() {
         IniError {
             line: 3,
             column: 1,
-            error: IniErrorKind::DuplicateKey("a".into())
+            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![nestr!("a").into()]))
         }
     );
     // In the section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\na=7\nb=8\na=9\nc=10"))
+        DynConfig::from_ini(IniParser::new("[x]\na=7\nb=8\na=9\nc=10"))
             .err()
             .unwrap(),
         IniError {
             line: 4,
             column: 1,
-            error: IniErrorKind::DuplicateKey("a".into())
+            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
+                nestr!("x").into(),
+                nestr!("a").into()
+            ]))
         }
     );
     // In the merged section.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("[a]\na=7\nb=8\n[a]\na=9\nc=10"))
+        DynConfig::from_ini(IniParser::new("[x]\na=7\nb=8\n[x]\na=9\nc=10"))
             .err()
             .unwrap(),
         IniError {
             line: 5,
             column: 1,
-            error: IniErrorKind::DuplicateKey("a".into())
+            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
+                nestr!("x").into(),
+                nestr!("a").into()
+            ]))
         }
     );
     // Key and section.
@@ -869,7 +884,7 @@ fn DuplicateKey() {
         IniError {
             line: 2,
             column: 2,
-            error: IniErrorKind::DuplicateKey("a".into())
+            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![nestr!("a").into()]))
         }
     );
     // Section and key.
@@ -880,7 +895,10 @@ fn DuplicateKey() {
         IniError {
             line: 3,
             column: 6,
-            error: IniErrorKind::DuplicateKey("b".into())
+            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
+                nestr!("a").into(),
+                nestr!("b").into()
+            ]))
         }
     );
 

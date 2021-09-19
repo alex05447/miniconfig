@@ -94,7 +94,7 @@ impl<'lua> LuaArray<'lua> {
     pub fn get_bool(&self, index: u32) -> Result<bool, ArrayError> {
         let val = self.get(index)?;
         val.bool()
-            .ok_or(ArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`array`] at `path`.
@@ -118,7 +118,7 @@ impl<'lua> LuaArray<'lua> {
     {
         let val = self.get_path(path)?;
         val.bool()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `0`-based `index`.
@@ -133,7 +133,7 @@ impl<'lua> LuaArray<'lua> {
     pub fn get_i64(&self, index: u32) -> Result<i64, ArrayError> {
         let val = self.get(index)?;
         val.i64()
-            .ok_or(ArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `path`.
@@ -158,7 +158,7 @@ impl<'lua> LuaArray<'lua> {
     {
         let val = self.get_path(path)?;
         val.i64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `0`-based `index`.
@@ -173,7 +173,7 @@ impl<'lua> LuaArray<'lua> {
     pub fn get_f64(&self, index: u32) -> Result<f64, ArrayError> {
         let val = self.get(index)?;
         val.f64()
-            .ok_or(ArrayError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `path`.
@@ -198,7 +198,7 @@ impl<'lua> LuaArray<'lua> {
     {
         let val = self.get_path(path)?;
         val.f64()
-            .ok_or(GetPathError::IncorrectValueType(val.get_type()))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `0`-based `index`.
@@ -212,7 +212,8 @@ impl<'lua> LuaArray<'lua> {
     pub fn get_string(&self, index: u32) -> Result<LuaString<'lua>, ArrayError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
-        val.string().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.string()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `path`.
@@ -237,7 +238,7 @@ impl<'lua> LuaArray<'lua> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.string()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `0`-based `index`.
@@ -250,7 +251,8 @@ impl<'lua> LuaArray<'lua> {
     pub fn get_array(&self, index: u32) -> Result<LuaArray<'lua>, ArrayError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
-        val.array().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.array()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `path`.
@@ -274,7 +276,7 @@ impl<'lua> LuaArray<'lua> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.array()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Tries to get a [`table`] [`value`] in the [`array`] at `0`-based `index`.
@@ -288,7 +290,8 @@ impl<'lua> LuaArray<'lua> {
     pub fn get_table(&self, index: u32) -> Result<LuaTable<'lua>, ArrayError> {
         let val = self.get(index)?;
         let val_type = val.get_type();
-        val.table().ok_or(ArrayError::IncorrectValueType(val_type))
+        val.table()
+            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
     }
 
     /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `path`.
@@ -312,7 +315,7 @@ impl<'lua> LuaArray<'lua> {
         let val = self.get_path(path)?;
         let val_type = val.get_type();
         val.table()
-            .ok_or(GetPathError::IncorrectValueType(val_type))
+            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
     }
 
     /// Returns an in-order iterator over [`values`] in the [`array`].

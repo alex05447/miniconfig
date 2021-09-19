@@ -78,7 +78,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn bool<'k, K: Into<Option<NonEmptyStr<'k>>>>(
+    pub fn bool<'k, K: Into<Option<&'k NonEmptyStr>>>(
         &mut self,
         key: K,
         value: bool,
@@ -103,7 +103,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn i64<'k, K: Into<Option<NonEmptyStr<'k>>>>(
+    pub fn i64<'k, K: Into<Option<&'k NonEmptyStr>>>(
         &mut self,
         key: K,
         value: i64,
@@ -128,7 +128,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn f64<'k, K: Into<Option<NonEmptyStr<'k>>>>(
+    pub fn f64<'k, K: Into<Option<&'k NonEmptyStr>>>(
         &mut self,
         key: K,
         value: f64,
@@ -153,7 +153,7 @@ impl BinConfigWriter {
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
-    pub fn string<'k, K: Into<Option<NonEmptyStr<'k>>>>(
+    pub fn string<'k, K: Into<Option<&'k NonEmptyStr>>>(
         &mut self,
         key: K,
         value: &str,
@@ -190,7 +190,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     /// [`writer`]: struct.BinConfigWriter.html
     /// [`end`]: #method.end
-    pub fn array<'k, K: Into<Option<NonEmptyStr<'k>>>>(
+    pub fn array<'k, K: Into<Option<&'k NonEmptyStr>>>(
         &mut self,
         key: K,
         len: u32,
@@ -208,7 +208,7 @@ impl BinConfigWriter {
     /// [`table`]: struct.BinTable.html
     /// [`writer`]: struct.BinConfigWriter.html
     /// [`end`]: #method.end
-    pub fn table<'k, K: Into<Option<NonEmptyStr<'k>>>>(
+    pub fn table<'k, K: Into<Option<&'k NonEmptyStr>>>(
         &mut self,
         key: K,
         len: u32,
@@ -346,7 +346,7 @@ impl BinConfigWriter {
 
     fn array_or_table(
         &mut self,
-        key: Option<NonEmptyStr<'_>>,
+        key: Option<&NonEmptyStr>,
         len: u32,
         table: bool,
     ) -> Result<(), BinConfigWriterError> {
@@ -387,7 +387,7 @@ impl BinConfigWriter {
         key_table: &mut Vec<InternedString>,
         string_writer: &mut Vec<u8>,
         parent_table: Option<&mut BinConfigArrayOrTable>,
-        key: Option<NonEmptyStr<'_>>,
+        key: Option<&NonEmptyStr>,
     ) -> Result<BinTableKey, BinConfigWriterError> {
         use BinConfigWriterError::*;
 
@@ -568,7 +568,7 @@ impl BinConfigWriter {
     /// Checks if the current parent array/table is full.
     fn key_and_value_offset(
         &mut self,
-        key: Option<NonEmptyStr<'_>>,
+        key: Option<&NonEmptyStr>,
         value_type: ValueType,
     ) -> Result<(BinTableKey, u32), BinConfigWriterError> {
         use BinConfigWriterError::*;
@@ -740,7 +740,7 @@ impl BinConfigArrayOrTable {
 mod tests {
     #![allow(non_snake_case)]
 
-    use crate::*;
+    use {crate::*, ministr_macro::nestr};
 
     #[test]
     fn EmptyRootTable() {
