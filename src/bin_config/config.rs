@@ -516,7 +516,7 @@ impl BinConfig {
                         ValueType::Table => {
                             Self::validate_table(data, key_table_offset, &array_or_table)?;
                         }
-                        _ => unreachable!(),
+                        _ => debug_unreachable!("value must be an array or table if we got here"),
                     }
 
                     valid_range.end += size_of::<BinConfigPackedValue>() as u32;
@@ -558,19 +558,19 @@ impl BinConfig {
 
         // Must succeed - we are only adding values to the dyn table.
         if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set_impl(&key, Some(Bool(value))),
-            I64(value) => dyn_table.set_impl(&key, Some(I64(value))),
-            F64(value) => dyn_table.set_impl(&key, Some(F64(value))),
-            String(value) => dyn_table.set_impl(&key, Some(String(value.into()))),
+            Bool(value) => dyn_table.set_impl(key, Some(Bool(value))),
+            I64(value) => dyn_table.set_impl(key, Some(I64(value))),
+            F64(value) => dyn_table.set_impl(key, Some(F64(value))),
+            String(value) => dyn_table.set_impl(key, Some(String(value.into()))),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set_impl(&key, Some(Array(array)))
+                dyn_table.set_impl(key, Some(Array(array)))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set_impl(&key, Some(Table(table)))
+                dyn_table.set_impl(key, Some(Table(table)))
             }
         } {
             debug_assert!(
@@ -667,29 +667,21 @@ impl BinConfigHeader {
         key_table_offset: u32,
         key_table_len: u32,
     ) -> Result<u32, BinConfigWriterError> {
-        use BinConfigWriterError::*;
+        debug_assert!(len > 0);
 
         let mut written = 0;
 
         // Magic.
-        written += writer
-            .write(&u32_to_bin_bytes(BIN_CONFIG_HEADER_MAGIC))
-            .map_err(|_| WriteError)?;
+        written += writer.write(&u32_to_bin_bytes(BIN_CONFIG_HEADER_MAGIC))?;
 
         // Root table length.
-        written += writer
-            .write(&u32_to_bin_bytes(len))
-            .map_err(|_| WriteError)?;
+        written += writer.write(&u32_to_bin_bytes(len))?;
 
         // Key table offset.
-        written += writer
-            .write(&u32_to_bin_bytes(key_table_offset))
-            .map_err(|_| WriteError)?;
+        written += writer.write(&u32_to_bin_bytes(key_table_offset))?;
 
         // Key table length.
-        written += writer
-            .write(&u32_to_bin_bytes(key_table_len))
-            .map_err(|_| WriteError)?;
+        written += writer.write(&u32_to_bin_bytes(key_table_len))?;
 
         Ok(written as _)
     }
@@ -699,11 +691,11 @@ impl BinConfigHeader {
 mod tests {
     #![allow(non_snake_case)]
 
-    use {crate::*, ministr_macro::nestr};
+    use {crate::*, ministr_macro::nestr, std::num::NonZeroU32};
 
     #[test]
     fn GetPathError_EmptyKey() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.table(nestr!("foo"), 1).unwrap();
         writer.bool(nestr!("bar"), true).unwrap();
         writer.end().unwrap();
@@ -713,10 +705,10 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_path(&["foo".into(), "".into()])
+                .get_val_path(&["foo".into(), "".into()])
                 .err()
                 .unwrap(),
-            GetPathError::EmptyKey(ConfigPath(vec!["foo".into()]))
+            GetPathError::EmptyKey(ConfigPath(vec![nestr!("foo").into()]))
         );
 
         // But this works.
@@ -732,7 +724,7 @@ mod tests {
 
     #[test]
     fn GetPathError_PathDoesNotExist() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.table(nestr!("foo"), 1).unwrap();
         writer.array(nestr!("bar"), 1).unwrap();
         writer.table(None, 1).unwrap();
@@ -746,24 +738,27 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_path(&["foo".into(), "baz".into()])
+                .get_val_path(&["foo".into(), "baz".into()])
                 .err()
                 .unwrap(),
-            GetPathError::KeyDoesNotExist(ConfigPath(vec!["foo".into(), "baz".into()]))
+            GetPathError::KeyDoesNotExist(vec![nestr!("foo").into(), nestr!("baz").into()].into())
         );
 
         assert_eq!(
             config
                 .root()
-                .get_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
+                .get_val_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
                 .err()
                 .unwrap(),
-            GetPathError::KeyDoesNotExist(ConfigPath(vec![
-                "foo".into(),
-                "bar".into(),
-                0.into(),
-                "bill".into()
-            ]))
+            GetPathError::KeyDoesNotExist(
+                vec![
+                    nestr!("foo").into(),
+                    nestr!("bar").into(),
+                    0.into(),
+                    nestr!("bill").into()
+                ]
+                .into()
+            )
         );
 
         // But this works.
@@ -779,7 +774,7 @@ mod tests {
 
     #[test]
     fn GetPathError_IndexOutOfBounds() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, true).unwrap();
         writer.end().unwrap();
@@ -789,11 +784,11 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_path(&["array".into(), 1.into()])
+                .get_val_path(&["array".into(), 1.into()])
                 .err()
                 .unwrap(),
             GetPathError::IndexOutOfBounds {
-                path: ConfigPath(vec!["array".into(), 1.into()]),
+                path: vec![nestr!("array").into(), 1.into()].into(),
                 len: 1
             }
         );
@@ -811,7 +806,7 @@ mod tests {
 
     #[test]
     fn GetPathError_ValueNotAnArray() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.table(nestr!("table"), 1).unwrap();
         writer.bool(nestr!("array"), true).unwrap();
         writer.end().unwrap();
@@ -821,11 +816,11 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_path(&["table".into(), "array".into(), 1.into()])
+                .get_val_path(&["table".into(), "array".into(), 1.into()])
                 .err()
                 .unwrap(),
             GetPathError::ValueNotAnArray {
-                path: ConfigPath(vec!["table".into(), "array".into()]),
+                path: vec![nestr!("table").into(), nestr!("array").into()].into(),
                 value_type: ValueType::Bool
             }
         );
@@ -843,7 +838,7 @@ mod tests {
 
     #[test]
     fn GetPathError_ValueNotATable() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, true).unwrap();
         writer.end().unwrap();
@@ -853,11 +848,11 @@ mod tests {
         assert_eq!(
             config
                 .root()
-                .get_path(&["array".into(), 0.into(), "foo".into()])
+                .get_val_path(&["array".into(), 0.into(), "foo".into()])
                 .err()
                 .unwrap(),
             GetPathError::ValueNotATable {
-                path: ConfigPath(vec!["array".into(), 0.into()]),
+                path: vec![nestr!("array").into(), 0.into()].into(),
                 value_type: ValueType::Bool
             }
         );
@@ -875,7 +870,7 @@ mod tests {
 
     #[test]
     fn GetPathError_IncorrectValueType() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.table(nestr!("table"), 2).unwrap();
         writer.bool(nestr!("foo"), true).unwrap();
         writer.f64(nestr!("bar"), 3.14).unwrap();
@@ -954,7 +949,7 @@ mod tests {
     fn hash_collisions() {
         // See `fnv1a_hash_collisions()`.
 
-        let mut writer = BinConfigWriter::new(2).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(2).unwrap()).unwrap();
 
         writer.string(nestr!("costarring"), "declinate").unwrap();
         writer.string(nestr!("liquid"), "macallums").unwrap();
@@ -969,11 +964,6 @@ mod tests {
         );
         assert_eq!(
             config.root().get_string("costarring".into()).unwrap(),
-            "declinate"
-        );
-        assert_eq!(config.root().get_string_str("liquid").unwrap(), "macallums");
-        assert_eq!(
-            config.root().get_string_str("costarring").unwrap(),
             "declinate"
         );
 
@@ -993,7 +983,7 @@ mod tests {
     #[cfg(feature = "dyn")]
     #[test]
     fn to_dyn_config() {
-        let mut writer = BinConfigWriter::new(6).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(6).unwrap()).unwrap();
 
         writer.array(nestr!("array_value"), 3).unwrap();
         writer.i64(None, 54).unwrap();
@@ -1070,7 +1060,7 @@ float = 7.62
 int = 9
 string = "bar""#;
 
-        let mut writer = BinConfigWriter::new(7).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(7).unwrap()).unwrap();
 
         writer.array(nestr!("array"), 3).unwrap();
         writer.string(None, "foo").unwrap();

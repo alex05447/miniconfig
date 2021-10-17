@@ -28,7 +28,7 @@ mod value;
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua"))]
 mod error;
 
-pub use value::{Value, ValueType};
+pub use value::*;
 
 #[cfg(all(test, any(feature = "bin", feature = "dyn", feature = "lua")))]
 pub(crate) use util::cmp_f64;

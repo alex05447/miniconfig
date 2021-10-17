@@ -5,6 +5,7 @@ use {
         collections::{hash_map::Entry, HashMap},
         io::{Cursor, Seek, SeekFrom, Write},
         mem::size_of,
+        num::NonZeroU32,
         str::from_utf8_unchecked,
     },
 };
@@ -49,14 +50,7 @@ impl BinConfigWriter {
     /// [`binary config`]: struct.BinConfig.html
     /// [`writer`]: struct.BinConfigWriter.html
     /// [`table`]: struct.BinTable.html
-    pub fn new(len: u32) -> Result<Self, BinConfigWriterError> {
-        use BinConfigWriterError::*;
-
-        // Empty root tables are not supported.
-        if len == 0 {
-            return Err(EmptyRootTable);
-        }
-
+    pub fn new(len: std::num::NonZeroU32) -> Result<Self, BinConfigWriterError> {
         let mut writer = Self {
             data_offset: 0,
             config_writer: Cursor::new(Vec::new()),
@@ -228,21 +222,30 @@ impl BinConfigWriter {
             return Err(EndCallMismatch);
         }
 
-        // Must succeed - stack is not empty.
-        let parent = unwrap_unchecked(self.stack.pop());
-        let (len, cur_len) = (parent.len, parent.current_len);
+        if let Some(parent) = self.stack.pop() {
+            // Must still have the root table on the stack.
+            if self.stack.is_empty() {
+                return Err(EndCallMismatch);
+            }
 
-        // Must have been full.
-        if cur_len != len {
-            self.stack.push(parent);
+            let (len, cur_len) = (parent.len, parent.current_len);
 
-            return Err(ArrayOrTableLengthMismatch {
-                expected: len,
-                found: cur_len,
-            });
+            // Must have been full.
+            if cur_len != len {
+                self.stack.push(parent);
+
+                return Err(ArrayOrTableLengthMismatch {
+                    expected: len,
+                    found: cur_len,
+                });
+            }
+
+            Ok(())
+
+        // Shouldn't get here, case handled above.
+        } else {
+            Err(EndCallMismatch)
         }
-
-        Ok(())
     }
 
     /// Consumes this [`writer`] and returns the finished [`binary config`] data blob.
@@ -254,15 +257,13 @@ impl BinConfigWriter {
 
         std::mem::drop(self.strings);
 
-        debug_assert_ne!(self.stack.len(), 0);
-
         // Must only have the root table on the stack.
         if self.stack.len() > 1 {
             return Err(UnfinishedArraysOrTables(self.stack.len() as u32 - 1));
         }
 
-        // Must succeed - stack is not empty.
-        let root = unwrap_unchecked(self.stack.pop());
+        // An error shouldn't happen here, handled by `end()`.
+        let root = self.stack.pop().ok_or_else(|| EndCallMismatch)?;
 
         // The root table must have been full.
         if root.current_len < root.len {
@@ -276,9 +277,7 @@ impl BinConfigWriter {
         let key_table_offset = self.data_offset;
         let key_table_len = self.key_table.len() as u32;
 
-        self.config_writer
-            .seek(SeekFrom::Start(0))
-            .map_err(|_| WriteError)?;
+        self.config_writer.seek(SeekFrom::Start(0))?;
 
         BinConfigHeader::write(
             &mut self.config_writer,
@@ -322,24 +321,27 @@ impl BinConfigWriter {
 
     /// Called once on construction.
     /// Writes the binary config data blob header / root table length, initializes the data offset.
-    fn root(&mut self, len: u32) -> Result<(), BinConfigWriterError> {
-        debug_assert_eq!(self.stack.len(), 0);
+    fn root(&mut self, len: NonZeroU32) -> Result<(), BinConfigWriterError> {
+        debug_assert!(self.stack.is_empty());
         debug_assert_eq!(self.data_offset, 0);
 
         // Write the header.
         self.data_offset += BinConfigHeader::write(
             &mut self.config_writer,
-            len,
+            len.get(),
             0, // NOTE - fixed up when the recording is finished.
             0, // NOTE - fixed up when the recording is finished.
         )?;
 
         // Push the root table on the stack.
-        self.stack
-            .push(BinConfigArrayOrTable::new(true, len, self.data_offset));
+        self.stack.push(BinConfigArrayOrTable::new(
+            true,
+            len.get(),
+            self.data_offset,
+        ));
 
         // Bump the data offset by the combined table value length.
-        self.data_offset += len * size_of::<BinConfigPackedValue>() as u32;
+        self.data_offset += len.get() * size_of::<BinConfigPackedValue>() as u32;
 
         Ok(())
     }
@@ -405,7 +407,7 @@ impl BinConfigWriter {
 
                 // Must succeed - table keys have a key table index.
                 let index =
-                    unwrap_unchecked_msg(key.index, "table keys must have a valid key table index");
+                    unwrap_unchecked(key.index, "table keys must have a valid key table index");
 
                 if index > BinTableKey::max_index() {
                     return Err(TooManyKeys(BinTableKey::max_index()));
@@ -462,16 +464,12 @@ impl BinConfigWriter {
             key_table: Option<&mut Vec<InternedString>>,
             string: &str,
         ) -> Result<BinConfigWriterString, BinConfigWriterError> {
-            use BinConfigWriterError::*;
-
             // Offset to the start of the string is the current length of the string writer.
             let offset = string_writer.len() as u32;
 
             // Write the unique string and the null terminator.
-            string_writer
-                .write_all(string.as_bytes())
-                .map_err(|_| WriteError)?;
-            string_writer.write_all(&[b'\0']).map_err(|_| WriteError)?;
+            string_writer.write_all(string.as_bytes())?;
+            string_writer.write_all(&[b'\0'])?;
 
             let len = string.len() as u32;
 
@@ -692,12 +690,8 @@ impl BinConfigWriter {
         value: BinConfigPackedValue,
         offset: u32,
     ) -> Result<(), BinConfigWriterError> {
-        use BinConfigWriterError::*;
-
-        config_writer
-            .seek(SeekFrom::Start(offset as u64))
-            .map_err(|_| WriteError)?;
-        value.write(config_writer).map_err(|_| WriteError)?;
+        config_writer.seek(SeekFrom::Start(offset as u64))?;
+        value.write(config_writer)?;
 
         // Increment the parent array's/table's table length/value offset.
         Self::increment_len(stack);
@@ -740,23 +734,11 @@ impl BinConfigArrayOrTable {
 mod tests {
     #![allow(non_snake_case)]
 
-    use {crate::*, ministr_macro::nestr};
-
-    #[test]
-    fn EmptyRootTable() {
-        assert_eq!(
-            BinConfigWriter::new(0).err().unwrap(),
-            BinConfigWriterError::EmptyRootTable
-        );
-
-        // But this works.
-
-        BinConfigWriter::new(1).unwrap();
-    }
+    use {crate::*, ministr_macro::nestr, std::num::NonZeroU32};
 
     #[test]
     fn TableKeyRequired() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         assert_eq!(
             writer.bool(None, true).err().unwrap(),
             BinConfigWriterError::TableKeyRequired
@@ -769,7 +751,7 @@ mod tests {
 
     #[test]
     fn ArrayKeyNotRequired() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.array(nestr!("array"), 1).unwrap();
         assert_eq!(
             writer.bool(nestr!("bool"), true).err().unwrap(),
@@ -783,7 +765,7 @@ mod tests {
 
     #[test]
     fn MixedArray() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.array(nestr!("array"), 2).unwrap();
         writer.bool(None, true).unwrap();
         assert_eq!(
@@ -801,7 +783,7 @@ mod tests {
 
     #[test]
     fn NonUniqueKey() {
-        let mut writer = BinConfigWriter::new(2).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(2).unwrap()).unwrap();
         writer.bool(nestr!("bool"), true).unwrap();
         assert_eq!(
             writer.bool(nestr!("bool"), true).err().unwrap(),
@@ -817,7 +799,7 @@ mod tests {
     fn ArrayOrTableLengthMismatch() {
         // Underflow, root table.
         {
-            let writer = BinConfigWriter::new(1).unwrap();
+            let writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
             assert_eq!(
                 writer.finish().err().unwrap(),
                 BinConfigWriterError::ArrayOrTableLengthMismatch {
@@ -828,14 +810,14 @@ mod tests {
 
             // But this works.
 
-            let mut writer = BinConfigWriter::new(1).unwrap();
+            let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
             writer.bool(nestr!("bool"), true).unwrap();
             writer.finish().unwrap();
         }
 
         // Overflow, root table.
         {
-            let mut writer = BinConfigWriter::new(1).unwrap();
+            let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
             writer.bool(nestr!("bool_0"), true).unwrap();
             assert_eq!(
                 writer.bool(nestr!("bool_1"), true).err().unwrap(),
@@ -852,7 +834,7 @@ mod tests {
 
         // Overflow, nested table.
         {
-            let mut writer = BinConfigWriter::new(1).unwrap();
+            let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
             writer.table(nestr!("table"), 1).unwrap();
             writer.bool(nestr!("bool_0"), true).unwrap();
             assert_eq!(
@@ -871,7 +853,7 @@ mod tests {
 
         // Underflow, nested table.
         {
-            let mut writer = BinConfigWriter::new(1).unwrap();
+            let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
             writer.table(nestr!("table"), 2).unwrap();
             writer.bool(nestr!("bool_0"), true).unwrap();
             assert_eq!(
@@ -891,7 +873,7 @@ mod tests {
 
         // Overflow, nested array.
         {
-            let mut writer = BinConfigWriter::new(1).unwrap();
+            let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
             writer.array(nestr!("array"), 1).unwrap();
             writer.bool(None, true).unwrap();
             assert_eq!(
@@ -910,7 +892,7 @@ mod tests {
 
         // Underflow, nested array.
         {
-            let mut writer = BinConfigWriter::new(1).unwrap();
+            let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
             writer.array(nestr!("array"), 2).unwrap();
             writer.bool(None, true).unwrap();
             assert_eq!(
@@ -931,7 +913,7 @@ mod tests {
 
     #[test]
     fn EndCallMismatch() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.bool(nestr!("bool"), true).unwrap();
         assert_eq!(
             writer.end().err().unwrap(),
@@ -942,7 +924,7 @@ mod tests {
 
         writer.finish().unwrap();
 
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.array(nestr!("array"), 0).unwrap();
         writer.end().unwrap();
         writer.finish().unwrap();
@@ -950,7 +932,7 @@ mod tests {
 
     #[test]
     fn UnfinishedArraysOrTables() {
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.array(nestr!("array"), 1).unwrap();
         assert_eq!(
             writer.finish().err().unwrap(),
@@ -959,7 +941,7 @@ mod tests {
 
         // But this succeeds.
 
-        let mut writer = BinConfigWriter::new(1).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.array(nestr!("array"), 1).unwrap();
         writer.bool(None, false).unwrap();
         writer.end().unwrap();
@@ -981,7 +963,7 @@ mod tests {
     fn writer() {
         // Write the config.
 
-        let mut writer = BinConfigWriter::new(6).unwrap();
+        let mut writer = BinConfigWriter::new(NonZeroU32::new(6).unwrap()).unwrap();
 
         writer.array(nestr!("array_value"), 3).unwrap();
         writer.i64(None, 54).unwrap();
@@ -1007,14 +989,12 @@ mod tests {
         let config = BinConfig::new(data).unwrap();
 
         assert!(!config.root().contains("missing_value".into()));
-        assert!(!config.root().contains_str("missing_value"));
         #[cfg(feature = "str_hash")]
         {
             assert!(!config.root().contains(key!("missing_value")));
         }
 
         assert!(config.root().contains("array_value".into()));
-        assert!(config.root().contains_str("array_value"));
         #[cfg(feature = "str_hash")]
         {
             assert!(config.root().contains(key!("array_value")));
@@ -1031,33 +1011,23 @@ mod tests {
         assert!(cmp_f64(array_value.get_f64(2).unwrap(), 78.9));
 
         assert!(config.root().contains("bool_value".into()));
-        assert!(config.root().contains_str("bool_value"));
         #[cfg(feature = "str_hash")]
         {
             assert!(config.root().contains(key!("bool_value")));
         }
         assert_eq!(config.root().get_bool("bool_value".into()).unwrap(), true);
-        assert_eq!(config.root().get_bool_str("bool_value").unwrap(), true);
         #[cfg(feature = "str_hash")]
         {
-            assert_eq!(
-                config.root().get_bool_str(key!("bool_value")).unwrap(),
-                true
-            );
+            assert_eq!(config.root().get_bool(key!("bool_value")).unwrap(), true);
         }
 
         assert!(config.root().contains("float_value".into()));
-        assert!(config.root().contains_str("float_value"));
         #[cfg(feature = "str_hash")]
         {
             assert!(config.root().contains(key!("float_value")));
         }
         assert!(cmp_f64(
             config.root().get_f64("float_value".into()).unwrap(),
-            3.14
-        ));
-        assert!(cmp_f64(
-            config.root().get_f64_str("float_value").unwrap(),
             3.14
         ));
         #[cfg(feature = "str_hash")]
@@ -1069,21 +1039,18 @@ mod tests {
         }
 
         assert!(config.root().contains("int_value".into()));
-        assert!(config.root().contains_str("int_value"));
         #[cfg(feature = "str_hash")]
         {
-            assert!(config.root().contains_str(key!("int_value")));
+            assert!(config.root().contains(key!("int_value")));
         }
 
         assert_eq!(config.root().get_i64("int_value".into()).unwrap(), 7);
-        assert_eq!(config.root().get_i64_str("int_value").unwrap(), 7);
         #[cfg(feature = "str_hash")]
         {
             assert_eq!(config.root().get_i64(key!("int_value")).unwrap(), 7);
         }
 
         assert!(config.root().contains("string_value".into()));
-        assert!(config.root().contains_str("string_value"));
         #[cfg(feature = "str_hash")]
         {
             assert!(config.root().contains(key!("string_value")));
@@ -1093,7 +1060,6 @@ mod tests {
             config.root().get_string("string_value".into()).unwrap(),
             "foo"
         );
-        assert_eq!(config.root().get_string_str("string_value").unwrap(), "foo");
         #[cfg(feature = "str_hash")]
         {
             assert_eq!(
@@ -1103,7 +1069,6 @@ mod tests {
         }
 
         assert!(config.root().contains("table_value".into()));
-        assert!(config.root().contains_str("table_value"));
         #[cfg(feature = "str_hash")]
         {
             assert!(config.root().contains(key!("table_value")));
@@ -1113,49 +1078,41 @@ mod tests {
 
         assert_eq!(table_value.len(), 3);
         assert!(table_value.contains("bar".into()));
-        assert!(table_value.contains_str("bar"));
         #[cfg(feature = "str_hash")]
         {
             assert!(table_value.contains(key!("bar")));
         }
         assert_eq!(table_value.get_i64("bar".into()).unwrap(), 2020);
-        assert_eq!(table_value.get_i64_str("bar").unwrap(), 2020);
         #[cfg(feature = "str_hash")]
         {
             assert_eq!(table_value.get_i64(key!("bar")).unwrap(), 2020);
         }
         assert!(cmp_f64(table_value.get_f64("bar".into()).unwrap(), 2020.0));
-        assert!(cmp_f64(table_value.get_f64_str("bar").unwrap(), 2020.0));
         #[cfg(feature = "str_hash")]
         {
             assert!(cmp_f64(table_value.get_f64(key!("bar")).unwrap(), 2020.0));
         }
         assert!(table_value.contains("baz".into()));
-        assert!(table_value.contains_str("baz"));
         #[cfg(feature = "str_hash")]
         {
             assert!(table_value.contains(key!("baz")));
         }
         assert_eq!(table_value.get_string("baz".into()).unwrap(), "hello");
-        assert_eq!(table_value.get_string_str("baz").unwrap(), "hello");
         #[cfg(feature = "str_hash")]
         {
             assert_eq!(table_value.get_string(key!("baz")).unwrap(), "hello");
         }
         assert!(table_value.contains("foo".into()));
-        assert!(table_value.contains_str("foo"));
         #[cfg(feature = "str_hash")]
         {
             assert!(table_value.contains(key!("foo")));
         }
         assert_eq!(table_value.get_bool("foo".into()).unwrap(), false);
-        assert_eq!(table_value.get_bool_str("foo").unwrap(), false);
         #[cfg(feature = "str_hash")]
         {
             assert_eq!(table_value.get_bool(key!("foo")).unwrap(), false);
         }
         assert!(!table_value.contains("bob".into()));
-        assert!(!table_value.contains_str("bob"));
         #[cfg(feature = "str_hash")]
         {
             assert!(!table_value.contains(key!("bob")));

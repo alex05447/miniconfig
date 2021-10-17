@@ -79,6 +79,16 @@ pub enum TableKey<'a> {
     StringAndHash(StringAndHash),
 }
 
+impl<'a> TableKey<'a> {
+    pub fn as_str(&self) -> &str {
+        match self {
+            TableKey::String(string) => string.as_ref(),
+            #[cfg(all(feature = "bin", feature = "str_hash"))]
+            TableKey::StringAndHash(StringAndHash { string, .. }) => string.as_ref(),
+        }
+    }
+}
+
 #[cfg(feature = "bin")]
 impl<'a> TableKey<'a> {
     /// Returns the FNV1-a hash of the key string.
@@ -97,11 +107,7 @@ impl<'a> TableKey<'a> {
 
 impl<'a> AsRef<str> for TableKey<'a> {
     fn as_ref(&self) -> &str {
-        match self {
-            TableKey::String(string) => string.as_ref(),
-            #[cfg(all(feature = "bin", feature = "str_hash"))]
-            TableKey::StringAndHash(StringAndHash { string, .. }) => string.as_ref(),
-        }
+        self.as_str()
     }
 }
 
@@ -200,25 +206,69 @@ impl<'a> Display for ConfigKey<'a> {
     }
 }
 
+/// String key (in the [`table`]) or integer index (in the [`array`]) of a config element.
+/// Used in error reporting by config accessors and parsers.
+///
+/// [`table`]: enum.Value.html#variant.Table
+/// [`array`]: enum.Value.html#variant.Array
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum OwnedConfigKey {
+    /// A string [`table`] key.
+    ///
+    /// [`table`]: enum.Value.html#variant.Table
+    Table(NonEmptyString),
+    /// A (`0`-based) integer [`array`] index.
+    ///
+    /// [`array`]: enum.Value.html#variant.Array
+    Array(u32),
+}
+
+impl From<&NonEmptyStr> for OwnedConfigKey {
+    fn from(key: &NonEmptyStr) -> Self {
+        Self::Table(key.into())
+    }
+}
+
+impl From<NonEmptyString> for OwnedConfigKey {
+    fn from(key: NonEmptyString) -> Self {
+        Self::Table(key.into())
+    }
+}
+
+impl From<u32> for OwnedConfigKey {
+    fn from(index: u32) -> Self {
+        Self::Array(index)
+    }
+}
+
+impl Display for OwnedConfigKey {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            Self::Table(key) => key.fmt(f),
+            Self::Array(key) => key.fmt(f),
+        }
+    }
+}
+
 /// Describes the full path to a config element.
 /// Empty path means the root table.
 /// Used in error reporting by config accessors and parsers.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ConfigPath<'a>(pub Vec<ConfigKey<'a>>);
+pub struct ConfigPath(pub Vec<OwnedConfigKey>);
 
-impl<'a> ConfigPath<'a> {
+impl ConfigPath {
     pub(crate) fn new() -> Self {
         Self(Vec::new())
     }
 }
 
-impl<'a> From<Vec<ConfigKey<'a>>> for ConfigPath<'a> {
-    fn from(path: Vec<ConfigKey<'a>>) -> Self {
+impl From<Vec<OwnedConfigKey>> for ConfigPath {
+    fn from(path: Vec<OwnedConfigKey>) -> Self {
         Self(path)
     }
 }
 
-impl<'a> Display for ConfigPath<'a> {
+impl Display for ConfigPath {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         if self.0.is_empty() {
             "<root>".fmt(f)

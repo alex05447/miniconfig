@@ -24,16 +24,13 @@ pub enum IniErrorKind {
     /// Unexpected end of file in a section name.
     UnexpectedEndOfFileInSectionName,
     /// Empty section names are invalid.
-    /// Contains the (maybe empty) path to the empty section.
-    EmptySectionName(IniConfigPath),
+    EmptySectionName,
     /// Invalid (missing or not a section) parent section name.
-    /// Contains the (non-empty) path of the parent section.
-    InvalidParentSection(IniConfigPath),
+    InvalidParentSection,
     /// Maximum allowed nested section depth exceeded.
     NestedSectionDepthExceeded,
     /// Duplicate section name encountered and is not allowed by options.
-    /// Contains the (non-empty) path of the duplicate section.
-    DuplicateSection(IniConfigPath),
+    DuplicateSection,
     /// Invalid character at the end of the line - expected whitespace or an inline comment (if supported).
     /// Contains the invalid character.
     InvalidCharacterAtLineEnd(char),
@@ -45,8 +42,7 @@ pub enum IniErrorKind {
     /// Empty keys are invalid.
     EmptyKey,
     /// Duplicate key encountered and is not allowed by options.
-    /// Contains the path of the duplicate key.
-    DuplicateKey(IniConfigPath),
+    DuplicateKey,
     /// Unexpected end of file encountered before a key-value separator.
     UnexpectedEndOfFileBeforeKeyValueSeparator,
     /// Invalid character encountered instead of the key-value separator.
@@ -111,13 +107,10 @@ impl Display for IniErrorKind {
             ),
             UnexpectedNewLineInSectionName => "unexpected new line in a section name".fmt(f),
             UnexpectedEndOfFileInSectionName => "unexpected end of file in a section name".fmt(f),
-            EmptySectionName(path) => write!(f, "empty section names are invalid (in {})", path),
-            InvalidParentSection(path) => write!(f, "invalid (missing or not a section) parent section {}", path),
+            EmptySectionName => "empty section names are invalid".fmt(f),
+            InvalidParentSection => "invalid (missing or not a section) parent section".fmt(f),
             NestedSectionDepthExceeded => write!(f, "maximum allowed nested section depth exceeded"),
-            DuplicateSection(path) => write!(
-                f,
-                "duplicate section name ({}) encountered and is not allowed by options", path
-            ),
+            DuplicateSection => "duplicate section name encountered and is not allowed by options".fmt(f),
             InvalidCharacterAtLineEnd(c) => write!(
                 f,
                 "invalid character ('{}') at the end of the line - expected whitespace or an inline comment (if supported)", c
@@ -128,10 +121,7 @@ impl Display for IniErrorKind {
             ),
             UnexpectedNewLineInKey => "unexpected new line encountered before a key-value separator".fmt(f),
             EmptyKey => "empty keys are invalid".fmt(f),
-            DuplicateKey(k) => write!(
-                f,
-                "duplicate key (\"{}\") encountered and is not allowed by options", k
-            ),
+            DuplicateKey => "duplicate key encountered and is not allowed by options".fmt(f),
             UnexpectedEndOfFileBeforeKeyValueSeparator => "unexpected end of file encountered before a key-value separator".fmt(f),
             InvalidKeyValueSeparator(c) => write!(
                 f,
@@ -175,6 +165,8 @@ pub struct IniError {
     pub line: u32,
     /// Column in the source string where the error occured.
     pub column: u32,
+    /// Path to the key / value in which the error happened, or an empty path for the root section.
+    pub path: ConfigPath,
     /// Actual error.
     pub error: IniErrorKind,
 }
@@ -185,8 +177,8 @@ impl Display for IniError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(
             f,
-            "`.ini` parse error; line: {}, column: {}, error: {}",
-            self.line, self.column, self.error
+            "`.ini` parse error; line: {}, column: {}, path: {}, error: {}",
+            self.line, self.column, self.path, self.error
         )
     }
 }
@@ -204,11 +196,23 @@ pub enum ToIniStringError {
     InvalidArrayType,
     /// Maximum allowed nested section depth exceeded.
     NestedSectionDepthExceeded,
-    /// General write error (out of memory?).
-    WriteError,
     /// Encountered an escaped character not allowed by options.
     /// Contains the escaped character.
     EscapedCharacterNotAllowed(char),
+    /// General write error.
+    WriteError,
+}
+
+impl From<std::io::Error> for ToIniStringError {
+    fn from(_: std::io::Error) -> Self {
+        Self::WriteError
+    }
+}
+
+impl From<std::fmt::Error> for ToIniStringError {
+    fn from(_: std::fmt::Error) -> Self {
+        Self::WriteError
+    }
 }
 
 impl Error for ToIniStringError {}
@@ -221,7 +225,7 @@ impl Display for ToIniStringError {
             ArraysNotAllowed => "array values are not allowed by options".fmt(f),
             InvalidArrayType => "only boolean, number and string arrays are supported".fmt(f),
             NestedSectionDepthExceeded => "maximum allowed nested section depth exceeded".fmt(f),
-            WriteError => "general write error (out of memory?)".fmt(f),
+            WriteError => "general write error".fmt(f),
             EscapedCharacterNotAllowed(c) => write!(
                 f,
                 "encountered an escaped character not allowed by options: \'{}\'",

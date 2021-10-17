@@ -1,6 +1,5 @@
 use {
-    crate::{util::unwrap_unchecked, *},
-    rlua::Value as LuaValue,
+    crate::*,
     rlua_ext,
     std::{
         error::Error,
@@ -13,7 +12,7 @@ use {
 /// [`LuaConfig::from_script`]: struct.LuaConfig.html#method.from_script
 /// [`LuaConfigKey::from_script`]: struct.LuaConfigKey.html#method.from_script
 #[derive(Clone, Debug)]
-pub enum LuaConfigError<'a> {
+pub enum LuaConfigError {
     /// Error loading the Lua config script.
     /// Contains the actual Lua error.
     LuaScriptError(rlua::Error),
@@ -22,13 +21,13 @@ pub enum LuaConfigError<'a> {
     ///
     /// [`tables`]: struct.LuaTable.html
     /// [`table`]: struct.LuaTable.html
-    MixedKeys(ConfigPath<'a>),
+    MixedKeys(ConfigPath),
     /// Mixed (and incompatible) type values are not allowed in Lua config [`arrays`].
     ///
     /// [`arrays`]: struct.LuaArray.html
     MixedArray {
         /// Path to the invalid array element.
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// Expected Lua value [`type`] (as determined by the first value in the array).
         ///
         /// [`type`]: enum.ValueType.html
@@ -45,7 +44,7 @@ pub enum LuaConfigError<'a> {
         /// Path to the [`table`], or an empty path for the root [`table`].
         ///
         /// [`table`]: struct.LuaTable.html
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// Invalid key Lua value type.
         invalid_type: rlua_ext::ValueType,
     },
@@ -56,7 +55,7 @@ pub enum LuaConfigError<'a> {
         /// Path to the [`table`] containing the invalid key, or an empty path for the root [`table`].
         ///
         /// [`table`]: struct.LuaTable.html
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// UTF-8 parse error.
         error: rlua::Error,
     },
@@ -65,12 +64,12 @@ pub enum LuaConfigError<'a> {
     ///
     /// [`tables`]: struct.LuaTable.html
     /// [`table`]: struct.LuaTable.html
-    EmptyKey(ConfigPath<'a>),
+    EmptyKey(ConfigPath),
     /// Invalid index in Lua config [`array`].
     /// Contains the path to the invalid [`array`].
     ///
     /// [`array`]: struct.LuaArray.html
-    InvalidArrayIndex(ConfigPath<'a>),
+    InvalidArrayIndex(ConfigPath),
     /// Invalid Lua value type for a Lua config [`value`].
     ///
     /// [`value`]: type.LuaConfigValue.html
@@ -78,7 +77,7 @@ pub enum LuaConfigError<'a> {
         /// Path to the invalid config [`value`].
         ///
         /// [`value`]: type.LuaConfigValue.html
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// Invalid Lua value type.
         invalid_type: rlua_ext::ValueType,
     },
@@ -89,18 +88,16 @@ pub enum LuaConfigError<'a> {
         /// Path to the invalid string [`value`].
         ///
         /// [`value`]: type.LuaConfigValue.html
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// UTF-8 parse error.
         error: rlua::Error,
     },
 }
 
-impl<'a> LuaConfigError<'a> {
+impl LuaConfigError {
     /// Pushes the table key / array index to the back of the path if the error has one.
-    pub(crate) fn push_key(mut self, key: LuaValue<'_>) -> Self {
+    pub(crate) fn push_key(mut self, key: OwnedConfigKey) -> Self {
         use LuaConfigError::*;
-
-        let key = config_key_from_lua_value(key);
 
         match &mut self {
             MixedKeys(path) => path.0.push(key),
@@ -142,9 +139,9 @@ impl<'a> LuaConfigError<'a> {
     }
 }
 
-impl<'a> Error for LuaConfigError<'a> {}
+impl Error for LuaConfigError {}
 
-impl<'a> Display for LuaConfigError<'a> {
+impl Display for LuaConfigError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use LuaConfigError::*;
 
@@ -190,20 +187,5 @@ impl Display for LuaConfigKeyError {
         match self {
             LuaStateMismatch => "lua state mismatch".fmt(f),
         }
-    }
-}
-
-// NOTE: the caller ensures the `key` is either a (valid UTF-8) string or an integer.
-pub(super) fn config_key_from_lua_value<'a>(key: LuaValue<'_>) -> ConfigKey<'a> {
-    match key {
-        LuaValue::String(key) => ConfigKey::Table(
-            // Must succeed - keys are valid strings or integers.
-            unwrap_unchecked(key.to_str()).to_owned().into(),
-        ),
-        LuaValue::Integer(key) => {
-            debug_assert!(key > 0);
-            ConfigKey::Array((key - 1) as u32)
-        }
-        _ => panic!("expected a string or integer Lua table / array key"),
     }
 }

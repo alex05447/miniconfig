@@ -150,6 +150,14 @@ pub(crate) struct IniOptions {
     ///
     /// Default: `1`.
     pub(crate) nested_section_depth: u32,
+    /// Whether implicit parent sections are allowed.
+    /// If `nested_section_depth` is `>1` (we allow nested sections), and this is `true`,
+    /// using section names in nested section paths which have not been declared prior
+    /// is allowed and results in an implicit empty section with that name being declared.
+    /// Otherwise using an unknown section name in a nested section path is treated as an error.
+    ///
+    /// Default: `false`.
+    pub(crate) implicit_parent_sections: bool,
 }
 
 impl Default for IniOptions {
@@ -166,6 +174,7 @@ impl Default for IniOptions {
             duplicate_keys: IniDuplicateKeys::Forbid,
             arrays: false,
             nested_section_depth: 1,
+            implicit_parent_sections: false,
         }
     }
 }
@@ -330,6 +339,10 @@ pub struct ToIniStringOptions {
     ///
     /// Default: `1`.
     pub nested_section_depth: u32,
+    /// See [`implicit_parent_sections`](struct.IniParser.html#method.implicit_parent_sections).
+    ///
+    /// Default: `false`.
+    pub implicit_parent_sections: bool,
 }
 
 impl Default for ToIniStringOptions {
@@ -338,6 +351,7 @@ impl Default for ToIniStringOptions {
             escape: true,
             arrays: false,
             nested_section_depth: 1,
+            implicit_parent_sections: false,
         }
     }
 }

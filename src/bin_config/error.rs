@@ -35,8 +35,8 @@ pub enum BinArrayError {
     /// [`Array`]: struct.BinArray.html
     /// [`array`]: struct.BinArray.html
     IndexOutOfBounds(u32),
-    /// [`Array`] value is of incorrect [`type`].
-    /// Contains the value [`type`].
+    /// [`Array`] value is of incorrect and incompatible [`type`].
+    /// Contains the actual value [`type`].
     ///
     /// [`Array`]: struct.BinArray.html
     /// [`type`]: enum.ValueType.html
@@ -52,7 +52,11 @@ impl Display for BinArrayError {
         match self {
             IndexOutOfBounds(len) => write!(f, "array index out of bounds (length is {})", len),
             IncorrectValueType(invalid_type) => {
-                write!(f, "array value is of incorrect type: \"{}\"", invalid_type)
+                write!(
+                    f,
+                    "array value is of incorrect and incompatible type (expected {})",
+                    invalid_type
+                )
             }
         }
     }
@@ -98,7 +102,7 @@ pub enum BinConfigWriterError {
     ///
     /// [`table`]: struct.BinTable.html
     NonUniqueKey,
-    /// Mismatch between decalred [`array`]/[`table`] length and actual number of elements provided.
+    /// Mismatch between declared [`array`]/[`table`] length and actual number of elements provided.
     ///
     /// [`array`]: struct.BinArray.html
     /// [`table`]: struct.BinTable.html
@@ -116,8 +120,14 @@ pub enum BinConfigWriterError {
     /// [`tables`]: struct.BinTable.html
     /// [`finish`]: struct.BinConfigWriter.html#method.finish
     UnfinishedArraysOrTables(u32),
-    /// General write error (out of memory?).
+    /// General write error.
     WriteError,
+}
+
+impl From<std::io::Error> for BinConfigWriterError {
+    fn from(_: std::io::Error) -> Self {
+        Self::WriteError
+    }
 }
 
 impl Error for BinConfigWriterError {}
@@ -135,13 +145,13 @@ impl Display for BinConfigWriterError {
             NonUniqueKey => "a non-unique string key was provided for a table element".fmt(f),
             ArrayOrTableLengthMismatch { expected, found } => write!(
                 f,
-                "mismatch between decalred array/table length ({}) and actual number of elements provided ({})",
+                "mismatch between declared array/table length ({}) and actual number of elements provided ({})",
                 expected,
                 found,
             ),
             EndCallMismatch => "mismatched call to `end` (expected a previous call to `array`/`table`)".fmt(f),
             UnfinishedArraysOrTables(num) => write!(f, "{} unfinished array(s)/table(s) remain in the call to `finish`", num),
-            WriteError => "general write error (out of memory?)".fmt(f),
+            WriteError => "general write error".fmt(f),
         }
     }
 }

@@ -1,6 +1,6 @@
 use {
     super::{array::BinArray, table::BinTable, util::*},
-    crate::{util::unwrap_unchecked_msg, value::*, *},
+    crate::{util::unwrap_unchecked, value::*, *},
     static_assertions::const_assert,
     std::{
         borrow::Borrow,
@@ -205,7 +205,7 @@ impl BinConfigPackedValue {
     /// Unpacks this value's type.
     /// NOTE - the caller guarantees the value type is valid.
     pub(super) fn value_type(&self) -> ValueType {
-        unwrap_unchecked_msg(self.try_value_type(), "invalid binary config value type")
+        unwrap_unchecked(self.try_value_type(), "invalid binary config value type")
     }
 
     fn set_value_type_and_key_index(&mut self, value_type: ValueType, key_index: u32) {
@@ -230,7 +230,7 @@ impl BinConfigPackedValue {
     /// Unpacks and interprets this value as a `bool`.
     /// NOTE - the caller guarantees the value is `0` or `1`.
     fn bool(&self) -> bool {
-        unwrap_unchecked_msg(self.try_bool(), "invalid binary config boolean value")
+        unwrap_unchecked(self.try_bool(), "invalid binary config boolean value")
     }
 
     /// Unpacks and interprets this value as an `i64`.
@@ -362,9 +362,9 @@ pub type BinConfigValue<'at> = Value<&'at str, BinArray<'at>, BinTable<'at>>;
 
 impl<'at> BinConfigValue<'at> {
     /// Tries to access the value at `path` in this value.
-    pub(crate) fn get_path<'a, K, P>(self, mut path: P) -> Result<Self, GetPathError<'a>>
+    pub(crate) fn get_path<'k, K, P>(self, mut path: P) -> Result<Self, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: Iterator<Item = K>,
     {
         if let Some(key) = path.next() {
@@ -372,17 +372,19 @@ impl<'at> BinConfigValue<'at> {
             match key {
                 ConfigKey::Array(index) => match self {
                     Value::Array(array) => {
-                        let value = array.get(*index).map_err(|err| match err {
+                        let value = array.get_val(*index).map_err(|err| match err {
                             BinArrayError::IndexOutOfBounds(len) => {
                                 GetPathError::IndexOutOfBounds {
-                                    path: ConfigPath(vec![key.clone()]),
+                                    path: vec![(*index).into()].into(),
                                     len,
                                 }
                             }
-                            BinArrayError::IncorrectValueType(_) => unreachable!(),
+                            BinArrayError::IncorrectValueType(_) => debug_unreachable!(
+                                "`get()` does not return `IncorrectValueType(_)`"
+                            ),
                         })?;
 
-                        value.get_path(path).map_err(|err| err.push_key(key))
+                        value.get_path(path).map_err(|err| err.push_index(*index))
                     }
                     _ => Err(GetPathError::ValueNotAnArray {
                         path: ConfigPath::new(),
@@ -391,15 +393,22 @@ impl<'at> BinConfigValue<'at> {
                 },
                 ConfigKey::Table(table_key) => match self {
                     Value::Table(table) => {
-                        let value = table
-                            .get_impl(table_key.as_ref(), table_key.key_hash())
-                            .map_err(|err| match err {
-                                TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
-                                TableError::KeyDoesNotExist => {
-                                    GetPathError::KeyDoesNotExist(ConfigPath(vec![key.clone()]))
-                                }
-                                TableError::IncorrectValueType(_) => unreachable!(),
-                            })?;
+                        let key = NonEmptyStr::new(table_key.as_str())
+                            .ok_or_else(|| GetPathError::EmptyKey(ConfigPath::new()))?;
+                        let value =
+                            table
+                                .get_impl(key, table_key.key_hash())
+                                .map_err(|err| match err {
+                                    TableError::KeyDoesNotExist => {
+                                        GetPathError::KeyDoesNotExist(vec![key.into()].into())
+                                    }
+                                    TableError::IncorrectValueType(_) => debug_unreachable!(
+                                        "`get_impl()` does not return `IncorrectValueType(_)`"
+                                    ),
+                                    TableError::EmptyKey => debug_unreachable!(
+                                        "`get_impl()` does not return `EmptyKey`"
+                                    ),
+                                })?;
 
                         value.get_path(path).map_err(|err| err.push_key(key))
                     }
@@ -418,5 +427,35 @@ impl<'at> BinConfigValue<'at> {
 impl<'a> Display for BinConfigValue<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.fmt_lua(f, 0)
+    }
+}
+
+impl<'at> TryFromValue<&'at str, BinArray<'at>, BinTable<'at>> for &'at str {
+    fn try_from(val: Value<&'at str, BinArray<'at>, BinTable<'at>>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.string().ok_or_else(|| val_type)
+    }
+}
+
+impl<'at> TryFromValue<&'at str, BinArray<'at>, BinTable<'at>> for String {
+    fn try_from(val: Value<&'at str, BinArray<'at>, BinTable<'at>>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.string()
+            .ok_or_else(|| val_type)
+            .map(|string| string.into())
+    }
+}
+
+impl<'at> TryFromValue<&'at str, BinArray<'at>, BinTable<'at>> for BinArray<'at> {
+    fn try_from(val: Value<&'at str, BinArray<'at>, BinTable<'at>>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.array().ok_or_else(|| val_type)
+    }
+}
+
+impl<'at> TryFromValue<&'at str, BinArray<'at>, BinTable<'at>> for BinTable<'at> {
+    fn try_from(val: Value<&'at str, BinArray<'at>, BinTable<'at>>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.table().ok_or_else(|| val_type)
     }
 }

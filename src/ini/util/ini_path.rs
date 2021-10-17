@@ -85,8 +85,8 @@ impl<'s> IniPath<'s> {
         IniPathIter::new(self)
     }
 
-    pub(crate) fn to_config_path(&self) -> IniConfigPath {
-        let mut path = IniConfigPath::new();
+    pub(crate) fn to_config_path(&self) -> ConfigPath {
+        let mut path = ConfigPath::new();
 
         for section in self.iter() {
             path.0.push(section.as_ne_str().into());
@@ -108,15 +108,13 @@ impl<'s> IniPath<'s> {
                 debug_assert!(range.end > 0);
                 debug_assert!(range.start < range.end);
 
-                NonEmptyIniStr::Owned(unwrap_unchecked_msg(
+                NonEmptyIniStr::Owned(unwrap_unchecked(
                     NonEmptyStr::new(self.buffer.get_unchecked(range.start as _..range.end as _)),
                     "empty section name",
                 ))
             }
             Borrowed(part) => NonEmptyIniStr::Borrowed(*part),
         }
-
-        //let end = *(self.offsets.get_unchecked(index as usize)) as _;
     }
 }
 

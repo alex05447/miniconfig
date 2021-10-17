@@ -244,6 +244,18 @@ impl<'s> IniParser<'s> {
         self
     }
 
+    /// Whether implicit parent sections are allowed.
+    /// If `nested_section_depth` is `>1` (we allow nested sections), and this is `true`,
+    /// using section names in nested section paths which have not been declared prior
+    /// is allowed and results in an implicit empty section with that name being declared.
+    /// Otherwise using an unknown section name in a nested section path is treated as an error.
+    ///
+    /// Default: `false`.
+    pub fn implicit_parent_sections(mut self, implicit_parent_sections: bool) -> Self {
+        self.options.implicit_parent_sections = implicit_parent_sections;
+        self
+    }
+
     /// Consumes the parser and tries to parse the `.ini` config string, calling the methods on the passed `config` event handler.
     pub fn parse<C: IniConfig<'s>>(mut self, config: &mut C) -> Result<(), IniError> {
         self.validate_options();
@@ -271,22 +283,28 @@ impl<'s> IniParser<'s> {
                     &mut persistent_state,
                     &options,
                 )
-                .map_err(|(err, offset)| Self::error(err, offset, &src_pos_state))?;
+                .map_err(|(err, offset)| {
+                    Self::error(
+                        err,
+                        offset,
+                        &src_pos_state,
+                        persistent_state.path.to_config_path(),
+                    )
+                })?;
         }
 
         fsm_state
-            .finish(substr, config, &persistent_state, &options)
-            .map_err(|err| Self::error(err, false, &src_pos_state))?;
+            .finish(substr, config, &mut persistent_state, &options)
+            .map_err(|err| {
+                Self::error(
+                    err,
+                    false,
+                    &src_pos_state,
+                    persistent_state.path.to_config_path(),
+                )
+            })?;
 
-        while let Some(section) = persistent_state.path.last() {
-            // We didn't call `start_section()` if we skipped it, so don't call `end_section`.
-            if !persistent_state.skip_section {
-                config.end_section(section);
-            } else {
-                persistent_state.skip_section = false;
-            }
-            persistent_state.path.pop();
-        }
+        persistent_state.clear_path(config);
 
         Ok(())
     }
@@ -351,11 +369,16 @@ impl<'s> IniParser<'s> {
         debug_assert!(*idx.start() < src.len());
         debug_assert!(*idx.end() <= src.len());
 
-        unsafe { unwrap_unchecked_msg(NonEmptyStr::new(src.get_unchecked(idx)), "empty substring") }
+        unsafe { unwrap_unchecked(NonEmptyStr::new(src.get_unchecked(idx)), "empty substring") }
     }
 
     /// Error helper method.
-    fn error(error: IniErrorKind, offset: bool, state: &IniParserSrcPositionState) -> IniError {
+    fn error(
+        error: IniErrorKind,
+        offset: bool,
+        state: &IniParserSrcPositionState,
+        path: ConfigPath,
+    ) -> IniError {
         if offset {
             debug_assert!(state.column > 0);
         }
@@ -368,6 +391,7 @@ impl<'s> IniParser<'s> {
                 state.column
             },
             error,
+            path,
         }
     }
 }
@@ -378,46 +402,4 @@ enum ParseEscapeSequenceResult {
     EscapedChar(char),
     /// Parsed an escape sequence as a line continuation.
     LineContinuation,
-}
-
-/// Represents an individual leaf-level `.ini` config value,
-/// contained in the root of the config, config section or an array.
-#[derive(Clone, Copy, Debug)]
-pub enum IniValue<'s, 'a> {
-    Bool(bool),
-    I64(i64),
-    F64(f64),
-    String(IniStr<'s, 'a>),
-}
-
-impl<'s, 'a> IniValue<'s, 'a> {
-    fn get_ini_type(&self) -> IniValueType {
-        match self {
-            IniValue::Bool(_) => IniValueType::Bool,
-            IniValue::I64(_) => IniValueType::I64,
-            IniValue::F64(_) => IniValueType::F64,
-            IniValue::String(_) => IniValueType::String,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum IniValueType {
-    Bool,
-    I64,
-    F64,
-    String,
-}
-
-impl IniValueType {
-    pub(crate) fn is_compatible(self, other: IniValueType) -> bool {
-        use IniValueType::*;
-
-        match self {
-            Bool => other == Bool,
-            I64 => (other == I64) || (other == F64),
-            F64 => (other == I64) || (other == F64),
-            String => other == String,
-        }
-    }
 }

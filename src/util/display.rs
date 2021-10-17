@@ -8,6 +8,12 @@ pub(crate) enum WriteCharError {
     EscapedCharacter(char),
 }
 
+impl From<std::fmt::Error> for WriteCharError {
+    fn from(_: std::fmt::Error) -> Self {
+        Self::WriteError
+    }
+}
+
 /// Writes the char `c` to the writer `w`.
 /// If `escape` is `true`, escapes special characters
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f'),
@@ -52,9 +58,9 @@ pub(crate) fn write_char<W: Write>(
         }
     };
 
-    match c {
+    Ok(match c {
         // Don't escape the backslashes and just write them as-is if `escape` is false.
-        '\\' if escape => w.write_str(r#"\\"#).map_err(|_| WriteError),
+        '\\' if escape => w.write_str(r#"\\"#)?,
 
         // It's an error if it's a special character or the double quotes and `escape` is `false`.
         c @ '\0'
@@ -67,9 +73,9 @@ pub(crate) fn write_char<W: Write>(
         | c @ '\x0c' // \f
         | c @ '"' => {
             if escape {
-                w.write_str(escape_char(c)).map_err(|_| WriteError)
+                w.write_str(escape_char(c))?;
             } else {
-                Err(EscapedCharacter(c))
+                return Err(EscapedCharacter(c));
             }
         }
 
@@ -77,9 +83,9 @@ pub(crate) fn write_char<W: Write>(
         // Else it's an error if `escape` is `false`.
         c @ '\'' | c @ ' ' if !quoted => {
             if escape {
-                w.write_str(escape_char(c)).map_err(|_| WriteError)
+                w.write_str(escape_char(c))?;
             } else {
-                Err(EscapedCharacter(c))
+                return Err(EscapedCharacter(c));
             }
         }
 
@@ -87,12 +93,12 @@ pub(crate) fn write_char<W: Write>(
         // Else it's an error if `escape` is `false`.
         c @ '[' | c @ ']' | c @ ';' | c @ '#' | c @ '=' | c @ ':' if ini && !quoted => {
             if escape {
-                w.write_str(escape_char(c)).map_err(|_| WriteError)
+                w.write_str(escape_char(c))?;
             } else {
-                Err(EscapedCharacter(c))
+                return Err(EscapedCharacter(c));
             }
         }
 
-        c => w.write_char(c).map_err(|_| WriteError),
-    }
+        c => w.write_char(c)?,
+    })
 }

@@ -2,11 +2,14 @@ use {
     super::util::*,
     crate::{util::*, *},
     rlua::{Context, RegistryKey},
-    std::fmt::{Display, Formatter, Write},
+    std::{
+        fmt::{Display, Formatter, Write},
+        num::NonZeroU32,
+    },
 };
 
 #[cfg(feature = "bin")]
-use crate::util::unwrap_unchecked_msg;
+use crate::util::unwrap_unchecked;
 
 /// Represents a mutable config with a root [`Lua table`] within the [`Lua context`].
 ///
@@ -27,7 +30,7 @@ impl<'lua> LuaConfig<'lua> {
     /// Creates a new [`Lua config`] from the Lua `script`.
     ///
     /// [`Lua config`]: struct.LuaConfig.html
-    pub fn from_script<'a>(lua: Context<'lua>, script: &str) -> Result<Self, LuaConfigError<'a>> {
+    pub fn from_script(lua: Context<'lua>, script: &str) -> Result<Self, LuaConfigError> {
         use LuaConfigError::*;
 
         let root = lua.create_table().map_err(LuaScriptError)?;
@@ -44,7 +47,10 @@ impl<'lua> LuaConfig<'lua> {
             .map_err(LuaScriptError)?;
 
         // Must succeed.
-        let root = unwrap_unchecked(root.get("root"));
+        let root = unwrap_unchecked(
+            root.raw_get("root"),
+            "failed to get the Lua config root table from the environment",
+        );
 
         Self::from_table(lua, root)
     }
@@ -52,10 +58,10 @@ impl<'lua> LuaConfig<'lua> {
     /// Creates a new [`config`] from the Lua `table`.
     ///
     /// [`config`]: struct.LuaConfig.html
-    pub fn from_table<'a>(
+    pub fn from_table(
         lua: Context<'lua>,
         table: rlua::Table<'lua>,
-    ) -> Result<Self, LuaConfigError<'a>> {
+    ) -> Result<Self, LuaConfigError> {
         validate_lua_config_table(lua, &table)?;
 
         Ok(LuaConfig(LuaTable::from_valid_table(table)))
@@ -133,16 +139,17 @@ impl<'lua> LuaConfig<'lua> {
 
         let root = self.root();
 
+        if let Some(root_len) = NonZeroU32::new(root.len()) {
+            let mut writer = BinConfigWriter::new(root_len)?;
+
+            table_to_bin_config(root, &mut writer)?;
+
+            writer.finish()
+
         // The root table is empty - nothing to do.
-        if root.len() == 0 {
-            return Err(EmptyRootTable);
+        } else {
+            Err(EmptyRootTable)
         }
-
-        let mut writer = BinConfigWriter::new(root.len())?;
-
-        table_to_bin_config(root, &mut writer)?;
-
-        writer.finish()
     }
 
     /// Tries to serialize this [`config`] to an `.ini` string.
@@ -199,7 +206,10 @@ impl<'lua> LuaConfig<'lua> {
     fn table_to_dyn_table(table: LuaTable<'_>, dyn_table: &mut DynTable) {
         for (key, value) in table.iter() {
             // Must succeed - we don't allow empty keys.
-            let key = unwrap_unchecked(NonEmptyStr::new(key.as_ref()));
+            let key = unwrap_unchecked(
+                NonEmptyStr::new(key.as_ref()),
+                "empty key in Lua config table",
+            );
             Self::value_to_dyn_table(key, value, dyn_table);
         }
     }
@@ -221,19 +231,19 @@ impl<'lua> LuaConfig<'lua> {
 
         // Must succeed - we are only adding values to the dyn table.
         if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set_impl(&key, Some(Value::Bool(value))),
-            I64(value) => dyn_table.set_impl(&key, Some(Value::I64(value))),
-            F64(value) => dyn_table.set_impl(&key, Some(Value::F64(value))),
-            String(value) => dyn_table.set_impl(&key, Some(Value::String(value.as_ref().into()))),
+            Bool(value) => dyn_table.set_impl(key, Some(Value::Bool(value))),
+            I64(value) => dyn_table.set_impl(key, Some(Value::I64(value))),
+            F64(value) => dyn_table.set_impl(key, Some(Value::F64(value))),
+            String(value) => dyn_table.set_impl(key, Some(Value::String(value.as_ref().into()))),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set_impl(&key, Some(Value::Array(array)))
+                dyn_table.set_impl(key, Some(Value::Array(array)))
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set_impl(&key, Some(Value::Table(table)))
+                dyn_table.set_impl(key, Some(Value::Table(table)))
             }
         } {
             debug_assert!(
@@ -323,7 +333,7 @@ impl LuaConfigKey {
     /// Creates a new [`Lua config`] from the Lua `script`.
     ///
     /// [`Lua config`]: struct.LuaConfigKey.html
-    pub fn from_script<'a>(lua: Context<'_>, script: &str) -> Result<Self, LuaConfigError<'a>> {
+    pub fn from_script(lua: Context<'_>, script: &str) -> Result<Self, LuaConfigError> {
         LuaConfig::from_script(lua, script).map(|config| config.key(lua))
     }
 
@@ -350,10 +360,13 @@ fn table_to_bin_config(
     for key in keys.into_iter() {
         // Must succeed - we don't allow empty table keys.
         let key_str =
-            unwrap_unchecked_msg(NonEmptyStr::new(key.as_ref()), "empty table string key");
+            unwrap_unchecked(NonEmptyStr::new(key.as_ref()), "empty Lua config table key");
 
         // Must succeed - all keys are valid.
-        let value = unwrap_unchecked(table.get(key_str));
+        let value = unwrap_unchecked(
+            table.get_val(key_str),
+            "failed to get a value from a Lua config table with a valid key",
+        );
 
         value_to_bin_config(Some(key_str), value, writer)?;
     }
@@ -420,7 +433,7 @@ impl<'lua> Display for LuaConfig<'lua> {
 mod tests {
     #![allow(non_snake_case)]
 
-    use {crate::*, rlua_ext::ValueType as LuaValueType};
+    use {crate::*, ministr_macro::nestr, rlua_ext::ValueType as LuaValueType};
 
     fn lua_config(script: &str) -> Result<(), LuaConfigError> {
         let lua = rlua::Lua::new();
@@ -463,7 +476,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::MixedKeys(path) if path == ConfigPath(vec!["table".into()])
+            LuaConfigError::MixedKeys(path) if path == vec![nestr!("table").into()].into()
         ));
 
         assert!(matches!(
@@ -477,7 +490,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::MixedKeys(path) if path == ConfigPath(vec!["table".into(), "nested_table".into()])
+            LuaConfigError::MixedKeys(path) if path == vec![nestr!("table").into(), nestr!("nested_table").into()].into()
         ));
 
         // But this should work.
@@ -513,7 +526,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::MixedArray { path, expected, found } if path == ConfigPath(vec!["array".into(), 1.into()]) && expected == LuaValueType::Boolean && found == LuaValueType::Integer
+            LuaConfigError::MixedArray { path, expected, found } if path == vec![nestr!("array").into(), 1.into()].into() && expected == LuaValueType::Boolean && found == LuaValueType::Integer
         ));
 
         assert!(matches!(
@@ -528,7 +541,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::MixedArray { path, expected, found } if path == ConfigPath(vec!["table".into(), "array".into(), 1.into()]) && expected == LuaValueType::Boolean && found == LuaValueType::Integer
+            LuaConfigError::MixedArray { path, expected, found } if path == vec![nestr!("table").into(), nestr!("array").into(), 1.into()].into() && expected == LuaValueType::Boolean && found == LuaValueType::Integer
         ));
 
         // But this should work.
@@ -564,7 +577,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::InvalidKeyType { path, invalid_type } if path == ConfigPath(vec!["table".into()]) && invalid_type == LuaValueType::Number
+            LuaConfigError::InvalidKeyType { path, invalid_type } if path == vec![nestr!("table").into()].into() && invalid_type == LuaValueType::Number
         ));
 
         assert!(matches!(
@@ -577,7 +590,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::InvalidKeyType { path, invalid_type } if path == ConfigPath(vec!["table".into(), "nested_table".into()]) && invalid_type == LuaValueType::Number
+            LuaConfigError::InvalidKeyType { path, invalid_type } if path == vec![nestr!("table").into(), nestr!("nested_table").into()].into() && invalid_type == LuaValueType::Number
         ));
     }
 
@@ -600,7 +613,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::InvalidKeyUTF8 { path, .. } if path == ConfigPath(vec!["table".into()])
+            LuaConfigError::InvalidKeyUTF8 { path, .. } if path == vec![nestr!("table").into()].into()
         ));
     }
 
@@ -614,7 +627,7 @@ mod tests {
                         }
                     }"#,
             ),
-            LuaConfigError::EmptyKey(path) if path == ConfigPath(vec!["table".into()])
+            LuaConfigError::EmptyKey(path) if path == vec![nestr!("table").into()].into()
         ));
     }
 
@@ -628,7 +641,7 @@ mod tests {
                     }
                 }"#,
             ),
-            LuaConfigError::InvalidArrayIndex(path) if path == ConfigPath(vec!["table".into()])
+            LuaConfigError::InvalidArrayIndex(path) if path == vec![nestr!("table").into()].into()
         ));
 
         // But this should work.
@@ -662,7 +675,7 @@ mod tests {
                     }
                 }"#,
             ),
-            LuaConfigError::InvalidValueType { path, invalid_type } if path == ConfigPath(vec!["table".into(), "invalid".into()]) && invalid_type == LuaValueType::Function
+            LuaConfigError::InvalidValueType { path, invalid_type } if path == vec![nestr!("table").into(), nestr!("invalid").into()].into() && invalid_type == LuaValueType::Function
         ));
 
         assert!(matches!(
@@ -673,7 +686,7 @@ mod tests {
                     }
                 }"#,
             ),
-            LuaConfigError::InvalidValueType { path, invalid_type } if path == ConfigPath(vec!["array".into(), 0.into()]) && invalid_type == LuaValueType::Function
+            LuaConfigError::InvalidValueType { path, invalid_type } if path == vec![nestr!("array").into(), 0.into()].into() && invalid_type == LuaValueType::Function
         ));
     }
 
@@ -687,7 +700,7 @@ mod tests {
                     }
                 }"#,
             ),
-            LuaConfigError::InvalidValueUTF8 { path, .. } if path == ConfigPath(vec!["table".into(), "string".into()])
+            LuaConfigError::InvalidValueUTF8 { path, .. } if path == vec![nestr!("table").into(), nestr!("string").into()].into()
         ));
     }
 
@@ -912,7 +925,7 @@ string = "bar""#;
             let mut table = LuaTable::new(lua);
 
             assert_eq!(
-                table.get_path(&["".into()]).err().unwrap(),
+                table.get_val_path(&["".into()]).err().unwrap(),
                 GetPathError::EmptyKey(ConfigPath::new())
             );
 
@@ -922,14 +935,19 @@ string = "bar""#;
             table.set("foo", Some(other_table.into())).unwrap();
 
             assert_eq!(
-                table.get_path(&["foo".into(), "".into()]).err().unwrap(),
-                GetPathError::EmptyKey(ConfigPath(vec!["foo".into()]))
+                table
+                    .get_val_path(&["foo".into(), "".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::EmptyKey(vec![nestr!("foo").into()].into())
             );
 
             // But this works.
 
             assert_eq!(
-                table.get_bool_path(&["foo".into(), "bar".into()]).unwrap(),
+                table
+                    .get_bool_path(&[nestr!("foo").into(), nestr!("bar").into()])
+                    .unwrap(),
                 true,
             );
         });
@@ -952,21 +970,29 @@ string = "bar""#;
             table.set("foo", Some(foo.into())).unwrap();
 
             assert_eq!(
-                table.get_path(&["foo".into(), "baz".into()]).err().unwrap(),
-                GetPathError::KeyDoesNotExist(ConfigPath(vec!["foo".into(), "baz".into()]))
+                table
+                    .get_val_path(&["foo".into(), "baz".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::KeyDoesNotExist(
+                    vec![nestr!("foo").into(), nestr!("baz").into()].into()
+                )
             );
 
             assert_eq!(
                 table
-                    .get_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
+                    .get_val_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
                     .err()
                     .unwrap(),
-                GetPathError::KeyDoesNotExist(ConfigPath(vec![
-                    "foo".into(),
-                    "bar".into(),
-                    0.into(),
-                    "bill".into()
-                ]))
+                GetPathError::KeyDoesNotExist(
+                    vec![
+                        nestr!("foo").into(),
+                        nestr!("bar").into(),
+                        0.into(),
+                        nestr!("bill").into()
+                    ]
+                    .into()
+                )
             );
 
             // But this works.
@@ -993,9 +1019,12 @@ string = "bar""#;
             table.set("array", Some(array.into())).unwrap();
 
             assert_eq!(
-                table.get_path(&["array".into(), 1.into()]).err().unwrap(),
+                table
+                    .get_val_path(&["array".into(), 1.into()])
+                    .err()
+                    .unwrap(),
                 GetPathError::IndexOutOfBounds {
-                    path: ConfigPath(vec!["array".into(), 1.into()]),
+                    path: vec![nestr!("array").into(), 1.into()].into(),
                     len: 1
                 }
             );
@@ -1023,11 +1052,11 @@ string = "bar""#;
 
             assert_eq!(
                 table
-                    .get_path(&["table".into(), "array".into(), 1.into()])
+                    .get_val_path(&["table".into(), "array".into(), 1.into()])
                     .err()
                     .unwrap(),
                 GetPathError::ValueNotAnArray {
-                    path: ConfigPath(vec!["table".into(), "array".into()]),
+                    path: vec![nestr!("table").into(), nestr!("array").into()].into(),
                     value_type: ValueType::Bool
                 }
             );
@@ -1057,11 +1086,11 @@ string = "bar""#;
 
             assert_eq!(
                 table
-                    .get_path(&["array".into(), 0.into(), "foo".into()])
+                    .get_val_path(&["array".into(), 0.into(), "foo".into()])
                     .err()
                     .unwrap(),
                 GetPathError::ValueNotATable {
-                    path: ConfigPath(vec!["array".into(), 0.into()]),
+                    path: vec![nestr!("array").into(), 0.into()].into(),
                     value_type: ValueType::Bool
                 }
             );

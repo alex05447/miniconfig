@@ -231,6 +231,30 @@ pub(crate) fn value_type_from_u32(val: u32) -> Option<ValueType> {
     }
 }
 
+/// A trait implemented by values which may be (fallibly) constructed from a [`config value`](Value).
+pub trait TryFromValue<S, A, T>: Sized {
+    /// Returns the actual [`config value`](Value) [`type`](ValueType) if the return type value is not constructible from it.
+    fn try_from(val: Value<S, A, T>) -> Result<Self, ValueType>;
+}
+
+impl<S, A, T> TryFromValue<S, A, T> for bool {
+    fn try_from(val: Value<S, A, T>) -> Result<Self, ValueType> {
+        val.bool().ok_or_else(|| val.get_type())
+    }
+}
+
+impl<S, A, T> TryFromValue<S, A, T> for i64 {
+    fn try_from(val: Value<S, A, T>) -> Result<Self, ValueType> {
+        val.i64().ok_or_else(|| val.get_type())
+    }
+}
+
+impl<S, A, T> TryFromValue<S, A, T> for f64 {
+    fn try_from(val: Value<S, A, T>) -> Result<Self, ValueType> {
+        val.f64().ok_or_else(|| val.get_type())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(any(feature = "bin", feature = "lua"))]

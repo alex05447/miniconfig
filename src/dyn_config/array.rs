@@ -49,8 +49,23 @@ impl DynArray {
     /// [`value`]: type.DynConfigValueRef.html
     /// [`array`]: struct.DynArray.html
     /// [`error`]: enum.ArrayError.html
-    pub fn get(&self, index: u32) -> Result<DynConfigValueRef<'_>, ArrayError> {
+    pub fn get_val(&self, index: u32) -> Result<DynConfigValueRef<'_>, ArrayError> {
         self.get_impl(index)
+    }
+
+    /// Tries to get an immutable reference to a [`value`] in the [`array`] at `index`,
+    /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
+    ///
+    /// Returns an [`error`] if `index` is out of bounds.
+    ///
+    /// [`value`]: type.DynConfigValueRef.html
+    /// [`array`]: struct.DynArray.html
+    /// [`error`]: enum.ArrayError.html
+    pub fn get<'a, V: TryFromValue<&'a str, &'a DynArray, &'a DynTable>>(
+        &'a self,
+        index: u32,
+    ) -> Result<V, ArrayError> {
+        V::try_from(self.get_val(index)?).map_err(ArrayError::IncorrectValueType)
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`array`] at `path`.
@@ -69,14 +84,40 @@ impl DynArray {
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
     /// [`type`]: enum.ValueType.html
-    pub fn get_path<'a, K, P>(&self, path: P) -> Result<DynConfigValueRef<'_>, GetPathError<'a>>
+    pub fn get_val_path<'k, K, P>(&self, path: P) -> Result<DynConfigValueRef<'_>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
         DynConfigValueRef::Array(&self)
             .get_path(path.into_iter())
             .map_err(GetPathError::reverse)
+    }
+
+    /// Tries to get an immutable reference to a [`value`] in the [`array`] at `path`,
+    /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
+    ///
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`] or an [`array`](enum.Value.html#variant.Array) value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns the [`array`] itself if the `path` is empty.
+    ///
+    /// [`value`]: type.DynConfigValueRef.html
+    /// [`array`]: struct.DynArray.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`table`]: enum.Value.html#variant.Table
+    /// [`type`]: enum.ValueType.html
+    pub fn get_path<'a, 'k, K, P, V>(&'a self, path: P) -> Result<V, GetPathError>
+    where
+        K: Borrow<ConfigKey<'k>>,
+        P: IntoIterator<Item = K>,
+        V: TryFromValue<&'a str, &'a DynArray, &'a DynTable>,
+    {
+        V::try_from(self.get_val_path(path)?).map_err(GetPathError::IncorrectValueType)
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`array`] at `index`.
@@ -88,9 +129,7 @@ impl DynArray {
     /// [`array`]: struct.DynArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_bool(&self, index: u32) -> Result<bool, ArrayError> {
-        let val = self.get(index)?;
-        val.bool()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
+        self.get(index)
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`array`] at `path`.
@@ -107,14 +146,12 @@ impl DynArray {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_bool_path<'a, K, P>(&self, path: P) -> Result<bool, GetPathError<'a>>
+    pub fn get_bool_path<'k, K, P>(&self, path: P) -> Result<bool, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.bool()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `index`.
@@ -127,9 +164,7 @@ impl DynArray {
     /// [`array`]: struct.DynArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_i64(&self, index: u32) -> Result<i64, ArrayError> {
-        let val = self.get(index)?;
-        val.i64()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
+        self.get(index)
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `path`.
@@ -147,14 +182,12 @@ impl DynArray {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_i64_path<'a, K, P>(&self, path: P) -> Result<i64, GetPathError<'a>>
+    pub fn get_i64_path<'k, K, P>(&self, path: P) -> Result<i64, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.i64()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `index`.
@@ -167,9 +200,7 @@ impl DynArray {
     /// [`array`]: struct.DynArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_f64(&self, index: u32) -> Result<f64, ArrayError> {
-        let val = self.get(index)?;
-        val.f64()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
+        self.get(index)
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `path`.
@@ -187,14 +218,12 @@ impl DynArray {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_f64_path<'a, K, P>(&self, path: P) -> Result<f64, GetPathError<'a>>
+    pub fn get_f64_path<'k, K, P>(&self, path: P) -> Result<f64, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.f64()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `index`.
@@ -206,10 +235,7 @@ impl DynArray {
     /// [`array`]: struct.DynArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_string(&self, index: u32) -> Result<&str, ArrayError> {
-        let val = self.get(index)?;
-        let val_type = val.get_type();
-        val.string()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
+        self.get(index)
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `path`.
@@ -219,22 +245,19 @@ impl DynArray {
     /// All keys except the last one must correspond to a [`table`] or an [`array`](enum.Value.html#variant.Array) value.
     /// The last key must correspond to a [`string`] [`value`].
     ///
-    /// [`string`]: enum.Value.html#variant.I64
+    /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.DynConfigValue.html
     /// [`array`]: struct.DynArray.html
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_string_path<'a, K, P>(&self, path: P) -> Result<&str, GetPathError<'a>>
+    pub fn get_string_path<'k, K, P>(&self, path: P) -> Result<&str, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.string()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
@@ -245,10 +268,7 @@ impl DynArray {
     /// [`array`]: struct.DynArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_array(&self, index: u32) -> Result<&DynArray, ArrayError> {
-        let val = self.get(index)?;
-        let val_type = val.get_type();
-        val.array()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
+        self.get(index)
     }
 
     /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `path`.
@@ -264,15 +284,12 @@ impl DynArray {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_array_path<'a, K, P>(&self, path: P) -> Result<&DynArray, GetPathError<'a>>
+    pub fn get_array_path<'k, K, P>(&self, path: P) -> Result<&DynArray, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.array()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `index`.
@@ -284,10 +301,7 @@ impl DynArray {
     /// [`array`]: struct.DynArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_table(&self, index: u32) -> Result<&DynTable, ArrayError> {
-        let val = self.get(index)?;
-        let val_type = val.get_type();
-        val.table()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
+        self.get(index)
     }
 
     /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `path`.
@@ -303,15 +317,12 @@ impl DynArray {
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
-    pub fn get_table_path<'a, K, P>(&self, path: P) -> Result<&DynTable, GetPathError<'a>>
+    pub fn get_table_path<'k, K, P>(&self, path: P) -> Result<&DynTable, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.table()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Returns an in-order iterator over [`values`] in the [`array`].
@@ -335,8 +346,29 @@ impl DynArray {
     /// [`arrays`]: enum.Value.html#variant.Array
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
-    pub fn get_mut(&mut self, index: u32) -> Result<DynConfigValueMut<'_>, ArrayError> {
+    pub fn get_val_mut(&mut self, index: u32) -> Result<DynConfigValueMut<'_>, ArrayError> {
         self.get_mut_impl(index)
+    }
+
+    /// Tries to get a mutable reference to a [`value`] in the [`array`] at `index`,
+    /// and convert it to the user-requested type [`convertible`](TryFromDynConfigValueMut) from a [`value`].
+    ///
+    /// Returns an [`error`] if `index` is out of bounds.
+    ///
+    /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
+    /// Use [`set`] to mutate other value types in the [`array`].
+    ///
+    /// [`value`]: type.DynConfigValueMut.html
+    /// [`array`]: struct.DynArray.html
+    /// [`error`]: enum.ArrayError.html
+    /// [`arrays`]: enum.Value.html#variant.Array
+    /// [`tables`]: enum.Value.html#variant.Table
+    /// [`set`]: #method.set
+    pub fn get_mut<'a, V: TryFromValue<&'a str, &'a mut DynArray, &'a mut DynTable>>(
+        &'a mut self,
+        index: u32,
+    ) -> Result<V, ArrayError> {
+        V::try_from(self.get_val_mut(index)?).map_err(ArrayError::IncorrectValueType)
     }
 
     /// Tries to get a mutable reference to a [`value`] in the [`array`] at `path`.
@@ -361,17 +393,49 @@ impl DynArray {
     /// [`arrays`]: enum.Value.html#variant.Array
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
-    pub fn get_mut_path<'a, K, P>(
+    pub fn get_val_path_mut<'k, K, P>(
         &mut self,
         path: P,
-    ) -> Result<DynConfigValueMut<'_>, GetPathError<'a>>
+    ) -> Result<DynConfigValueMut<'_>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
         DynConfigValueMut::Array(self)
             .get_path(path.into_iter())
             .map_err(GetPathError::reverse)
+    }
+
+    /// Tries to get a mutable reference to a [`value`] in the [`array`] at `path`,
+    /// and convert it to the user-requested type [`convertible`](TryFromDynConfigValueMut) from a [`value`].
+    ///
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`] or an [`array`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns the [`array`] itself if the `path` is empty.
+    ///
+    /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
+    /// Use [`set`] to mutate other value types in the [`array`].
+    ///
+    /// [`value`]: type.DynConfigValueRef.html
+    /// [`array`]: struct.DynArray.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`table`]: struct.DynTable.html
+    /// [`type`]: enum.ValueType.html
+    /// [`arrays`]: enum.Value.html#variant.Array
+    /// [`tables`]: enum.Value.html#variant.Table
+    /// [`set`]: #method.set
+    pub fn get_path_mut<'a, 'k, K, P, V>(&'a mut self, path: P) -> Result<V, GetPathError>
+    where
+        K: Borrow<ConfigKey<'k>>,
+        P: IntoIterator<Item = K>,
+        V: TryFromValue<&'a str, &'a mut DynArray, &'a mut DynTable>,
+    {
+        V::try_from(self.get_val_path_mut(path)?).map_err(GetPathError::IncorrectValueType)
     }
 
     /// Tries to get a mutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `index`.
@@ -388,7 +452,7 @@ impl DynArray {
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
     pub fn get_array_mut(&mut self, index: u32) -> Result<&mut DynArray, ArrayError> {
-        let val = self.get_mut(index)?;
+        let val = self.get_val_mut(index)?;
         let val_type = val.get_type();
         val.array()
             .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
@@ -413,15 +477,12 @@ impl DynArray {
     /// [`arrays`]: enum.Value.html#variant.Array
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
-    pub fn get_array_mut_path<'a, K, P>(
-        &mut self,
-        path: P,
-    ) -> Result<&mut DynArray, GetPathError<'a>>
+    pub fn get_array_path_mut<'k, K, P>(&mut self, path: P) -> Result<&mut DynArray, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_mut_path(path)?;
+        let val = self.get_val_path_mut(path)?;
         let val_type = val.get_type();
         val.array()
             .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
@@ -442,7 +503,7 @@ impl DynArray {
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
     pub fn get_table_mut(&mut self, index: u32) -> Result<&mut DynTable, ArrayError> {
-        let val = self.get_mut(index)?;
+        let val = self.get_val_mut(index)?;
         let val_type = val.get_type();
         val.table()
             .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
@@ -467,15 +528,12 @@ impl DynArray {
     /// [`arrays`]: enum.Value.html#variant.Array
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
-    pub fn get_table_mut_path<'a, K, P>(
-        &mut self,
-        path: P,
-    ) -> Result<&mut DynTable, GetPathError<'a>>
+    pub fn get_table_path_mut<'k, K, P>(&mut self, path: P) -> Result<&mut DynTable, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_mut_path(path)?;
+        let val = self.get_val_path_mut(path)?;
         let val_type = val.get_type();
         val.table()
             .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
@@ -540,7 +598,7 @@ impl DynArray {
         }
     }
 
-    fn get_mut_impl(&mut self, index: u32) -> Result<DynConfigValueMut<'_>, ArrayError> {
+    pub(crate) fn get_mut_impl(&mut self, index: u32) -> Result<DynConfigValueMut<'_>, ArrayError> {
         use ArrayError::*;
 
         let len = self.len();
@@ -741,7 +799,10 @@ mod tests {
     fn DynArrayError_IndexOutOfBounds() {
         let mut array = DynArray::new();
 
-        assert_eq!(array.get(0).err().unwrap(), ArrayError::IndexOutOfBounds(0));
+        assert_eq!(
+            array.get_val(0).err().unwrap(),
+            ArrayError::IndexOutOfBounds(0)
+        );
         assert_eq!(
             array.get_bool(0).err().unwrap(),
             ArrayError::IndexOutOfBounds(0)
@@ -768,7 +829,7 @@ mod tests {
         );
 
         assert_eq!(
-            array.get_mut(0).err().unwrap(),
+            array.get_val_mut(0).err().unwrap(),
             ArrayError::IndexOutOfBounds(0)
         );
         assert_eq!(
@@ -789,7 +850,7 @@ mod tests {
 
         array.push(true.into()).unwrap();
 
-        assert_eq!(array.get(0).unwrap().bool().unwrap(), true);
+        assert_eq!(array.get_val(0).unwrap().bool().unwrap(), true);
         assert_eq!(array.get_bool(0).unwrap(), true);
     }
 
@@ -855,12 +916,76 @@ mod tests {
             ArrayError::IncorrectValueType(ValueType::Bool)
         );
 
+        assert_eq!(
+            array.get_i64(0).err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        let val: Result<i64, _> = array.get(0);
+        assert_eq!(
+            val.err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            array.get_f64(0).err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        let val: Result<f64, _> = array.get(0);
+        assert_eq!(
+            val.err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            array.get_string(0).err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        let val: Result<&str, _> = array.get(0);
+        assert_eq!(
+            val.err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        let val: Result<String, _> = array.get(0);
+        assert_eq!(
+            val.err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            array.get_array(0).err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        let val: Result<&DynArray, _> = array.get(0);
+        assert_eq!(
+            val.err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        assert_eq!(
+            array.get_table(0).err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+        let val: Result<&DynTable, _> = array.get(0);
+        assert_eq!(
+            val.err().unwrap(),
+            ArrayError::IncorrectValueType(ValueType::Bool)
+        );
+
         // But this works.
 
         array.clear();
 
         array.push(7.into()).unwrap();
         array.push(3.14.into()).unwrap();
+
+        assert_eq!(array.get_i64(0).unwrap(), 7);
+        assert_eq!(array.get_i64(1).unwrap(), 3);
+        let val: i64 = array.get(0).unwrap();
+        assert_eq!(val, 7);
+        let val: i64 = array.get(1).unwrap();
+        assert_eq!(val, 3);
+        assert!(cmp_f64(array.get_f64(0).unwrap(), 7.0));
+        assert!(cmp_f64(array.get_f64(1).unwrap(), 3.14));
+        let val: f64 = array.get(0).unwrap();
+        assert!(cmp_f64(val, 7.0));
+        let val: f64 = array.get(1).unwrap();
+        assert!(cmp_f64(val, 3.14));
     }
 
     #[test]
@@ -875,14 +1000,14 @@ mod tests {
         assert_eq!(array.len(), 1);
         assert!(!array.is_empty());
 
-        assert_eq!(array.get(0).unwrap().bool().unwrap(), true);
+        assert_eq!(array.get_val(0).unwrap().bool().unwrap(), true);
         assert_eq!(array.get_bool(0).unwrap(), true);
 
         // Push a bool.
         array.push(false.into()).unwrap();
         assert_eq!(array.len(), 2);
         assert!(!array.is_empty());
-        assert_eq!(array.get(1).unwrap().bool().unwrap(), false);
+        assert_eq!(array.get_val(1).unwrap().bool().unwrap(), false);
         assert_eq!(array.get_bool(1).unwrap(), false);
 
         // Clear it.
@@ -898,10 +1023,10 @@ mod tests {
         assert_eq!(array.len(), 1);
         assert!(!array.is_empty());
 
-        assert_eq!(array.get(0).unwrap().i64().unwrap(), 7);
+        assert_eq!(array.get_val(0).unwrap().i64().unwrap(), 7);
         assert_eq!(array.get_i64(0).unwrap(), 7);
 
-        assert!(cmp_f64(array.get(0).unwrap().f64().unwrap(), 7.0));
+        assert!(cmp_f64(array.get_val(0).unwrap().f64().unwrap(), 7.0));
         assert!(cmp_f64(array.get_f64(0).unwrap(), 7.0));
 
         // Push a float.
@@ -909,10 +1034,10 @@ mod tests {
         assert_eq!(array.len(), 2);
         assert!(!array.is_empty());
 
-        assert_eq!(array.get(1).unwrap().i64().unwrap(), 3);
+        assert_eq!(array.get_val(1).unwrap().i64().unwrap(), 3);
         assert_eq!(array.get_i64(1).unwrap(), 3);
 
-        assert!(cmp_f64(array.get(1).unwrap().f64().unwrap(), 3.14));
+        assert!(cmp_f64(array.get_val(1).unwrap().f64().unwrap(), 3.14));
         assert!(cmp_f64(array.get_f64(1).unwrap(), 3.14));
 
         // Push another int.
@@ -920,10 +1045,10 @@ mod tests {
         assert_eq!(array.len(), 3);
         assert!(!array.is_empty());
 
-        assert_eq!(array.get(2).unwrap().i64().unwrap(), -9);
+        assert_eq!(array.get_val(2).unwrap().i64().unwrap(), -9);
         assert_eq!(array.get_i64(2).unwrap(), -9);
 
-        assert!(cmp_f64(array.get(2).unwrap().f64().unwrap(), -9.0));
+        assert!(cmp_f64(array.get_val(2).unwrap().f64().unwrap(), -9.0));
         assert!(cmp_f64(array.get_f64(2).unwrap(), -9.0));
 
         // Iterate the array.

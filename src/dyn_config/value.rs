@@ -64,9 +64,9 @@ impl<'at> From<&'at Value<String, DynArray, DynTable>> for DynConfigValueRef<'at
 }
 
 impl<'at> DynConfigValueRef<'at> {
-    pub(crate) fn get_path<'a, K, P>(self, mut path: P) -> Result<Self, GetPathError<'a>>
+    pub(crate) fn get_path<'k, K, P>(self, mut path: P) -> Result<Self, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: Iterator<Item = K>,
     {
         if let Some(key) = path.next() {
@@ -74,17 +74,17 @@ impl<'at> DynConfigValueRef<'at> {
             match key {
                 ConfigKey::Array(index) => match self {
                     Value::Array(array) => {
-                        let value = array.get(*index).map_err(|err| match err {
+                        let value = array.get_val(*index).map_err(|err| match err {
                             ArrayError::IndexOutOfBounds(len) => GetPathError::IndexOutOfBounds {
-                                path: ConfigPath(vec![key.clone()]),
+                                path: vec![(*index).into()].into(),
                                 len,
                             },
                             ArrayError::ArrayEmpty | ArrayError::IncorrectValueType(_) => {
-                                unreachable!()
+                                debug_unreachable!("`get()` does not return `ArrayEmpty` or `IncorrectValueType(_)`")
                             }
                         })?;
 
-                        value.get_path(path).map_err(|err| err.push_key(key))
+                        value.get_path(path).map_err(|err| err.push_index(*index))
                     }
                     _ => Err(GetPathError::ValueNotAnArray {
                         path: ConfigPath::new(),
@@ -93,12 +93,18 @@ impl<'at> DynConfigValueRef<'at> {
                 },
                 ConfigKey::Table(ref table_key) => match self {
                     Value::Table(table) => {
-                        let value = table.get(table_key).map_err(|err| match err {
-                            TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
+                        let key = NonEmptyStr::new(table_key.as_str())
+                            .ok_or_else(|| GetPathError::EmptyKey(ConfigPath::new()))?;
+                        let value = table.get_impl(key).map_err(|err| match err {
                             TableError::KeyDoesNotExist => {
-                                GetPathError::KeyDoesNotExist(ConfigPath(vec![key.clone()]))
+                                GetPathError::KeyDoesNotExist(vec![key.into()].into())
                             }
-                            TableError::IncorrectValueType(_) => unreachable!(),
+                            TableError::IncorrectValueType(_) => debug_unreachable!(
+                                "`get_impl()` does not return `IncorrectValueType(_)`"
+                            ),
+                            TableError::EmptyKey => {
+                                debug_unreachable!("`get_impl()` does not return `EmptyKey`")
+                            }
                         })?;
 
                         value.get_path(path).map_err(|err| err.push_key(key))
@@ -142,9 +148,9 @@ impl<'at> From<&'at mut Value<String, DynArray, DynTable>> for DynConfigValueMut
 }
 
 impl<'at> DynConfigValueMut<'at> {
-    pub(crate) fn get_path<'a, K, P>(self, mut path: P) -> Result<Self, GetPathError<'a>>
+    pub(crate) fn get_path<'k, K, P>(self, mut path: P) -> Result<Self, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: Iterator<Item = K>,
     {
         if let Some(key) = path.next() {
@@ -152,17 +158,17 @@ impl<'at> DynConfigValueMut<'at> {
             match key {
                 ConfigKey::Array(index) => match self {
                     Value::Array(array) => {
-                        let value = array.get_mut(*index).map_err(|err| match err {
+                        let value = array.get_val_mut(*index).map_err(|err| match err {
                             ArrayError::IndexOutOfBounds(len) => GetPathError::IndexOutOfBounds {
-                                path: ConfigPath(vec![key.clone()]),
+                                path: vec![(*index).into()].into(),
                                 len,
                             },
                             ArrayError::ArrayEmpty | ArrayError::IncorrectValueType(_) => {
-                                unreachable!()
+                                debug_unreachable!("`get_mut()` does not return `ArrayEmpty` or `IncorrectValueType(_)`")
                             }
                         })?;
 
-                        value.get_path(path).map_err(|err| err.push_key(key))
+                        value.get_path(path).map_err(|err| err.push_index(*index))
                     }
                     _ => Err(GetPathError::ValueNotAnArray {
                         path: ConfigPath::new(),
@@ -171,12 +177,18 @@ impl<'at> DynConfigValueMut<'at> {
                 },
                 ConfigKey::Table(ref table_key) => match self {
                     Value::Table(table) => {
-                        let value = table.get_mut(table_key).map_err(|err| match err {
-                            TableError::EmptyKey => GetPathError::EmptyKey(ConfigPath::new()),
+                        let key = NonEmptyStr::new(table_key.as_str())
+                            .ok_or_else(|| GetPathError::EmptyKey(ConfigPath::new()))?;
+                        let value = table.get_mut_impl(key).map_err(|err| match err {
                             TableError::KeyDoesNotExist => {
-                                GetPathError::KeyDoesNotExist(ConfigPath(vec![key.clone()]))
+                                GetPathError::KeyDoesNotExist(vec![key.into()].into())
                             }
-                            TableError::IncorrectValueType(_) => unreachable!(),
+                            TableError::IncorrectValueType(_) => debug_unreachable!(
+                                "`get_mut_impl()` does not return `IncorrectValueType(_)`"
+                            ),
+                            TableError::EmptyKey => {
+                                debug_unreachable!("`get_mut_impl()` does not return `EmptyKey`")
+                            }
                         })?;
 
                         value.get_path(path).map_err(|err| err.push_key(key))
@@ -196,5 +208,73 @@ impl<'at> DynConfigValueMut<'at> {
 impl<'a> Display for DynConfigValueMut<'a> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.fmt_lua(f, 0)
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a DynArray, &'a DynTable> for &'a str {
+    fn try_from(val: Value<&'a str, &'a DynArray, &'a DynTable>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.string().ok_or_else(|| val_type)
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a DynArray, &'a DynTable> for String {
+    fn try_from(val: Value<&'a str, &'a DynArray, &'a DynTable>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.string()
+            .ok_or_else(|| val_type)
+            .map(|string| string.into())
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a DynArray, &'a DynTable> for &'a DynArray {
+    fn try_from(val: Value<&'a str, &'a DynArray, &'a DynTable>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.array().ok_or_else(|| val_type)
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a DynArray, &'a DynTable> for &'a DynTable {
+    fn try_from(val: Value<&'a str, &'a DynArray, &'a DynTable>) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.table().ok_or_else(|| val_type)
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a mut DynArray, &'a mut DynTable> for &'a str {
+    fn try_from(
+        val: Value<&'a str, &'a mut DynArray, &'a mut DynTable>,
+    ) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.string().ok_or_else(|| val_type)
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a mut DynArray, &'a mut DynTable> for String {
+    fn try_from(
+        val: Value<&'a str, &'a mut DynArray, &'a mut DynTable>,
+    ) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.string()
+            .ok_or_else(|| val_type)
+            .map(|string| string.into())
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a mut DynArray, &'a mut DynTable> for &'a mut DynArray {
+    fn try_from(
+        val: Value<&'a str, &'a mut DynArray, &'a mut DynTable>,
+    ) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.array().ok_or_else(|| val_type)
+    }
+}
+
+impl<'a> TryFromValue<&'a str, &'a mut DynArray, &'a mut DynTable> for &'a mut DynTable {
+    fn try_from(
+        val: Value<&'a str, &'a mut DynArray, &'a mut DynTable>,
+    ) -> Result<Self, ValueType> {
+        let val_type = val.get_type();
+        val.table().ok_or_else(|| val_type)
     }
 }

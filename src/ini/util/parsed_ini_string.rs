@@ -116,7 +116,7 @@ impl ParsedIniString {
                     !self.buffer.is_empty(),
                     "owned `.ini` strings may not be empty"
                 );
-                Some(NonEmptyIniStr::Owned(unwrap_unchecked_msg(
+                Some(NonEmptyIniStr::Owned(unwrap_unchecked(
                     NonEmptyStr::new(&self.buffer),
                     "owned `.ini` string values may not be empty",
                 )))
@@ -141,7 +141,7 @@ impl ParsedIniString {
                     !self.buffer.is_empty(),
                     "owned `.ini` strings may not be empty"
                 );
-                IniStr::Owned(unwrap_unchecked_msg(
+                IniStr::Owned(unwrap_unchecked(
                     NonEmptyStr::new(&self.buffer),
                     "owned `.ini` strings may not be empty",
                 ))

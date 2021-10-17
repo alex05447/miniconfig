@@ -4,6 +4,7 @@ use {
     rlua::Context,
     std::{
         borrow::Borrow,
+        convert::TryInto,
         fmt::{Display, Formatter, Write},
     },
 };
@@ -52,11 +53,13 @@ impl<'lua> LuaTable<'lua> {
     pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
         use TableError::*;
 
-        match self.get(key) {
+        match self.get_val(key) {
             Ok(_) => true,
             Err(err) => match err {
                 KeyDoesNotExist | EmptyKey => false,
-                IncorrectValueType(_) => unreachable!(),
+                IncorrectValueType(_) => {
+                    debug_unreachable!("`get_val()` does not return `IncorrectValueType(_)`")
+                }
             },
         }
     }
@@ -68,8 +71,24 @@ impl<'lua> LuaTable<'lua> {
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get<K: AsRef<str>>(&self, key: K) -> Result<LuaConfigValue<'lua>, TableError> {
-        self.get_impl(key.as_ref())
+    pub fn get_val<K: AsRef<str>>(&self, key: K) -> Result<LuaConfigValue<'lua>, TableError> {
+        self.get_impl(key.as_ref().try_into().map_err(|_| TableError::EmptyKey)?)
+    }
+
+    /// Tries to get a reference to a [`value`] in the [`table`] with the (non-empty) string `key`,
+    /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
+    ///
+    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key`,
+    /// or if the [`value`] is of incorrect and incompatible type.
+    ///
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`error`]: enum.TableError.html
+    pub fn get<K: AsRef<str>, V: TryFromValue<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>>(
+        &self,
+        key: K,
+    ) -> Result<V, TableError> {
+        V::try_from(self.get_val(key)?).map_err(TableError::IncorrectValueType)
     }
 
     /// Tries to get a reference to a [`value`] in the [`table`] at `path`.
@@ -88,14 +107,40 @@ impl<'lua> LuaTable<'lua> {
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: enum.Value.html#variant.Array
     /// [`type`]: enum.ValueType.html
-    pub fn get_path<'a, K, P>(&self, path: P) -> Result<LuaConfigValue<'lua>, GetPathError<'a>>
+    pub fn get_val_path<'k, K, P>(&self, path: P) -> Result<LuaConfigValue<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
         LuaConfigValue::Table(self.clone())
             .get_path(path.into_iter())
             .map_err(GetPathError::reverse)
+    }
+
+    /// Tries to get a reference to a [`value`] in the [`table`] at `path`,
+    /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
+    ///
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns the [`table`] itself if the `path` is empty.
+    ///
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`table`]: struct.LuaTable.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`array`]: enum.Value.html#variant.Array
+    /// [`type`]: enum.ValueType.html
+    pub fn get_path<'k, K, P, V>(&self, path: P) -> Result<V, GetPathError>
+    where
+        K: Borrow<ConfigKey<'k>>,
+        P: IntoIterator<Item = K>,
+        V: TryFromValue<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>,
+    {
+        V::try_from(self.get_val_path(path)?).map_err(GetPathError::IncorrectValueType)
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -107,9 +152,7 @@ impl<'lua> LuaTable<'lua> {
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
     pub fn get_bool<K: AsRef<str>>(&self, key: K) -> Result<bool, TableError> {
-        let val = self.get(key)?;
-        val.bool()
-            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
+        self.get(key)
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] at `path`.
@@ -126,14 +169,12 @@ impl<'lua> LuaTable<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: enum.Value.html#variant.Array
-    pub fn get_bool_path<'a, K, P>(&self, path: P) -> Result<bool, GetPathError<'a>>
+    pub fn get_bool_path<'k, K, P>(&self, path: P) -> Result<bool, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.bool()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -146,9 +187,7 @@ impl<'lua> LuaTable<'lua> {
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
     pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, TableError> {
-        let val = self.get(key)?;
-        val.i64()
-            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
+        self.get(key)
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] at `path`.
@@ -166,14 +205,12 @@ impl<'lua> LuaTable<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: enum.Value.html#variant.Array
-    pub fn get_i64_path<'a, K, P>(&self, path: P) -> Result<i64, GetPathError<'a>>
+    pub fn get_i64_path<'k, K, P>(&self, path: P) -> Result<i64, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.i64()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -185,9 +222,7 @@ impl<'lua> LuaTable<'lua> {
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
     pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, TableError> {
-        let val = self.get(key)?;
-        val.f64()
-            .ok_or_else(|| TableError::IncorrectValueType(val.get_type()))
+        self.get(key)
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] at `path`.
@@ -205,14 +240,12 @@ impl<'lua> LuaTable<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: struct.DynArray.html
-    pub fn get_f64_path<'a, K, P>(&self, path: P) -> Result<f64, GetPathError<'a>>
+    pub fn get_f64_path<'k, K, P>(&self, path: P) -> Result<f64, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.f64()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -224,10 +257,7 @@ impl<'lua> LuaTable<'lua> {
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
     pub fn get_string<K: AsRef<str>>(&self, key: K) -> Result<LuaString<'lua>, TableError> {
-        let val = self.get(key)?;
-        let val_type = val.get_type();
-        val.string()
-            .ok_or_else(|| TableError::IncorrectValueType(val_type))
+        self.get(key)
     }
 
     /// Tries to get a [`string`] [`value`] in the [`table`] at `path`.
@@ -244,15 +274,12 @@ impl<'lua> LuaTable<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: enum.Value.html#variant.Array
-    pub fn get_string_path<'a, K, P>(&self, path: P) -> Result<LuaString<'lua>, GetPathError<'a>>
+    pub fn get_string_path<'k, K, P>(&self, path: P) -> Result<LuaString<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.string()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -264,13 +291,10 @@ impl<'lua> LuaTable<'lua> {
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
     pub fn get_array<K: AsRef<str>>(&self, key: K) -> Result<LuaArray<'lua>, TableError> {
-        let val = self.get(key)?;
-        let val_type = val.get_type();
-        val.array()
-            .ok_or_else(|| TableError::IncorrectValueType(val_type))
+        self.get(key)
     }
 
-    /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] at `path`.
+    /// Tries to get an [`array`] [`value`] in the [`table`] at `path`.
     ///
     /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
     /// or (`0`-based) [`array indices`].
@@ -283,15 +307,12 @@ impl<'lua> LuaTable<'lua> {
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
-    pub fn get_array_path<'a, K, P>(&self, path: P) -> Result<LuaArray<'lua>, GetPathError<'a>>
+    pub fn get_array_path<'k, K, P>(&self, path: P) -> Result<LuaArray<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.array()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
@@ -302,13 +323,10 @@ impl<'lua> LuaTable<'lua> {
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
     pub fn get_table<K: AsRef<str>>(&self, key: K) -> Result<LuaTable<'lua>, TableError> {
-        let val = self.get(key)?;
-        let val_type = val.get_type();
-        val.table()
-            .ok_or_else(|| TableError::IncorrectValueType(val_type))
+        self.get(key)
     }
 
-    /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] at `path`.
+    /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] at `path`.
     ///
     /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
     /// or (`0`-based) [`array indices`].
@@ -321,15 +339,12 @@ impl<'lua> LuaTable<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: enum.Value.html#variant.Array
-    pub fn get_table_path<'a, K, P>(&self, path: P) -> Result<LuaTable<'lua>, GetPathError<'a>>
+    pub fn get_table_path<'k, K, P>(&self, path: P) -> Result<LuaTable<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.table()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Returns an iterator over ([`key`], [`value`]) pairs of the [`table`], in unspecified order.
@@ -364,18 +379,16 @@ impl<'lua> LuaTable<'lua> {
         get_table_len(&self.0)
     }
 
-    fn get_impl(&self, key: &str) -> Result<LuaConfigValue<'lua>, TableError> {
+    pub(crate) fn get_impl(&self, key: &NonEmptyStr) -> Result<LuaConfigValue<'lua>, TableError> {
         use TableError::*;
 
-        if key.is_empty() {
-            return Err(EmptyKey);
-        }
-
-        let value: rlua::Value = self.0.get(key).map_err(|_| KeyDoesNotExist)?;
+        let value: rlua::Value = self.0.raw_get(key.as_str()).map_err(|_| KeyDoesNotExist)?;
 
         value_from_lua_value(value).map_err(|err| match err {
             ValueFromLuaValueError::KeyDoesNotExist => KeyDoesNotExist,
-            _ => unreachable!(),
+            ValueFromLuaValueError::InvalidValueType(_) => {
+                debug_unreachable!("invalid type values may not exist in a valid Lua config table")
+            }
         })
     }
 
@@ -386,14 +399,17 @@ impl<'lua> LuaTable<'lua> {
         value: Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
     ) {
         // Must succeed - key and value are valid.
-        unwrap_unchecked(match value {
-            Value::Bool(value) => table.raw_set(key, value),
-            Value::F64(value) => table.raw_set(key, value),
-            Value::I64(value) => table.raw_set(key, value),
-            Value::String(value) => table.raw_set(key, value),
-            Value::Array(value) => table.raw_set(key, value.0),
-            Value::Table(value) => table.raw_set(key, value.0),
-        });
+        unwrap_unchecked(
+            match value {
+                Value::Bool(value) => table.raw_set(key, value),
+                Value::F64(value) => table.raw_set(key, value),
+                Value::I64(value) => table.raw_set(key, value),
+                Value::String(value) => table.raw_set(key, value),
+                Value::Array(value) => table.raw_set(key, value.0),
+                Value::Table(value) => table.raw_set(key, value.0),
+            },
+            "failed to set a value in the Lua table",
+        );
     }
 
     fn set_impl<'s>(
@@ -424,7 +440,10 @@ impl<'lua> LuaTable<'lua> {
         // Succeeds if key existed.
         } else if contains_key {
             // Must succeed.
-            unwrap_unchecked(self.0.raw_set(key, rlua::Value::Nil));
+            unwrap_unchecked(
+                self.0.raw_set(key, rlua::Value::Nil),
+                "failed to set a value in the Lua table",
+            );
 
             // Change table length on value removed.
             let len = self.len_impl();
@@ -440,7 +459,7 @@ impl<'lua> LuaTable<'lua> {
     }
 
     fn contains_key(&self, key: &str) -> bool {
-        if let Ok(value) = self.0.get::<_, rlua::Value<'_>>(key) {
+        if let Ok(value) = self.0.raw_get::<_, rlua::Value<'_>>(key) {
             !matches!(value, rlua::Value::Nil)
         } else {
             false
@@ -458,7 +477,7 @@ impl<'lua> LuaTable<'lua> {
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
-            let key = unwrap_unchecked_msg(NonEmptyStr::new(key.as_ref()), "empty key");
+            let key = unwrap_unchecked(NonEmptyStr::new(key.as_ref()), "empty key");
 
             <Self as DisplayLua>::do_indent(w, indent + 1)?;
 
@@ -466,7 +485,10 @@ impl<'lua> LuaTable<'lua> {
             write!(w, " = ")?;
 
             // Must succeed - all keys are valid.
-            let value = unwrap_unchecked(self.get(key));
+            let value = unwrap_unchecked(
+                self.get_val(key),
+                "failed to get a value from a Lua config table with a valid key",
+            );
 
             let is_array_or_table = matches!(value.get_type(), ValueType::Array | ValueType::Table);
 
@@ -504,8 +526,14 @@ impl<'lua> LuaTable<'lua> {
         // Sort the keys in alphabetical order, non-tables first.
         keys.sort_by(|l, r| {
             // Must succeed - all keys are valid.
-            let l_val = unwrap_unchecked(self.get(l.as_ref()));
-            let r_val = unwrap_unchecked(self.get(r.as_ref()));
+            let l_val = unwrap_unchecked(
+                self.get_val(l.as_ref()),
+                "failed to get a value from a Lua config table with a valid key",
+            );
+            let r_val = unwrap_unchecked(
+                self.get_val(r.as_ref()),
+                "failed to get a value from a Lua config table with a valid key",
+            );
 
             let l_is_a_table = l_val.get_type() == ValueType::Table;
             let r_is_a_table = r_val.get_type() == ValueType::Table;
@@ -525,10 +553,13 @@ impl<'lua> LuaTable<'lua> {
         for (key_index, key) in keys.into_iter().enumerate() {
             let last = key_index == len - 1;
 
-            let key = unwrap_unchecked_msg(NonEmptyStr::new(key.as_ref()), "empty key");
+            let key = unwrap_unchecked(NonEmptyStr::new(key.as_ref()), "empty key");
 
             // Must succeed - all keys are valid.
-            let value = unwrap_unchecked(self.get(key));
+            let value = unwrap_unchecked(
+                self.get_val(key),
+                "failed to get a value from a Lua config table with a valid key",
+            );
 
             match value {
                 Value::Array(value) => {
@@ -544,12 +575,17 @@ impl<'lua> LuaTable<'lua> {
                     )?;
                 }
                 Value::Table(value) => {
+                    let has_non_tables = value
+                        .iter()
+                        .any(|(_, val)| val.get_type() != ValueType::Table);
+
                     write_ini_table(
                         w,
                         key,
                         key_index as u32,
                         &value,
                         value.len(),
+                        has_non_tables,
                         last,
                         level,
                         path,
@@ -587,7 +623,10 @@ impl<'lua> std::iter::Iterator for LuaTableIter<'lua> {
                 };
 
                 // Must succeed - the table only contains valid values.
-                let value = unwrap_unchecked(value_from_lua_value(value));
+                let value = unwrap_unchecked(
+                    value_from_lua_value(value),
+                    "failed to get a value from a Lua config table with a valid key",
+                );
 
                 Some((key, value))
             } else {
@@ -685,7 +724,7 @@ mod tests {
         lua.context(|lua| {
             let mut table = LuaTable::new(lua);
 
-            assert_eq!(table.get("").err().unwrap(), TableError::EmptyKey);
+            assert_eq!(table.get_val("").err().unwrap(), TableError::EmptyKey);
             assert_eq!(table.get_bool("").err().unwrap(), TableError::EmptyKey);
             assert_eq!(table.get_i64("").err().unwrap(), TableError::EmptyKey);
             assert_eq!(table.get_f64("").err().unwrap(), TableError::EmptyKey);
@@ -707,7 +746,10 @@ mod tests {
         lua.context(|lua| {
             let mut table = LuaTable::new(lua);
 
-            assert_eq!(table.get("foo").err().unwrap(), TableError::KeyDoesNotExist);
+            assert_eq!(
+                table.get_val("foo").err().unwrap(),
+                TableError::KeyDoesNotExist
+            );
             assert_eq!(
                 table.get_bool("foo").err().unwrap(),
                 TableError::KeyDoesNotExist
@@ -742,7 +784,7 @@ mod tests {
 
             table.set("foo", Some(true.into())).unwrap();
 
-            assert_eq!(table.get("foo").unwrap().bool().unwrap(), true);
+            assert_eq!(table.get_val("foo").unwrap().bool().unwrap(), true);
         });
     }
 
@@ -759,34 +801,73 @@ mod tests {
                 table.get_i64("foo").err().unwrap(),
                 TableError::IncorrectValueType(ValueType::Bool)
             );
+            let val: Result<i64, _> = table.get("foo");
+            assert_eq!(
+                val.err().unwrap(),
+                TableError::IncorrectValueType(ValueType::Bool)
+            );
             assert_eq!(
                 table.get_f64("foo").err().unwrap(),
+                TableError::IncorrectValueType(ValueType::Bool)
+            );
+            let val: Result<f64, _> = table.get("foo");
+            assert_eq!(
+                val.err().unwrap(),
                 TableError::IncorrectValueType(ValueType::Bool)
             );
             assert_eq!(
                 table.get_string("foo").err().unwrap(),
                 TableError::IncorrectValueType(ValueType::Bool)
             );
+            let val: Result<LuaString<'_>, _> = table.get("foo");
+            assert_eq!(
+                val.err().unwrap(),
+                TableError::IncorrectValueType(ValueType::Bool)
+            );
             assert_eq!(
                 table.get_table("foo").err().unwrap(),
+                TableError::IncorrectValueType(ValueType::Bool)
+            );
+            let val: Result<LuaTable<'_>, _> = table.get("foo");
+            assert_eq!(
+                val.err().unwrap(),
                 TableError::IncorrectValueType(ValueType::Bool)
             );
             assert_eq!(
                 table.get_array("foo").err().unwrap(),
                 TableError::IncorrectValueType(ValueType::Bool)
             );
+            let val: Result<LuaArray<'_>, _> = table.get("foo");
+            assert_eq!(
+                val.err().unwrap(),
+                TableError::IncorrectValueType(ValueType::Bool)
+            );
 
             // But this works.
+
+            assert_eq!(table.get_bool("foo").unwrap(), true);
+            let val: bool = table.get("foo").unwrap();
+            assert_eq!(val, true);
 
             table.set("bar", Some(3.14.into())).unwrap();
 
             assert_eq!(table.get_i64("bar").unwrap(), 3);
+            let val: i64 = table.get("bar").unwrap();
+            assert_eq!(val, 3);
+
             assert!(cmp_f64(table.get_f64("bar").unwrap(), 3.14));
+            let val: f64 = table.get("bar").unwrap();
+            assert!(cmp_f64(val, 3.14));
 
             table.set("baz", Some((-7).into())).unwrap();
 
             assert_eq!(table.get_i64("baz").unwrap(), -7);
+            let val: i64 = table.get("baz").unwrap();
+            assert_eq!(val, -7);
+
             assert!(cmp_f64(table.get_f64("baz").unwrap(), -7.0));
+            let val: f64 = table.get("baz").unwrap();
+            assert!(cmp_f64(val, -7.0));
         });
     }
 
@@ -860,7 +941,7 @@ mod tests {
 
             assert_eq!(
                 table
-                    .get_path(&["table".into(), "nested_bool".into()])
+                    .get_val_path(&["table".into(), "nested_bool".into()])
                     .unwrap()
                     .bool()
                     .unwrap(),
@@ -874,7 +955,7 @@ mod tests {
             );
             assert_eq!(
                 table
-                    .get_path(&["table".into(), "nested_int".into()])
+                    .get_val_path(&["table".into(), "nested_int".into()])
                     .unwrap()
                     .i64()
                     .unwrap(),
@@ -888,7 +969,7 @@ mod tests {
             );
             assert!(cmp_f64(
                 table
-                    .get_path(&["table".into(), "nested_int".into()])
+                    .get_val_path(&["table".into(), "nested_int".into()])
                     .unwrap()
                     .f64()
                     .unwrap(),

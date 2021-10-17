@@ -20,7 +20,8 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::InvalidCharacterAtLineStart('\'')
+            error: IniErrorKind::InvalidCharacterAtLineStart('\''),
+            path: ConfigPath::new(),
         }
     );
     // Unescaped special character.
@@ -29,7 +30,8 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::InvalidCharacterAtLineStart(':')
+            error: IniErrorKind::InvalidCharacterAtLineStart(':'),
+            path: ConfigPath::new(),
         }
     );
     // Unescaped special character.
@@ -38,7 +40,8 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterAtLineStart('#')
+            error: IniErrorKind::InvalidCharacterAtLineStart('#'),
+            path: ConfigPath::new(),
         }
     );
     // CRLF handling - CRLF ("\r\n") is treated as one newline.
@@ -47,7 +50,8 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 2,
             column: 2,
-            error: IniErrorKind::InvalidCharacterAtLineStart('#')
+            error: IniErrorKind::InvalidCharacterAtLineStart('#'),
+            path: ConfigPath::new(),
         }
     );
     assert_eq!(
@@ -55,7 +59,8 @@ fn InvalidCharacterAtLineStart() {
         IniError {
             line: 2,
             column: 2,
-            error: IniErrorKind::InvalidCharacterAtLineStart('#')
+            error: IniErrorKind::InvalidCharacterAtLineStart('#'),
+            path: ConfigPath::new(),
         }
     );
 
@@ -101,7 +106,8 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterInSectionName('=')
+            error: IniErrorKind::InvalidCharacterInSectionName('='),
+            path: ConfigPath::new(),
         }
     );
     // Unescaped special character.
@@ -112,7 +118,8 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterInSectionName(':')
+            error: IniErrorKind::InvalidCharacterInSectionName(':'),
+            path: ConfigPath::new(),
         }
     );
     // Unescaped special character.
@@ -121,7 +128,8 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInSectionName('#')
+            error: IniErrorKind::InvalidCharacterInSectionName('#'),
+            path: ConfigPath::new(),
         }
     );
     // Unescaped special character.
@@ -132,7 +140,8 @@ fn InvalidCharacterInSectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInSectionName(';')
+            error: IniErrorKind::InvalidCharacterInSectionName(';'),
+            path: ConfigPath::new(),
         }
     );
 
@@ -195,7 +204,8 @@ fn InvalidCharacterAfterSectionName() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterAfterSectionName('b')
+            error: IniErrorKind::InvalidCharacterAfterSectionName('b'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -207,7 +217,8 @@ fn InvalidCharacterAfterSectionName() {
         IniError {
             line: 1,
             column: 6,
-            error: IniErrorKind::InvalidCharacterAfterSectionName('b')
+            error: IniErrorKind::InvalidCharacterAfterSectionName('b'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -219,7 +230,8 @@ fn InvalidCharacterAfterSectionName() {
         IniError {
             line: 2,
             column: 6,
-            error: IniErrorKind::InvalidCharacterAfterSectionName('c')
+            error: IniErrorKind::InvalidCharacterAfterSectionName('c'),
+            path: vec![nestr!("a").into(), nestr!("b").into()].into(),
         }
     );
 
@@ -231,7 +243,8 @@ fn InvalidCharacterAfterSectionName() {
         IniError {
             line: 2,
             column: 10,
-            error: IniErrorKind::InvalidCharacterAfterSectionName('c')
+            error: IniErrorKind::InvalidCharacterAfterSectionName('c'),
+            path: vec![nestr!("a").into(), nestr!("b").into()].into(),
         }
     );
 
@@ -296,7 +309,8 @@ fn UnexpectedNewLineInSectionName() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::UnexpectedNewLineInSectionName
+            error: IniErrorKind::UnexpectedNewLineInSectionName,
+            path: ConfigPath::new(),
         }
     );
     // Unescaped new line in section name.
@@ -305,7 +319,8 @@ fn UnexpectedNewLineInSectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::UnexpectedNewLineInSectionName
+            error: IniErrorKind::UnexpectedNewLineInSectionName,
+            path: ConfigPath::new(),
         }
     );
     // Unescaped new line in quoted section name.
@@ -314,7 +329,8 @@ fn UnexpectedNewLineInSectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedNewLineInSectionName
+            error: IniErrorKind::UnexpectedNewLineInSectionName,
+            path: ConfigPath::new(),
         }
     );
 
@@ -337,7 +353,8 @@ fn UnexpectedEndOfFileInSectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::UnexpectedEndOfFileInSectionName
+            error: IniErrorKind::UnexpectedEndOfFileInSectionName,
+            path: ConfigPath::new(),
         }
     );
     assert_eq!(
@@ -345,7 +362,8 @@ fn UnexpectedEndOfFileInSectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedEndOfFileInSectionName
+            error: IniErrorKind::UnexpectedEndOfFileInSectionName,
+            path: ConfigPath::new(),
         }
     );
     assert_eq!(
@@ -353,7 +371,8 @@ fn UnexpectedEndOfFileInSectionName() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::UnexpectedEndOfFileInSectionName
+            error: IniErrorKind::UnexpectedEndOfFileInSectionName,
+            path: ConfigPath::new(),
         }
     );
 }
@@ -365,7 +384,8 @@ fn EmptySectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::EmptySectionName(IniConfigPath::new())
+            error: IniErrorKind::EmptySectionName,
+            path: ConfigPath::new(),
         }
     );
     assert_eq!(
@@ -373,7 +393,8 @@ fn EmptySectionName() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::EmptySectionName(IniConfigPath::new())
+            error: IniErrorKind::EmptySectionName,
+            path: ConfigPath::new(),
         }
     );
     // Empty parent section.
@@ -384,7 +405,23 @@ fn EmptySectionName() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::EmptySectionName(IniConfigPath::new())
+            error: IniErrorKind::EmptySectionName,
+            path: ConfigPath::new(),
+        }
+    );
+    assert_eq!(
+        DynConfig::from_ini(
+            IniParser::new("[b//a]")
+                .nested_section_depth(u32::MAX)
+                .implicit_parent_sections(true)
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::EmptySectionName,
+            path: vec![nestr!("b").into()].into(),
         }
     );
     // Empty child section.
@@ -395,7 +432,23 @@ fn EmptySectionName() {
         IniError {
             line: 2,
             column: 4,
-            error: IniErrorKind::EmptySectionName(IniConfigPath(vec![nestr!("a").into()]))
+            error: IniErrorKind::EmptySectionName,
+            path: vec![nestr!("a").into()].into(),
+        }
+    );
+    assert_eq!(
+        DynConfig::from_ini(
+            IniParser::new("[a/]")
+                .nested_section_depth(u32::MAX)
+                .implicit_parent_sections(true)
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::EmptySectionName,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Empty child section.
@@ -406,10 +459,23 @@ fn EmptySectionName() {
         IniError {
             line: 3,
             column: 6,
-            error: IniErrorKind::EmptySectionName(IniConfigPath(vec![
-                nestr!("a").into(),
-                nestr!("b").into()
-            ]))
+            error: IniErrorKind::EmptySectionName,
+            path: vec![nestr!("a").into(), nestr!("b").into()].into(),
+        }
+    );
+    assert_eq!(
+        DynConfig::from_ini(
+            IniParser::new("[a/b/]")
+                .nested_section_depth(u32::MAX)
+                .implicit_parent_sections(true)
+        )
+        .err()
+        .unwrap(),
+        IniError {
+            line: 1,
+            column: 6,
+            error: IniErrorKind::EmptySectionName,
+            path: vec![nestr!("a").into(), nestr!("b").into()].into(),
         }
     );
 
@@ -437,7 +503,8 @@ fn InvalidParentSection() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidParentSection(IniConfigPath(vec![nestr!("a").into()]))
+            error: IniErrorKind::InvalidParentSection,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     assert_eq!(
@@ -447,7 +514,8 @@ fn InvalidParentSection() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidParentSection(IniConfigPath(vec![nestr!("a").into()]))
+            error: IniErrorKind::InvalidParentSection,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     assert_eq!(
@@ -457,10 +525,8 @@ fn InvalidParentSection() {
         IniError {
             line: 2,
             column: 4,
-            error: IniErrorKind::InvalidParentSection(IniConfigPath(vec![
-                nestr!("a").into(),
-                nestr!("b").into()
-            ]))
+            error: IniErrorKind::InvalidParentSection,
+            path: vec![nestr!("a").into(), nestr!("b").into()].into(),
         }
     );
 
@@ -486,6 +552,20 @@ fn InvalidParentSection() {
             .len(),
         0
     );
+
+    // Implicit parent sections are allowed.
+    let ini = DynConfig::from_ini(
+        IniParser::new("[a/b]")
+            .nested_section_depth(u32::MAX)
+            .implicit_parent_sections(true),
+    )
+    .unwrap();
+    assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
+    assert!(ini
+        .root()
+        .get_table_path(&["a".into(), "b".into()])
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -505,7 +585,8 @@ fn NestedSectionDepthExceeded() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::NestedSectionDepthExceeded
+            error: IniErrorKind::NestedSectionDepthExceeded,
+            path: ConfigPath::new(),
         }
     );
 
@@ -540,7 +621,8 @@ fn NestedSectionDepthExceeded() {
         IniError {
             line: 3,
             column: 5,
-            error: IniErrorKind::NestedSectionDepthExceeded
+            error: IniErrorKind::NestedSectionDepthExceeded,
+            path: vec![nestr!("a").into(), nestr!("b").into()].into(),
         }
     );
 
@@ -551,6 +633,30 @@ fn NestedSectionDepthExceeded() {
 [a/b/c]"#,
         )
         .nested_section_depth(3),
+    )
+    .unwrap();
+
+    assert_eq!(ini.root().get_table("a").unwrap().len(), 1);
+    assert_eq!(
+        ini.root()
+            .get_table_path(&["a".into(), "b".into()])
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        ini.root()
+            .get_table_path(&["a".into(), "b".into(), "c".into()])
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // Same with implicit parent sections.
+    let ini = DynConfig::from_ini(
+        IniParser::new(r#"[a/b/c]"#)
+            .nested_section_depth(3)
+            .implicit_parent_sections(true),
     )
     .unwrap();
 
@@ -583,7 +689,8 @@ fn DuplicateSection() {
         IniError {
             line: 3,
             column: 3,
-            error: IniErrorKind::DuplicateSection(IniConfigPath(vec![nestr!("a").into()]))
+            error: IniErrorKind::DuplicateSection,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -622,10 +729,8 @@ fn DuplicateSection() {
         IniError {
             line: 4,
             column: 1,
-            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
-                nestr!("a").into(),
-                nestr!("a").into()
-            ]))
+            error: IniErrorKind::DuplicateKey,
+            path: vec![nestr!("a").into(), nestr!("a").into()].into(),
         }
     );
 
@@ -652,7 +757,8 @@ fn InvalidCharacterAtLineEnd() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAtLineEnd('b')
+            error: IniErrorKind::InvalidCharacterAtLineEnd('b'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // After value.
@@ -661,7 +767,8 @@ fn InvalidCharacterAtLineEnd() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAtLineEnd('b')
+            error: IniErrorKind::InvalidCharacterAtLineEnd('b'),
+            path: ConfigPath::new(),
         }
     );
     // Inline comments not supported.
@@ -670,7 +777,8 @@ fn InvalidCharacterAtLineEnd() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAtLineEnd(';')
+            error: IniErrorKind::InvalidCharacterAtLineEnd(';'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -696,7 +804,8 @@ fn InvalidCharacterInKey() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::InvalidCharacterInKey('[')
+            error: IniErrorKind::InvalidCharacterInKey('['),
+            path: ConfigPath::new(),
         }
     );
     // Unescaped special character.
@@ -705,7 +814,8 @@ fn InvalidCharacterInKey() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInKey('\'')
+            error: IniErrorKind::InvalidCharacterInKey('\''),
+            path: ConfigPath::new(),
         }
     );
 
@@ -743,18 +853,20 @@ fn UnexpectedNewLineInKey() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::UnexpectedNewLineInKey
+            error: IniErrorKind::UnexpectedNewLineInKey,
+            path: ConfigPath::new(),
         }
     );
     // New line in quoted key.
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("\"a\n\""))
+        DynConfig::from_ini(IniParser::new("[b]\n\"a\n\""))
             .err()
             .unwrap(),
         IniError {
-            line: 1,
+            line: 2,
             column: 2,
-            error: IniErrorKind::UnexpectedNewLineInKey
+            error: IniErrorKind::UnexpectedNewLineInKey,
+            path: vec![nestr!("b").into()].into(),
         }
     );
 
@@ -775,15 +887,17 @@ fn EmptyKey() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::EmptyKey
+            error: IniErrorKind::EmptyKey,
+            path: ConfigPath::new(),
         }
     );
     assert_eq!(
-        dyn_config_error("=false"),
+        dyn_config_error("[a]\n=false"),
         IniError {
-            line: 1,
+            line: 2,
             column: 0,
-            error: IniErrorKind::EmptyKey
+            error: IniErrorKind::EmptyKey,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Empty unquoted key.
@@ -796,7 +910,8 @@ fn EmptyKey() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::EmptyKey
+            error: IniErrorKind::EmptyKey,
+            path: ConfigPath::new(),
         }
     );
     // Empty quoted key.
@@ -807,7 +922,8 @@ fn EmptyKey() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::EmptyKey
+            error: IniErrorKind::EmptyKey,
+            path: ConfigPath::new(),
         }
     );
     // Empty quoted key.
@@ -822,7 +938,8 @@ fn EmptyKey() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::EmptyKey
+            error: IniErrorKind::EmptyKey,
+            path: ConfigPath::new(),
         }
     );
 
@@ -845,7 +962,8 @@ fn DuplicateKey() {
         IniError {
             line: 3,
             column: 1,
-            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![nestr!("a").into()]))
+            error: IniErrorKind::DuplicateKey,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // In the section.
@@ -856,10 +974,8 @@ fn DuplicateKey() {
         IniError {
             line: 4,
             column: 1,
-            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
-                nestr!("x").into(),
-                nestr!("a").into()
-            ]))
+            error: IniErrorKind::DuplicateKey,
+            path: vec![nestr!("x").into(), nestr!("a").into()].into(),
         }
     );
     // In the merged section.
@@ -870,10 +986,8 @@ fn DuplicateKey() {
         IniError {
             line: 5,
             column: 1,
-            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
-                nestr!("x").into(),
-                nestr!("a").into()
-            ]))
+            error: IniErrorKind::DuplicateKey,
+            path: vec![nestr!("x").into(), nestr!("a").into()].into()
         }
     );
     // Key and section.
@@ -884,7 +998,8 @@ fn DuplicateKey() {
         IniError {
             line: 2,
             column: 2,
-            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![nestr!("a").into()]))
+            error: IniErrorKind::DuplicateKey,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Section and key.
@@ -895,10 +1010,8 @@ fn DuplicateKey() {
         IniError {
             line: 3,
             column: 6,
-            error: IniErrorKind::DuplicateKey(IniConfigPath(vec![
-                nestr!("a").into(),
-                nestr!("b").into()
-            ]))
+            error: IniErrorKind::DuplicateKey,
+            path: vec![nestr!("a").into(), nestr!("b").into()].into(),
         }
     );
 
@@ -1014,16 +1127,18 @@ fn UnexpectedEndOfFileBeforeKeyValueSeparator() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::UnexpectedEndOfFileBeforeKeyValueSeparator
+            error: IniErrorKind::UnexpectedEndOfFileBeforeKeyValueSeparator,
+            path: ConfigPath::new(),
         }
     );
     // Quoted key.
     assert_eq!(
-        dyn_config_error("\"a \""),
+        dyn_config_error("[\"foo\"]\n\"a \""),
         IniError {
-            line: 1,
+            line: 2,
             column: 4,
-            error: IniErrorKind::UnexpectedEndOfFileBeforeKeyValueSeparator
+            error: IniErrorKind::UnexpectedEndOfFileBeforeKeyValueSeparator,
+            path: vec![nestr!("foo").into(), nestr!("a ").into()].into(),
         }
     );
 
@@ -1049,7 +1164,8 @@ fn InvalidKeyValueSeparator() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidKeyValueSeparator('!')
+            error: IniErrorKind::InvalidKeyValueSeparator('!'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     assert_eq!(
@@ -1057,7 +1173,8 @@ fn InvalidKeyValueSeparator() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidKeyValueSeparator(':')
+            error: IniErrorKind::InvalidKeyValueSeparator(':'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Unescaped whitespace in key.
@@ -1068,7 +1185,8 @@ fn InvalidKeyValueSeparator() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidKeyValueSeparator('b')
+            error: IniErrorKind::InvalidKeyValueSeparator('b'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Unexpected character after quoted key.
@@ -1079,7 +1197,8 @@ fn InvalidKeyValueSeparator() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidKeyValueSeparator('b')
+            error: IniErrorKind::InvalidKeyValueSeparator('b'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1103,7 +1222,8 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue('=')
+            error: IniErrorKind::InvalidCharacterInValue('='),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Unescaped special character.
@@ -1112,7 +1232,8 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue(':')
+            error: IniErrorKind::InvalidCharacterInValue(':'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Unescaped special character.
@@ -1123,7 +1244,8 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue('=')
+            error: IniErrorKind::InvalidCharacterInValue('='),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Unescaped special character.
@@ -1135,7 +1257,8 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue(':')
+            error: IniErrorKind::InvalidCharacterInValue(':'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Inline comments not supported.
@@ -1144,7 +1267,8 @@ fn InvalidCharacterInValue() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterInValue(';')
+            error: IniErrorKind::InvalidCharacterInValue(';'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1201,7 +1325,8 @@ fn UnexpectedEndOfFileInEscapeSequence() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence,
+            path: ConfigPath::new(),
         }
     );
     // In quoted section.
@@ -1210,7 +1335,8 @@ fn UnexpectedEndOfFileInEscapeSequence() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence,
+            path: ConfigPath::new(),
         }
     );
     // In key.
@@ -1219,7 +1345,8 @@ fn UnexpectedEndOfFileInEscapeSequence() {
         IniError {
             line: 1,
             column: 1,
-            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence,
+            path: ConfigPath::new(),
         }
     );
     // In quoted key.
@@ -1228,7 +1355,8 @@ fn UnexpectedEndOfFileInEscapeSequence() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence,
+            path: ConfigPath::new(),
         }
     );
     // In unquoted value.
@@ -1237,7 +1365,8 @@ fn UnexpectedEndOfFileInEscapeSequence() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // In quoted value.
@@ -1246,7 +1375,8 @@ fn UnexpectedEndOfFileInEscapeSequence() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1279,7 +1409,8 @@ fn UnexpectedNewLineInEscapeSequence() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::UnexpectedNewLineInEscapeSequence
+            error: IniErrorKind::UnexpectedNewLineInEscapeSequence,
+            path: ConfigPath::new(),
         }
     );
     // Unsupported line continuation in key.
@@ -1288,7 +1419,8 @@ fn UnexpectedNewLineInEscapeSequence() {
         IniError {
             line: 1,
             column: 2,
-            error: IniErrorKind::UnexpectedNewLineInEscapeSequence
+            error: IniErrorKind::UnexpectedNewLineInEscapeSequence,
+            path: ConfigPath::new(),
         }
     );
     // Unsupported line continuation in value.
@@ -1297,7 +1429,8 @@ fn UnexpectedNewLineInEscapeSequence() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedNewLineInEscapeSequence
+            error: IniErrorKind::UnexpectedNewLineInEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1328,7 +1461,8 @@ fn InvalidEscapeCharacter() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidEscapeCharacter('z')
+            error: IniErrorKind::InvalidEscapeCharacter('z'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1423,7 +1557,8 @@ fn UnexpectedEndOfFileInASCIIEscapeSequence() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::UnexpectedEndOfFileInASCIIEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInASCIIEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 }
@@ -1437,7 +1572,8 @@ fn UnexpectedEndOfFileInUnicodeEscapeSequence() {
         IniError {
             line: 1,
             column: 7,
-            error: IniErrorKind::UnexpectedEndOfFileInUnicodeEscapeSequence
+            error: IniErrorKind::UnexpectedEndOfFileInUnicodeEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 }
@@ -1451,7 +1587,8 @@ fn UnexpectedNewLineInASCIIEscapeSequence() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::UnexpectedNewLineInASCIIEscapeSequence
+            error: IniErrorKind::UnexpectedNewLineInASCIIEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 }
@@ -1465,7 +1602,8 @@ fn UnexpectedNewLineInUnicodeEscapeSequence() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::UnexpectedNewLineInUnicodeEscapeSequence
+            error: IniErrorKind::UnexpectedNewLineInUnicodeEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 }
@@ -1479,7 +1617,8 @@ fn InvalidASCIIEscapeSequence() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidASCIIEscapeSequence
+            error: IniErrorKind::InvalidASCIIEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     assert_eq!(
@@ -1489,7 +1628,8 @@ fn InvalidASCIIEscapeSequence() {
         IniError {
             line: 1,
             column: 7,
-            error: IniErrorKind::InvalidASCIIEscapeSequence
+            error: IniErrorKind::InvalidASCIIEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 }
@@ -1503,7 +1643,8 @@ fn InvalidUnicodeEscapeSequence() {
         IniError {
             line: 1,
             column: 8,
-            error: IniErrorKind::InvalidUnicodeEscapeSequence
+            error: IniErrorKind::InvalidUnicodeEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     assert_eq!(
@@ -1513,7 +1654,8 @@ fn InvalidUnicodeEscapeSequence() {
         IniError {
             line: 1,
             column: 9,
-            error: IniErrorKind::InvalidUnicodeEscapeSequence
+            error: IniErrorKind::InvalidUnicodeEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 }
@@ -1526,7 +1668,8 @@ fn UnexpectedNewLineInQuotedValue() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedNewLineInQuotedValue
+            error: IniErrorKind::UnexpectedNewLineInQuotedValue,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1556,7 +1699,8 @@ fn UnexpectedEndOfFileInQuotedString() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedEndOfFileInQuotedString
+            error: IniErrorKind::UnexpectedEndOfFileInQuotedString,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1579,7 +1723,8 @@ fn UnquotedString() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnquotedString
+            error: IniErrorKind::UnquotedString,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1597,7 +1742,8 @@ fn UnexpectedNewLineInArray() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::InvalidCharacterInValue('[')
+            error: IniErrorKind::InvalidCharacterInValue('['),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1609,7 +1755,8 @@ fn UnexpectedNewLineInArray() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedNewLineInArray
+            error: IniErrorKind::UnexpectedNewLineInArray,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1629,7 +1776,8 @@ fn MixedArray() {
         IniError {
             line: 1,
             column: 10,
-            error: IniErrorKind::MixedArray
+            error: IniErrorKind::MixedArray,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Ints and strings.
@@ -1640,7 +1788,8 @@ fn MixedArray() {
         IniError {
             line: 1,
             column: 9,
-            error: IniErrorKind::MixedArray
+            error: IniErrorKind::MixedArray,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Ints and quoted strings.
@@ -1651,7 +1800,8 @@ fn MixedArray() {
         IniError {
             line: 1,
             column: 7,
-            error: IniErrorKind::MixedArray
+            error: IniErrorKind::MixedArray,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1694,7 +1844,8 @@ fn InvalidCharacterInArray() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterInArray('=')
+            error: IniErrorKind::InvalidCharacterInArray('='),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Unescaped special character.
@@ -1705,7 +1856,8 @@ fn InvalidCharacterInArray() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::InvalidCharacterInArray('[')
+            error: IniErrorKind::InvalidCharacterInArray('['),
+            path: vec![nestr!("a").into()].into(),
         }
     );
     // Unescaped space.
@@ -1716,7 +1868,8 @@ fn InvalidCharacterInArray() {
         IniError {
             line: 1,
             column: 6,
-            error: IniErrorKind::InvalidCharacterInArray('b')
+            error: IniErrorKind::InvalidCharacterInArray('b'),
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1791,7 +1944,8 @@ fn UnexpectedEndOfFileInArray() {
         IniError {
             line: 1,
             column: 3,
-            error: IniErrorKind::UnexpectedEndOfFileInArray
+            error: IniErrorKind::UnexpectedEndOfFileInArray,
+            path: vec![nestr!("a").into()].into(),
         }
     );
     assert_eq!(
@@ -1801,7 +1955,8 @@ fn UnexpectedEndOfFileInArray() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::UnexpectedEndOfFileInArray
+            error: IniErrorKind::UnexpectedEndOfFileInArray,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1825,7 +1980,8 @@ fn UnexpectedEndOfFileInQuotedArrayValue() {
         IniError {
             line: 1,
             column: 4,
-            error: IniErrorKind::UnexpectedEndOfFileInQuotedArrayValue
+            error: IniErrorKind::UnexpectedEndOfFileInQuotedArrayValue,
+            path: vec![nestr!("a").into()].into(),
         }
     );
 
@@ -1984,12 +2140,100 @@ fn NestedSectionsNotAllowed() {
     );
 
     // But this works.
+
+    assert_eq!(
+        config
+            .to_ini_string_opts(ToIniStringOptions {
+                nested_section_depth: 2,
+                ..Default::default()
+            })
+            .unwrap(),
+        "[table]\n\n[table/nested_table]"
+    );
+
+    // With implicit parent sections.
+    assert_eq!(
+        config
+            .to_ini_string_opts(ToIniStringOptions {
+                nested_section_depth: 2,
+                implicit_parent_sections: true,
+                ..Default::default()
+            })
+            .unwrap(),
+        "[table/nested_table]"
+    );
+
+    config.root_mut().set("baz", Value::Bool(true)).unwrap();
     config
+        .root_mut()
+        .set("bill", Value::String("bob".into()))
+        .unwrap();
+
+    let table = config.root_mut().get_table_mut("table").unwrap();
+    table.set("foo", Value::I64(7)).unwrap();
+    table.set("bar", Value::F64(3.14)).unwrap();
+
+    assert_eq!(
+        config
+            .to_ini_string_opts(ToIniStringOptions {
+                nested_section_depth: 2,
+                ..Default::default()
+            })
+            .unwrap(),
+        "baz = true\nbill = \"bob\"\n\n[table]\nbar = 3.14\nfoo = 7\n\n[table/nested_table]"
+    );
+
+    let table = config.root_mut().get_table_mut("table").unwrap();
+    table
+        .get_table_mut("nested_table")
+        .unwrap()
+        .set("another_nested_table", Value::Table(DynTable::new()))
+        .unwrap();
+
+    assert_eq!(config
         .to_ini_string_opts(ToIniStringOptions {
-            nested_section_depth: 2,
+            nested_section_depth: 3,
             ..Default::default()
         })
+        .unwrap(),
+        "baz = true\nbill = \"bob\"\n\n[table]\nbar = 3.14\nfoo = 7\n\n[table/nested_table]\n\n[table/nested_table/another_nested_table]"
+    );
+
+    // With implicit parent sections.
+    assert_eq!(config
+        .to_ini_string_opts(ToIniStringOptions {
+            nested_section_depth: 3,
+            implicit_parent_sections: true,
+            ..Default::default()
+        })
+        .unwrap(),
+        "baz = true\nbill = \"bob\"\n\n[table]\nbar = 3.14\nfoo = 7\n\n[table/nested_table/another_nested_table]"
+    );
+
+    config
+        .root_mut()
+        .set("test_table", Value::Table(DynTable::new()))
         .unwrap();
+
+    assert_eq!(config
+        .to_ini_string_opts(ToIniStringOptions {
+            nested_section_depth: 3,
+            ..Default::default()
+        })
+        .unwrap(),
+        "baz = true\nbill = \"bob\"\n\n[table]\nbar = 3.14\nfoo = 7\n\n[table/nested_table]\n\n[table/nested_table/another_nested_table]\n\n[test_table]"
+    );
+
+    // With implicit parent sections.
+    assert_eq!(config
+        .to_ini_string_opts(ToIniStringOptions {
+            nested_section_depth: 3,
+            implicit_parent_sections: true,
+            ..Default::default()
+        })
+        .unwrap(),
+        "baz = true\nbill = \"bob\"\n\n[table]\nbar = 3.14\nfoo = 7\n\n[table/nested_table/another_nested_table]\n\n[test_table]"
+    );
 }
 
 #[test]
@@ -2040,8 +2284,11 @@ string = "baz""#;
 fn escape() {
     // With escape sequences supported.
     let ini = DynConfig::from_ini(
-        IniParser::new("[a\\ b]\n\"c\\t\" = '\\x66\\x6f\\x6f'")
-            .string_quotes(IniStringQuote::Single | IniStringQuote::Double),
+        IniParser::new(
+            r#"[a\ b]
+"c\t" = '\x66\x6f\x6f'"#,
+        )
+        .string_quotes(IniStringQuote::Single | IniStringQuote::Double),
     )
     .unwrap();
 
@@ -2053,7 +2300,8 @@ fn escape() {
     // Section name enclosed in double quotes when serializing back to string.
     assert_eq!(
         ini.to_ini_string().unwrap(),
-        "[\"a b\"]\n\"c\\t\" = \"foo\""
+        r#"["a b"]
+"c\t" = "foo""#
     );
 
     // Attempt to serialize an escaped character with support for escaped characters disabled.
@@ -2072,21 +2320,29 @@ fn escape() {
     // With escape sequences unsupported.
     assert_eq!(
         DynConfig::from_ini(
-            IniParser::new("[a\\ b]\n\"c\\t\" = '\\u0066\\u006f\\u006f'").escape(false)
+            IniParser::new(
+                r#"[a\ b]
+"c\t" = '\u0066\u006f\u006f'"#
+            )
+            .escape(false)
         )
         .err()
         .unwrap(),
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidCharacterAfterSectionName('b')
+            error: IniErrorKind::InvalidCharacterAfterSectionName('b'),
+            path: vec![nestr!("a\\").into()].into(),
         }
     );
 
     let ini = DynConfig::from_ini(
-        IniParser::new("[\"a\\ b\"]\n\"c\\t\" = '\\u0066\\u00f6\\u00f6'")
-            .escape(false)
-            .string_quotes(IniStringQuote::Single | IniStringQuote::Double),
+        IniParser::new(
+            r#"["a\ b"]
+"c\t" = '\u0066\u00f6\u00f6'"#,
+        )
+        .escape(false)
+        .string_quotes(IniStringQuote::Single | IniStringQuote::Double),
     )
     .unwrap();
 
@@ -2099,7 +2355,8 @@ fn escape() {
         "\\u0066\\u00f6\\u00f6"
     );
 
-    let string = "[\"a\\ b\"]\n\"c\\t\" = \"\\u0066\\u00f6\\u00f6\"";
+    let string = r#"["a\ b"]
+"c\t" = "\u0066\u00f6\u00f6""#;
 
     assert_ne!(ini.to_ini_string().unwrap(), string);
     assert_eq!(

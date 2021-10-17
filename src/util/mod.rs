@@ -49,49 +49,35 @@ macro_rules! debug_unreachable {
 /// this uses `unreachable!()` in debug configuration and `std::hint::unreachable_unchecked()` in release configuration.
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
 pub(crate) trait UnwrapUnchecked<T> {
-    fn unwrap_unchecked_msg(self, msg: &'static str) -> T;
-    fn unwrap_unchecked(self) -> T;
+    fn unwrap_unchecked(self, msg: &'static str) -> T;
 }
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
 impl<T> UnwrapUnchecked<T> for Option<T> {
-    fn unwrap_unchecked_msg(self, msg: &'static str) -> T {
+    fn unwrap_unchecked(self, msg: &'static str) -> T {
         if let Some(val) = self {
             val
         } else {
             debug_unreachable!(msg)
         }
     }
-
-    fn unwrap_unchecked(self) -> T {
-        self.unwrap_unchecked_msg("tried to `unwrap()` an `Option::None`")
-    }
 }
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
 impl<T, E> UnwrapUnchecked<T> for Result<T, E> {
-    fn unwrap_unchecked_msg(self, msg: &'static str) -> T {
+    fn unwrap_unchecked(self, msg: &'static str) -> T {
         if let Ok(val) = self {
             val
         } else {
             debug_unreachable!(msg)
         }
     }
-
-    fn unwrap_unchecked(self) -> T {
-        self.unwrap_unchecked_msg("tried to `unwrap()` a `Result::Err`")
-    }
 }
 
 #[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
-pub(crate) fn unwrap_unchecked_msg<U: UnwrapUnchecked<T>, T>(
+pub(crate) fn unwrap_unchecked<U: UnwrapUnchecked<T>, T>(
     option_or_result: U,
     msg: &'static str,
 ) -> T {
-    option_or_result.unwrap_unchecked_msg(msg)
-}
-
-#[cfg(any(feature = "bin", feature = "dyn", feature = "lua", feature = "ini"))]
-pub(crate) fn unwrap_unchecked<U: UnwrapUnchecked<T>, T>(option_or_result: U) -> T {
-    option_or_result.unwrap_unchecked()
+    option_or_result.unwrap_unchecked(msg)
 }

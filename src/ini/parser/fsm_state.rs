@@ -231,7 +231,7 @@ impl IniParserFSMState {
 
                 // Nested section separator (if supported) - empty parent section names are not allowed.
                 } else if options.is_nested_section_separator(c) {
-                    return Err((EmptySectionName(state.path.to_config_path()), false));
+                    return Err((EmptySectionName, false));
 
                 // Escaped char (if supported).
                 } else if options.is_escape_char(c) {
@@ -260,7 +260,7 @@ impl IniParserFSMState {
 
                 // Section end delimiter - empty section names are not allowed.
                 } else if options.is_section_end(c) {
-                    return Err((EmptySectionName(state.path.to_config_path()), false));
+                    return Err((EmptySectionName, false));
 
                 // Else an error.
                 } else {
@@ -277,20 +277,27 @@ impl IniParserFSMState {
 
                 // Nested section separator (if supported) - finish the current section, keep parsing the nested section.
                 } else if options.is_nested_section_separator(c) {
-                    // Make sure we've not exceeded the nested section depth limit.
-                    if state.path.len() + 1 >= options.nested_section_depth {
-                        return Err((NestedSectionDepthExceeded, false));
-                    }
-
                     // Must succeed.
-                    let section =
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty section name");
+                    let section = unwrap_unchecked(state.key.key(&substr), "empty section name");
 
                     state.path.push(section);
 
-                    // The parent section must already exist in the config.
-                    if config.contains_key(section) != Ok(true) {
-                        return Err((InvalidParentSection(state.path.to_config_path()), true));
+                    // Make sure we've not exceeded the nested section depth limit.
+                    if state.path.len() >= options.nested_section_depth {
+                        return Err((NestedSectionDepthExceeded, false));
+                    }
+
+                    // The parent section must already exist in the config, unless we allow implicit parent sections,
+                    // in which case we start a new empty sections.
+                    match config.contains_key(section) {
+                        // Parent section already exists.
+                        Ok(true) => {}
+                        // Parent section doesn't exist, but we allow it.
+                        Err(_) if options.implicit_parent_sections => {}
+                        // Parent section doesn't exist and we don't allow it, or it's not a section.
+                        Ok(false) | Err(_) => {
+                            return Err((InvalidParentSection, true));
+                        }
                     }
 
                     // Start the parent section in the config.
@@ -330,13 +337,11 @@ impl IniParserFSMState {
                     debug_assert!(state.path.len() <= options.nested_section_depth);
 
                     // Must succeed.
-                    let section =
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty section name");
+                    let section = unwrap_unchecked(state.key.key(&substr), "empty section name");
 
                     // Try to add the section to the config at the current path.
-                    state.skip_section = start_section(config, section, &state.path, options)?;
-
                     state.path.push(section);
+                    state.skip_section = start_section(config, section, options)?;
                     state.key.clear();
 
                     IniParserFSMState::SkipLineWhitespaceOrComments
@@ -415,33 +420,40 @@ impl IniParserFSMState {
                     let section = state
                         .key
                         .key(&substr)
-                        .ok_or_else(|| (EmptySectionName(state.path.to_config_path()), true))?;
+                        .ok_or_else(|| (EmptySectionName, true))?;
 
                     // Try to add the section to the config at the current path.
-                    state.skip_section = start_section(config, section, &state.path, options)?;
-
                     state.path.push(section);
+                    state.skip_section = start_section(config, section, options)?;
                     state.key.clear();
 
                     IniParserFSMState::SkipLineWhitespaceOrComments
 
                 // Nested section separator (if supported) - start parsing the nested section name.
                 } else if options.is_nested_section_separator(c) {
-                    if (state.path.len() + 1) >= options.nested_section_depth {
-                        return Err((NestedSectionDepthExceeded, false));
-                    }
-
                     // Empty section names are not allowed.
                     let section = state
                         .key
                         .key(&substr)
-                        .ok_or_else(|| (EmptySectionName(state.path.to_config_path()), true))?;
+                        .ok_or_else(|| (EmptySectionName, true))?;
 
                     state.path.push(section);
 
-                    // The path must already exist in the config, and it must be a section.
-                    if config.contains_key(section) != Ok(true) {
-                        return Err((InvalidParentSection(state.path.to_config_path()), true));
+                    if state.path.len() >= options.nested_section_depth {
+                        return Err((NestedSectionDepthExceeded, false));
+                    }
+
+                    // The parent section must already exist in the config, unless we allow implicit parent sections,
+                    // in which case we start a new empty sections.
+                    match config.contains_key(section) {
+                        // Parent section already exists.
+                        Ok(true) => {}
+                        // Parent section doesn't exist, but we allow it.
+                        Err(_) if options.implicit_parent_sections => {}
+                        // Parent section doesn't exist and we don't allow it, or it's not a section.
+                        Ok(false) | Err(_) => {
+                            return Err((InvalidParentSection, true));
+                        }
                     }
 
                     // Start the parent section in the config.
@@ -453,6 +465,13 @@ impl IniParserFSMState {
 
                 // Else an error.
                 } else {
+                    // Empty section names are not allowed.
+                    let section = state
+                        .key
+                        .key(&substr)
+                        .ok_or_else(|| (EmptySectionName, true))?;
+
+                    state.path.push(section);
                     return Err((InvalidCharacterAfterSectionName(c), false));
                 }
             }
@@ -496,11 +515,13 @@ impl IniParserFSMState {
 
                 // Key-value separator - finish the key, parse the value.
                 if options.is_key_value_separator_char(c) {
+                    // Must succeed.
+                    let key = unwrap_unchecked(state.key.key(&substr), "empty key");
+                    state.path.push(key);
+
                     check_is_key_duplicate(
                         config,
-                        // Must succeed.
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
-                        &state.path,
+                        key,
                         state.skip_section,
                         &mut state.skip_value,
                         &mut state.is_key_unique,
@@ -516,11 +537,13 @@ impl IniParserFSMState {
                         return Err((UnexpectedNewLineInKey, true));
                     }
 
+                    // Must succeed.
+                    let key = unwrap_unchecked(state.key.key(&substr), "empty key");
+                    state.path.push(key);
+
                     check_is_key_duplicate(
                         config,
-                        // Must succeed.
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
-                        &state.path,
+                        key,
                         state.skip_section,
                         &mut state.skip_value,
                         &mut state.is_key_unique,
@@ -568,11 +591,13 @@ impl IniParserFSMState {
 
                 // Closing quotes - finish the key, parse the separator.
                 } else if options.is_matching_string_quote_char(quote, c) {
+                    // Empty keys are not allowed.
+                    let key = state.key.key(&substr).ok_or_else(|| (EmptyKey, false))?;
+                    state.path.push(key);
+
                     check_is_key_duplicate(
                         config,
-                        // Empty keys are not allowed.
-                        state.key.key(&substr).ok_or_else(|| (EmptyKey, false))?,
-                        &state.path,
+                        key,
                         state.skip_section,
                         &mut state.skip_value,
                         &mut state.is_key_unique,
@@ -619,6 +644,7 @@ impl IniParserFSMState {
             IniParserFSMState::KeyValueSeparator => {
                 debug_assert!(!state.key.is_empty());
                 debug_assert!(state.value.is_empty());
+                debug_assert!(!state.path.is_empty());
 
                 // Key-value separator - parse the value (key already finished).
                 if options.is_key_value_separator_char(c) {
@@ -641,6 +667,7 @@ impl IniParserFSMState {
             IniParserFSMState::BeforeValue => {
                 debug_assert!(!state.key.is_empty());
                 debug_assert!(state.value.is_empty());
+                debug_assert!(!state.path.is_empty());
 
                 // Skip the whitespace before the value.
                 if c.is_whitespace() {
@@ -649,7 +676,7 @@ impl IniParserFSMState {
                         add_value_to_config(
                             config,
                             // Must succeed.
-                            unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
+                            unwrap_unchecked(state.key.key(&substr), "empty key"),
                             IniStr::Empty,
                             false,
                             state.skip_section | state.skip_value,
@@ -657,7 +684,9 @@ impl IniParserFSMState {
                             options.unquoted_strings,
                         )
                         .map_err(|error_kind| (error_kind, false))?;
+
                         state.key.clear();
+                        state.path.pop();
 
                         IniParserFSMState::StartLine
                     } else {
@@ -669,7 +698,7 @@ impl IniParserFSMState {
                     add_value_to_config(
                         config,
                         // Must succeed.
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
+                        unwrap_unchecked(state.key.key(&substr), "empty key"),
                         IniStr::Empty,
                         false,
                         state.skip_section | state.skip_value,
@@ -677,7 +706,9 @@ impl IniParserFSMState {
                         options.unquoted_strings,
                     )
                     .map_err(|error_kind| (error_kind, false))?;
+
                     state.key.clear();
+                    state.path.pop();
 
                     IniParserFSMState::SkipLine
 
@@ -705,7 +736,7 @@ impl IniParserFSMState {
                 // Array start delimiter (if supported) - start parsing the array.
                 } else if options.is_array_start(c) {
                     // Must succeed.
-                    let array_key = unwrap_unchecked_msg(state.key.key(&substr), "empty key");
+                    let array_key = unwrap_unchecked(state.key.key(&substr), "empty key");
 
                     add_array_to_config(
                         config,
@@ -714,7 +745,7 @@ impl IniParserFSMState {
                         state.is_key_unique,
                     );
 
-                    state.path.push(array_key);
+                    //state.path.push(array_key);
 
                     IniParserFSMState::BeforeArrayValue(None)
 
@@ -731,13 +762,14 @@ impl IniParserFSMState {
             IniParserFSMState::Value => {
                 debug_assert!(!state.key.is_empty());
                 debug_assert!(!state.value.is_empty());
+                debug_assert!(!state.path.is_empty());
 
                 // Whitespace - finish the value.
                 if c.is_whitespace() {
                     add_value_to_config(
                         config,
                         // Must succeed.
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
+                        unwrap_unchecked(state.key.key(&substr), "empty key"),
                         state.value.value(&substr),
                         false,
                         state.skip_section | state.skip_value,
@@ -746,8 +778,9 @@ impl IniParserFSMState {
                     )
                     .map_err(|error_kind| (error_kind, false))?;
 
-                    state.value.clear();
                     state.key.clear();
+                    state.value.clear();
+                    state.path.pop();
 
                     // New line - start a new line.
                     if options.is_new_line(c) {
@@ -763,7 +796,7 @@ impl IniParserFSMState {
                     add_value_to_config(
                         config,
                         // Must succeed.
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
+                        unwrap_unchecked(state.key.key(&substr), "empty key"),
                         state.value.value(&substr),
                         false,
                         state.skip_section | state.skip_value,
@@ -772,8 +805,9 @@ impl IniParserFSMState {
                     )
                     .map_err(|error_kind| (error_kind, false))?;
 
-                    state.value.clear();
                     state.key.clear();
+                    state.value.clear();
+                    state.path.pop();
 
                     IniParserFSMState::SkipLine
 
@@ -809,6 +843,7 @@ impl IniParserFSMState {
             }
             IniParserFSMState::QuotedValue(quote) => {
                 debug_assert!(!state.key.is_empty());
+                debug_assert!(!state.path.is_empty());
 
                 // New line before the closing quotes - error.
                 if options.is_new_line(c) {
@@ -819,7 +854,7 @@ impl IniParserFSMState {
                     add_value_to_config(
                         config,
                         // Must succeed.
-                        unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
+                        unwrap_unchecked(state.key.key(&substr), "empty key"),
                         state.value.value(&substr),
                         true,
                         state.skip_section | state.skip_value,
@@ -830,6 +865,7 @@ impl IniParserFSMState {
 
                     state.value.clear();
                     state.key.clear();
+                    state.path.pop();
 
                     IniParserFSMState::SkipLineWhitespaceOrComments
 
@@ -886,7 +922,7 @@ impl IniParserFSMState {
                 // Array end delimiter - finish the array, skip the rest of the line.
                 } else if options.is_array_end(c) {
                     // Must succeed.
-                    let array_key = unwrap_unchecked_msg(state.key.key(&substr), "empty array key");
+                    let array_key = unwrap_unchecked(state.key.key(&substr), "empty array key");
 
                     config.end_array(array_key);
 
@@ -959,7 +995,7 @@ impl IniParserFSMState {
 
                     state.value.clear();
 
-                    IniParserFSMState::AfterArrayValue(unwrap_unchecked_msg(
+                    IniParserFSMState::AfterArrayValue(unwrap_unchecked(
                         array_type,
                         "array type must be known at this point",
                     ))
@@ -994,7 +1030,7 @@ impl IniParserFSMState {
                     state.value.clear();
 
                     // Must succeed.
-                    let array_key = unwrap_unchecked_msg(state.key.key(&substr), "empty array key");
+                    let array_key = unwrap_unchecked(state.key.key(&substr), "empty array key");
 
                     config.end_array(array_key);
 
@@ -1118,7 +1154,7 @@ impl IniParserFSMState {
                 // Array end delimiter - finish the array, skip the rest of the line.
                 } else if options.is_array_end(c) {
                     // Must succeed.
-                    let array_key = unwrap_unchecked_msg(state.key.key(&substr), "empty array key");
+                    let array_key = unwrap_unchecked(state.key.key(&substr), "empty array key");
 
                     config.end_array(array_key);
 
@@ -1141,7 +1177,7 @@ impl IniParserFSMState {
         self,
         substr: S,
         config: &mut C,
-        state: &IniParserPersistentState,
+        state: &mut IniParserPersistentState,
         options: &IniOptions,
     ) -> Result<(), IniErrorKind>
     where
@@ -1162,17 +1198,22 @@ impl IniParserFSMState {
             Value | BeforeValue => {
                 // We have at least one key character already parsed.
                 debug_assert!(!state.key.is_empty());
+                debug_assert!(!state.path.is_empty());
 
                 add_value_to_config(
                     config,
                     // Must succeed.
-                    unwrap_unchecked_msg(state.key.key(&substr), "empty key"),
+                    unwrap_unchecked(state.key.key(&substr), "empty key"),
                     state.value.value(&substr),
                     false,
                     state.skip_section | state.skip_value,
                     state.is_key_unique,
                     options.unquoted_strings,
-                )
+                )?;
+
+                state.path.pop();
+
+                Ok(())
             }
             BeforeArrayValue(_) | ArrayValue(_) | AfterArrayValue(_) => {
                 return Err(UnexpectedEndOfFileInArray)
@@ -1304,7 +1345,6 @@ fn try_parse_escape_sequence<F: FnMut() -> Option<char>>(
 fn start_section<'s, C: IniConfig<'s>>(
     config: &mut C,
     section: NonEmptyIniStr<'s, '_>,
-    path: &IniPath,
     options: &IniOptions,
 ) -> Result<bool, (IniErrorKind, bool)> {
     let key_already_exists = config.contains_key(section);
@@ -1314,10 +1354,7 @@ fn start_section<'s, C: IniConfig<'s>>(
         match options.duplicate_sections {
             // We don't support duplicate sections - error.
             IniDuplicateSections::Forbid => {
-                let mut path = path.to_config_path();
-                path.0.push(section.as_ne_str().into());
-
-                return Err((IniErrorKind::DuplicateSection(path), false));
+                return Err((IniErrorKind::DuplicateSection, false));
             }
             // Skip this section.
             IniDuplicateSections::First => Ok(true),
@@ -1340,10 +1377,7 @@ fn start_section<'s, C: IniConfig<'s>>(
             match options.duplicate_keys {
                 // We don't support duplicate keys - error.
                 IniDuplicateKeys::Forbid => {
-                    let mut path = path.to_config_path();
-                    path.0.push(section.as_ne_str().into());
-
-                    return Err((IniErrorKind::DuplicateKey(path), true));
+                    return Err((IniErrorKind::DuplicateKey, true));
                 }
                 // Skip this section.
                 IniDuplicateKeys::First => Ok(true),
@@ -1366,7 +1400,6 @@ fn start_section<'s, C: IniConfig<'s>>(
 fn check_is_key_duplicate<'s, C: IniConfig<'s>>(
     config: &C,
     key: NonEmptyIniStr<'s, '_>,
-    path: &IniPath,
     skip_section: bool,
     skip_value: &mut bool,
     is_key_unique: &mut bool,
@@ -1391,9 +1424,7 @@ fn check_is_key_duplicate<'s, C: IniConfig<'s>>(
 
                 Ok(())
             } else {
-                let mut path = path.to_config_path();
-                path.0.push(key.as_ne_str().into());
-                Err((DuplicateKey(path), true))
+                Err((DuplicateKey, true))
             }
         }
         // If `is_unique == true`, it's the first key and we must process it -> return `false` (don't skip).

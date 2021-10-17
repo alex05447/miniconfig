@@ -19,8 +19,8 @@ pub enum TableError {
     ///
     /// [`table`]: enum.Value.html#variant.Table
     KeyDoesNotExist,
-    /// [`Table`] value is of incorrect [`type`].
-    /// Contains the value [`type`].
+    /// [`Table`] value is of incorrect and incompatible [`type`].
+    /// Contains the actual value [`type`].
     ///
     /// [`Table`]: enum.Value.html#variant.Table
     /// [`type`]: enum.Value.html#variant.Table
@@ -36,8 +36,12 @@ impl Display for TableError {
         match self {
             EmptyKey => "provided table key is empty".fmt(f),
             KeyDoesNotExist => "provided key does not exist in the table".fmt(f),
-            IncorrectValueType(invalid_type) => {
-                write!(f, "table value is of incorrect type: \"{}\"", invalid_type)
+            IncorrectValueType(actual_type) => {
+                write!(
+                    f,
+                    "table value is of incorrect and incompatible type (expected {})",
+                    actual_type
+                )
             }
         }
     }
@@ -58,8 +62,8 @@ pub enum ArrayError {
     ///
     /// [`array`]: enum.Value.html#variant.Array
     ArrayEmpty,
-    /// [`Array`] value is of incorrect [`type`].
-    /// Contains the value [`type`].
+    /// [`Array`] value is of incorrect and incompatible [`type`].
+    /// Contains the actual value [`type`].
     ///
     /// [`Array`]: enum.Value.html#variant.Array
     /// [`type`]: enum.Value.html#variant.Array
@@ -75,8 +79,12 @@ impl Display for ArrayError {
         match self {
             IndexOutOfBounds(len) => write!(f, "array index out of bounds (length is {})", len),
             ArrayEmpty => "tried to pop an empty array".fmt(f),
-            IncorrectValueType(invalid_type) => {
-                write!(f, "array value is of incorrect type: \"{}\"", invalid_type)
+            IncorrectValueType(actual_type) => {
+                write!(
+                    f,
+                    "array value is of incorrect and incompatible type (expected {})",
+                    actual_type
+                )
             }
         }
     }
@@ -87,20 +95,20 @@ impl Display for ArrayError {
 /// [`table`]: enum.Value.html#variant.Table
 /// [`array`]: enum.Value.html#variant.Array
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub enum GetPathError<'a> {
+pub enum GetPathError {
     /// One of the provided [`table string keys`] is empty.
     /// Contains the path to the empty key, or an empty path if the empty key is in the root [`table`] / [`array`].
     ///
     /// [`table string keys`]: enum.ConfigKey.html#variant.Table
     /// [`table`]: enum.Value.html#variant.Table
     /// [`array`]: enum.Value.html#variant.Array
-    EmptyKey(ConfigPath<'a>),
+    EmptyKey(ConfigPath),
     /// One of the [`table string keys`] does not exist in the [`table`].
     /// Contains the path to the invalid key, or an empty path for the root [`table`]
     ///
     /// [`table string keys`]: enum.ConfigKey.html#variant.Table
     /// [`table`]: enum.Value.html#variant.Table
-    KeyDoesNotExist(ConfigPath<'a>),
+    KeyDoesNotExist(ConfigPath),
     /// One of the [`array index keys`] is out of bounds.
     ///
     /// [`array index keys`]: enum.ConfigKey.html#variant.Array
@@ -108,7 +116,7 @@ pub enum GetPathError<'a> {
         /// Path to the invalid index, or an empty path for the root [`array`].
         ///
         /// [`array`]: enum.Value.html#variant.Array
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// Actual [`array`] length.
         ///
         /// [`array`]: enum.Value.html#variant.Array
@@ -123,7 +131,7 @@ pub enum GetPathError<'a> {
         ///
         /// [`table`]: enum.Value.html#variant.Table
         /// [`array`]: enum.Value.html#variant.Array
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// Actual value [`type`].
         ///
         /// [`type`]: enum.ValueType.html
@@ -138,28 +146,25 @@ pub enum GetPathError<'a> {
         ///
         /// [`table`]: enum.Value.html#variant.Table
         /// [`array`]: enum.Value.html#variant.Array
-        path: ConfigPath<'a>,
+        path: ConfigPath,
         /// Actual value [`type`].
         ///
         /// [`type`]: enum.ValueType.html
         value_type: ValueType,
     },
-    /// Value is of incorrect [`type`].
-    /// Contains the value [`type`].
+    /// Value is of incorrect and incompatible [`type`].
+    /// Contains the actual value [`type`].
     ///
     /// [`type`]: enum.ValueType.html
     IncorrectValueType(ValueType),
 }
 
-impl<'a> GetPathError<'a> {
-    /// Pushes the table key / array index to the back of the path if the error has one.
-    pub(crate) fn push_key(mut self, key: &ConfigKey<'a>) -> Self {
+impl GetPathError {
+    /// Pushes the table key to the back of the path if the error has one.
+    pub(crate) fn push_key(mut self, key: &NonEmptyStr) -> Self {
         use GetPathError::*;
 
-        let key = match key {
-            ConfigKey::Table(key) => ConfigKey::Table(key.to_owned()),
-            ConfigKey::Array(key) => ConfigKey::Array(*key),
-        };
+        let key = OwnedConfigKey::Table(key.into());
 
         match &mut self {
             EmptyKey(path) => path.0.push(key),
@@ -167,6 +172,24 @@ impl<'a> GetPathError<'a> {
             ValueNotAnArray { path, .. } => path.0.push(key),
             ValueNotATable { path, .. } => path.0.push(key),
             IndexOutOfBounds { path, .. } => path.0.push(key),
+            IncorrectValueType(_) => {}
+        }
+
+        self
+    }
+
+    /// Pushes the array index to the back of the path if the error has one.
+    pub(crate) fn push_index(mut self, index: u32) -> Self {
+        use GetPathError::*;
+
+        let index = OwnedConfigKey::Array(index);
+
+        match &mut self {
+            EmptyKey(path) => path.0.push(index),
+            KeyDoesNotExist(path) => path.0.push(index),
+            ValueNotAnArray { path, .. } => path.0.push(index),
+            ValueNotATable { path, .. } => path.0.push(index),
+            IndexOutOfBounds { path, .. } => path.0.push(index),
             IncorrectValueType(_) => {}
         }
 
@@ -193,9 +216,9 @@ impl<'a> GetPathError<'a> {
     }
 }
 
-impl<'a> Error for GetPathError<'a> {}
+impl<'a> Error for GetPathError {}
 
-impl<'a> Display for GetPathError<'a> {
+impl<'a> Display for GetPathError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use GetPathError::*;
 
@@ -221,9 +244,11 @@ impl<'a> Display for GetPathError<'a> {
                 "value at {} is not an table (but a \"{}\")",
                 path, value_type
             ),
-            IncorrectValueType(invalid_type) => {
-                write!(f, "value is of incorrect type: \"{}\"", invalid_type)
-            }
+            IncorrectValueType(actual_type) => write!(
+                f,
+                "value is of incorrect and incompatible type (expected {})",
+                actual_type
+            ),
         }
     }
 }

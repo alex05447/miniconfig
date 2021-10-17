@@ -53,8 +53,23 @@ impl<'lua> LuaArray<'lua> {
     /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: enum.ArrayError.html
-    pub fn get(&self, index: u32) -> Result<LuaConfigValue<'lua>, ArrayError> {
+    pub fn get_val(&self, index: u32) -> Result<LuaConfigValue<'lua>, ArrayError> {
         self.get_impl(index)
+    }
+
+    /// Tries to get a reference to a [`value`] in the [`array`] at `0`-based `index`,
+    /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
+    ///
+    /// Returns an [`error`] if `index` is out of bounds.
+    ///
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`array`]: struct.LuaArray.html
+    /// [`error`]: enum.ArrayError.html
+    pub fn get<'a, V: TryFromValue<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>>(
+        &'a self,
+        index: u32,
+    ) -> Result<V, ArrayError> {
+        V::try_from(self.get_val(index)?).map_err(ArrayError::IncorrectValueType)
     }
 
     /// Tries to get a reference to a [`value`] in the [`array`] at `path`.
@@ -73,14 +88,40 @@ impl<'lua> LuaArray<'lua> {
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
     /// [`type`]: enum.ValueType.html
-    pub fn get_path<'a, K, P>(&self, path: P) -> Result<LuaConfigValue<'lua>, GetPathError<'a>>
+    pub fn get_val_path<'k, K, P>(&self, path: P) -> Result<LuaConfigValue<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
         LuaConfigValue::Array(self.clone())
             .get_path(path.into_iter())
             .map_err(GetPathError::reverse)
+    }
+
+    /// Tries to get a reference to a [`value`] in the [`array`] at `path`,
+    /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
+    ///
+    /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
+    /// or (`0`-based) [`array indices`].
+    /// All keys except the last one must correspond to a [`table`] or an [`array`](enum.Value.html#variant.Array) value.
+    /// The last key may correspond to a value of any [`type`].
+    ///
+    /// Returns the [`array`] itself if the `path` is empty.
+    ///
+    /// [`value`]: type.LuaConfigValue.html
+    /// [`array`]: struct.LuaArray.html
+    /// [`config keys`]: enum.ConfigKey.html
+    /// [`table keys`]: enum.ConfigKey.html#variant.Table
+    /// [`array indices`]: enum.ConfigKey.html#variant.Array
+    /// [`table`]: enum.Value.html#variant.Table
+    /// [`type`]: enum.ValueType.html
+    pub fn get_path<'a, 'k, K, P, V>(&'a self, path: P) -> Result<V, GetPathError>
+    where
+        K: Borrow<ConfigKey<'k>>,
+        P: IntoIterator<Item = K>,
+        V: TryFromValue<LuaString<'lua>, LuaArray<'lua>, LuaTable<'lua>>,
+    {
+        V::try_from(self.get_val_path(path)?).map_err(GetPathError::IncorrectValueType)
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`array`] at `0`-based `index`.
@@ -92,9 +133,7 @@ impl<'lua> LuaArray<'lua> {
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_bool(&self, index: u32) -> Result<bool, ArrayError> {
-        let val = self.get(index)?;
-        val.bool()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
+        self.get(index)
     }
 
     /// Tries to get a [`bool`] [`value`] in the [`array`] at `path`.
@@ -111,14 +150,12 @@ impl<'lua> LuaArray<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_bool_path<'a, K, P>(&self, path: P) -> Result<bool, GetPathError<'a>>
+    pub fn get_bool_path<'k, K, P>(&self, path: P) -> Result<bool, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.bool()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `0`-based `index`.
@@ -131,9 +168,7 @@ impl<'lua> LuaArray<'lua> {
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_i64(&self, index: u32) -> Result<i64, ArrayError> {
-        let val = self.get(index)?;
-        val.i64()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
+        self.get(index)
     }
 
     /// Tries to get an [`i64`] [`value`] in the [`array`] at `path`.
@@ -151,14 +186,12 @@ impl<'lua> LuaArray<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_i64_path<'a, K, P>(&self, path: P) -> Result<i64, GetPathError<'a>>
+    pub fn get_i64_path<'k, K, P>(&self, path: P) -> Result<i64, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.i64()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `0`-based `index`.
@@ -171,9 +204,7 @@ impl<'lua> LuaArray<'lua> {
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_f64(&self, index: u32) -> Result<f64, ArrayError> {
-        let val = self.get(index)?;
-        val.f64()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val.get_type()))
+        self.get(index)
     }
 
     /// Tries to get an [`f64`] [`value`] in the [`array`] at `path`.
@@ -191,14 +222,12 @@ impl<'lua> LuaArray<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_f64_path<'a, K, P>(&self, path: P) -> Result<f64, GetPathError<'a>>
+    pub fn get_f64_path<'k, K, P>(&self, path: P) -> Result<f64, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        val.f64()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val.get_type()))
+        self.get_path(path)
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `0`-based `index`.
@@ -210,10 +239,7 @@ impl<'lua> LuaArray<'lua> {
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_string(&self, index: u32) -> Result<LuaString<'lua>, ArrayError> {
-        let val = self.get(index)?;
-        let val_type = val.get_type();
-        val.string()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
+        self.get(index)
     }
 
     /// Tries to get a [`string`] [`value`] in the [`array`] at `path`.
@@ -223,22 +249,19 @@ impl<'lua> LuaArray<'lua> {
     /// All keys except the last one must correspond to a [`table`] or an [`array`](enum.Value.html#variant.Array) value.
     /// The last key must correspond to a [`string`] [`value`].
     ///
-    /// [`string`]: enum.Value.html#variant.I64
+    /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.LuaConfigValue.html
     /// [`array`]: struct.LuaArray.html
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_string_path<'a, K, P>(&self, path: P) -> Result<LuaString<'lua>, GetPathError<'a>>
+    pub fn get_string_path<'k, K, P>(&self, path: P) -> Result<LuaString<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.string()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Tries to get an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `0`-based `index`.
@@ -249,13 +272,10 @@ impl<'lua> LuaArray<'lua> {
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_array(&self, index: u32) -> Result<LuaArray<'lua>, ArrayError> {
-        let val = self.get(index)?;
-        let val_type = val.get_type();
-        val.array()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
+        self.get(index)
     }
 
-    /// Tries to get an immutable reference to an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `path`.
+    /// Tries to get an [`array`](enum.Value.html#variant.Array) [`value`] in the [`array`] at `path`.
     ///
     /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
     /// or (`0`-based) [`array indices`].
@@ -268,15 +288,12 @@ impl<'lua> LuaArray<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`table`]: enum.Value.html#variant.Table
-    pub fn get_array_path<'a, K, P>(&self, path: P) -> Result<LuaArray<'lua>, GetPathError<'a>>
+    pub fn get_array_path<'k, K, P>(&self, path: P) -> Result<LuaArray<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.array()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Tries to get a [`table`] [`value`] in the [`array`] at `0`-based `index`.
@@ -288,13 +305,10 @@ impl<'lua> LuaArray<'lua> {
     /// [`array`]: struct.LuaArray.html
     /// [`error`]: enum.ArrayError.html
     pub fn get_table(&self, index: u32) -> Result<LuaTable<'lua>, ArrayError> {
-        let val = self.get(index)?;
-        let val_type = val.get_type();
-        val.table()
-            .ok_or_else(|| ArrayError::IncorrectValueType(val_type))
+        self.get(index)
     }
 
-    /// Tries to get an immutable reference to a [`table`] [`value`] in the [`array`] at `path`.
+    /// Tries to get a [`table`] [`value`] in the [`array`] at `path`.
     ///
     /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
     /// or (`0`-based) [`array indices`].
@@ -307,15 +321,12 @@ impl<'lua> LuaArray<'lua> {
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
-    pub fn get_table_path<'a, K, P>(&self, path: P) -> Result<LuaTable<'lua>, GetPathError<'a>>
+    pub fn get_table_path<'k, K, P>(&self, path: P) -> Result<LuaTable<'lua>, GetPathError>
     where
-        K: Borrow<ConfigKey<'a>>,
+        K: Borrow<ConfigKey<'k>>,
         P: IntoIterator<Item = K>,
     {
-        let val = self.get_path(path)?;
-        let val_type = val.get_type();
-        val.table()
-            .ok_or_else(|| GetPathError::IncorrectValueType(val_type))
+        self.get_path(path)
     }
 
     /// Returns an in-order iterator over [`values`] in the [`array`].
@@ -385,10 +396,16 @@ impl<'lua> LuaArray<'lua> {
 
         // `+ 1` because of Lua array indexing.
         // Must succeed - the index is valid.
-        let value: rlua::Value = unwrap_unchecked(self.0.get(index + 1));
+        let value: rlua::Value = unwrap_unchecked(
+            self.0.raw_get(index + 1),
+            "failed to get a value from a Lua array table - invalid index?",
+        );
 
         // Must succeed - the array only contains valid values.
-        Ok(unwrap_unchecked(value_from_lua_value(value)))
+        Ok(unwrap_unchecked(
+            value_from_lua_value(value),
+            "failed to get a value from a Lua value",
+        ))
     }
 
     fn validate_value_type<'s>(
@@ -426,14 +443,17 @@ impl<'lua> LuaArray<'lua> {
         value: Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>,
     ) {
         // Must succeed - index and value are valid.
-        unwrap_unchecked(match value {
-            Value::Bool(value) => array.raw_set(index, value),
-            Value::F64(value) => array.raw_set(index, value),
-            Value::I64(value) => array.raw_set(index, value),
-            Value::String(value) => array.raw_set(index, value),
-            Value::Array(value) => array.raw_set(index, value.0),
-            Value::Table(value) => array.raw_set(index, value.0),
-        });
+        unwrap_unchecked(
+            match value {
+                Value::Bool(value) => array.raw_set(index, value),
+                Value::F64(value) => array.raw_set(index, value),
+                Value::I64(value) => array.raw_set(index, value),
+                Value::String(value) => array.raw_set(index, value),
+                Value::Array(value) => array.raw_set(index, value.0),
+                Value::Table(value) => array.raw_set(index, value.0),
+            },
+            "failed to set a value in the Lua array table",
+        );
     }
 
     fn set_impl<'s>(
@@ -499,11 +519,20 @@ impl<'lua> LuaArray<'lua> {
 
             // Last element has index `len` because of Lua array indexing.
             // Must succeed - the index is valid.
-            let value: rlua::Value = unwrap_unchecked(self.0.get(len));
+            let value: rlua::Value = unwrap_unchecked(
+                self.0.raw_get(len),
+                "failed to get a value from a Lua array table - invalid index?",
+            );
             // Must succeed - the index is valid.
-            unwrap_unchecked(self.0.set(len, rlua::Value::Nil));
+            unwrap_unchecked(
+                self.0.raw_set(len, rlua::Value::Nil),
+                "failed to set a value in a Lua array table",
+            );
             // Must succeed - the value is valid.
-            Ok(unwrap_unchecked(value_from_lua_value(value)))
+            Ok(unwrap_unchecked(
+                value_from_lua_value(value),
+                "failed to get a value from a Lua value",
+            ))
         } else {
             Err(ArrayEmpty)
         }
@@ -549,7 +578,10 @@ impl<'lua> std::iter::Iterator for LuaArrayIter<'lua> {
         if let Some(value) = self.0.next() {
             if let Ok(value) = value {
                 // Must succeed - the array only contains valid values.
-                Some(unwrap_unchecked(value_from_lua_value(value)))
+                Some(unwrap_unchecked(
+                    value_from_lua_value(value),
+                    "failed to get a value from a Lua value",
+                ))
             } else {
                 debug_assert!(false, "unexpected error when iterating a Lua array");
                 None // Stop on iteration error (this should never happen).
@@ -585,7 +617,10 @@ mod tests {
         lua.context(|lua| {
             let mut array = LuaArray::new(lua);
 
-            assert_eq!(array.get(0).err().unwrap(), ArrayError::IndexOutOfBounds(0));
+            assert_eq!(
+                array.get_val(0).err().unwrap(),
+                ArrayError::IndexOutOfBounds(0)
+            );
             assert_eq!(
                 array.get_bool(0).err().unwrap(),
                 ArrayError::IndexOutOfBounds(0)
@@ -620,7 +655,7 @@ mod tests {
 
             array.push(true.into()).unwrap();
 
-            assert_eq!(array.get(0).unwrap().bool().unwrap(), true);
+            assert_eq!(array.get_val(0).unwrap().bool().unwrap(), true);
             assert_eq!(array.get_bool(0).unwrap(), true);
         });
     }
@@ -718,14 +753,14 @@ mod tests {
             assert_eq!(array.len(), 1);
             assert!(!array.is_empty());
 
-            assert_eq!(array.get(0).unwrap().bool().unwrap(), true);
+            assert_eq!(array.get_val(0).unwrap().bool().unwrap(), true);
             assert_eq!(array.get_bool(0).unwrap(), true);
 
             // Push a bool.
             array.push(false.into()).unwrap();
             assert_eq!(array.len(), 2);
             assert!(!array.is_empty());
-            assert_eq!(array.get(1).unwrap().bool().unwrap(), false);
+            assert_eq!(array.get_val(1).unwrap().bool().unwrap(), false);
             assert_eq!(array.get_bool(1).unwrap(), false);
 
             // Clear it.
@@ -741,10 +776,10 @@ mod tests {
             assert_eq!(array.len(), 1);
             assert!(!array.is_empty());
 
-            assert_eq!(array.get(0).unwrap().i64().unwrap(), 7);
+            assert_eq!(array.get_val(0).unwrap().i64().unwrap(), 7);
             assert_eq!(array.get_i64(0).unwrap(), 7);
 
-            assert!(cmp_f64(array.get(0).unwrap().f64().unwrap(), 7.0));
+            assert!(cmp_f64(array.get_val(0).unwrap().f64().unwrap(), 7.0));
             assert!(cmp_f64(array.get_f64(0).unwrap(), 7.0));
 
             // Push a float.
@@ -752,10 +787,10 @@ mod tests {
             assert_eq!(array.len(), 2);
             assert!(!array.is_empty());
 
-            assert_eq!(array.get(1).unwrap().i64().unwrap(), 3);
+            assert_eq!(array.get_val(1).unwrap().i64().unwrap(), 3);
             assert_eq!(array.get_i64(1).unwrap(), 3);
 
-            assert!(cmp_f64(array.get(1).unwrap().f64().unwrap(), 3.14));
+            assert!(cmp_f64(array.get_val(1).unwrap().f64().unwrap(), 3.14));
             assert!(cmp_f64(array.get_f64(1).unwrap(), 3.14));
 
             // Push another int.
@@ -763,10 +798,10 @@ mod tests {
             assert_eq!(array.len(), 3);
             assert!(!array.is_empty());
 
-            assert_eq!(array.get(2).unwrap().i64().unwrap(), -9);
+            assert_eq!(array.get_val(2).unwrap().i64().unwrap(), -9);
             assert_eq!(array.get_i64(2).unwrap(), -9);
 
-            assert!(cmp_f64(array.get(2).unwrap().f64().unwrap(), -9.0));
+            assert!(cmp_f64(array.get_val(2).unwrap().f64().unwrap(), -9.0));
             assert!(cmp_f64(array.get_f64(2).unwrap(), -9.0));
 
             // Iterate the array.

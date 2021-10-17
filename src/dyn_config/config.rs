@@ -1,10 +1,10 @@
 use {
     crate::{util::DisplayLua, *},
-    std::fmt::{Display, Formatter, Write},
+    std::{
+        fmt::{Display, Formatter, Write},
+        num::NonZeroU32,
+    },
 };
-
-#[cfg(feature = "bin")]
-use crate::util::unwrap_unchecked;
 
 /// Represents a mutable config with a root hashmap [`table`].
 ///
@@ -71,16 +71,17 @@ impl DynConfig {
 
         let root = self.root();
 
+        if let Some(root_len) = NonZeroU32::new(root.len()) {
+            let mut writer = BinConfigWriter::new(root_len)?;
+
+            table_to_bin_config(root, &mut writer)?;
+
+            writer.finish()
+
         // The root table is empty - nothing to do.
-        if root.len() == 0 {
-            return Err(EmptyRootTable);
+        } else {
+            Err(EmptyRootTable)
         }
-
-        let mut writer = BinConfigWriter::new(root.len())?;
-
-        table_to_bin_config(root, &mut writer)?;
-
-        writer.finish()
     }
 
     /// Creates a new [`config`] from the [`.ini parser`].
@@ -340,7 +341,10 @@ fn table_to_bin_config(
     // Iterate the table using the sorted keys.
     for key in keys.into_iter() {
         // Must succeed - all keys are valid.
-        let value = unwrap_unchecked(table.get(key));
+        let value = unwrap_unchecked(
+            table.get_val(key),
+            "failed to get a value from a dyn config table with a valid key",
+        );
 
         value_to_bin_config(Some(key), value, writer)?;
     }
@@ -403,14 +407,14 @@ fn value_to_bin_config(
 mod tests {
     #![allow(non_snake_case)]
 
-    use crate::*;
+    use {crate::*, ministr_macro::nestr};
 
     #[test]
     fn GetPathError_EmptyKey() {
         let mut table = DynTable::new();
 
         assert_eq!(
-            table.get_path(&["".into()]).err().unwrap(),
+            table.get_val_path(&["".into()]).err().unwrap(),
             GetPathError::EmptyKey(ConfigPath::new())
         );
 
@@ -420,8 +424,11 @@ mod tests {
         table.set("foo", Some(other_table.into())).unwrap();
 
         assert_eq!(
-            table.get_path(&["foo".into(), "".into()]).err().unwrap(),
-            GetPathError::EmptyKey(ConfigPath(vec!["foo".into()]))
+            table
+                .get_val_path(&["foo".into(), "".into()])
+                .err()
+                .unwrap(),
+            GetPathError::EmptyKey(vec![nestr!("foo").into()].into())
         );
 
         // But this works.
@@ -446,21 +453,27 @@ mod tests {
         table.set("foo", Some(foo.into())).unwrap();
 
         assert_eq!(
-            table.get_path(&["foo".into(), "baz".into()]).err().unwrap(),
-            GetPathError::KeyDoesNotExist(ConfigPath(vec!["foo".into(), "baz".into()]))
+            table
+                .get_val_path(&["foo".into(), "baz".into()])
+                .err()
+                .unwrap(),
+            GetPathError::KeyDoesNotExist(vec![nestr!("foo").into(), nestr!("baz").into()].into())
         );
 
         assert_eq!(
             table
-                .get_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
+                .get_val_path(&["foo".into(), "bar".into(), 0.into(), "bill".into()])
                 .err()
                 .unwrap(),
-            GetPathError::KeyDoesNotExist(ConfigPath(vec![
-                "foo".into(),
-                "bar".into(),
-                0.into(),
-                "bill".into()
-            ]))
+            GetPathError::KeyDoesNotExist(
+                vec![
+                    nestr!("foo").into(),
+                    nestr!("bar").into(),
+                    0.into(),
+                    nestr!("bill").into()
+                ]
+                .into()
+            )
         );
 
         // But this works.
@@ -483,9 +496,12 @@ mod tests {
         table.set("array", Some(array.into())).unwrap();
 
         assert_eq!(
-            table.get_path(&["array".into(), 1.into()]).err().unwrap(),
+            table
+                .get_val_path(&["array".into(), 1.into()])
+                .err()
+                .unwrap(),
             GetPathError::IndexOutOfBounds {
-                path: ConfigPath(vec!["array".into(), 1.into()]),
+                path: vec![nestr!("array").into(), 1.into()].into(),
                 len: 1
             }
         );
@@ -509,11 +525,11 @@ mod tests {
 
         assert_eq!(
             table
-                .get_path(&["table".into(), "array".into(), 1.into()])
+                .get_val_path(&["table".into(), "array".into(), 1.into()])
                 .err()
                 .unwrap(),
             GetPathError::ValueNotAnArray {
-                path: ConfigPath(vec!["table".into(), "array".into()]),
+                path: vec![nestr!("table").into(), nestr!("array").into()].into(),
                 value_type: ValueType::Bool
             }
         );
@@ -539,11 +555,11 @@ mod tests {
 
         assert_eq!(
             table
-                .get_path(&["array".into(), 0.into(), "foo".into()])
+                .get_val_path(&["array".into(), 0.into(), "foo".into()])
                 .err()
                 .unwrap(),
             GetPathError::ValueNotATable {
-                path: ConfigPath(vec!["array".into(), 0.into()]),
+                path: vec![nestr!("array").into(), 0.into()].into(),
                 value_type: ValueType::Bool
             }
         );
