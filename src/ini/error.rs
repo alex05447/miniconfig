@@ -58,16 +58,13 @@ pub enum IniErrorKind {
     /// Invalid character in an escape sequence.
     /// Contains the invalid character.
     InvalidEscapeCharacter(char),
-    /// Unexpected end of file in an ASCII escape sequence.
-    UnexpectedEndOfFileInASCIIEscapeSequence,
     /// Unexpected end of file in a Unicode escape sequence.
     UnexpectedEndOfFileInUnicodeEscapeSequence,
-    /// Unexpected new line in an ASCII escape sequence.
-    UnexpectedNewLineInASCIIEscapeSequence,
     /// Unexpected new line in a Unicode escape sequence.
     UnexpectedNewLineInUnicodeEscapeSequence,
-    /// Invalid ASCII escape sequence.
-    InvalidASCIIEscapeSequence,
+    /// Invalid character in a Unicode escape sequence, expected a hexadecimal digit.
+    /// Contains the invalid character.
+    InvalidCharacterInUnicodeEscapeSequence(char),
     /// Invalid Unicode escape sequence.
     InvalidUnicodeEscapeSequence,
     /// Unexpected new line in a quoted string value.
@@ -137,11 +134,12 @@ impl Display for IniErrorKind {
                 f,
                 "invalid character ('{}') in an escape sequence", c
             ),
-            UnexpectedEndOfFileInASCIIEscapeSequence => "unexpected end of file in an ASCII escape sequence".fmt(f),
             UnexpectedEndOfFileInUnicodeEscapeSequence => "unexpected end of file in a Unicode escape sequence".fmt(f),
-            UnexpectedNewLineInASCIIEscapeSequence => "unexpected new line in an ASCII escape sequence".fmt(f),
             UnexpectedNewLineInUnicodeEscapeSequence => "unexpected new line in a Unicode escape sequence".fmt(f),
-            InvalidASCIIEscapeSequence => "invalid ASCII escape sequence".fmt(f),
+            InvalidCharacterInUnicodeEscapeSequence(c) => write!(
+                f,
+                "invalid character ('{}') in a Unicode escape sequence, expected a hexadecimal digit", c
+            ),
             InvalidUnicodeEscapeSequence => "invalid Unicode escape sequence".fmt(f),
             UnexpectedNewLineInQuotedValue => "unexpected new line in a quoted string value".fmt(f),
             UnexpectedEndOfFileInQuotedString => "unexpected end of file in a quoted string value".fmt(f),

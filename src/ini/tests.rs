@@ -1551,20 +1551,16 @@ fn InvalidEscapeCharacter() {
 }
 
 #[test]
-fn UnexpectedEndOfFileInASCIIEscapeSequence() {
+fn UnexpectedEndOfFileInUnicodeEscapeSequence() {
     assert_eq!(
         DynConfig::from_ini(IniParser::new("a=\\x0")).err().unwrap(),
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::UnexpectedEndOfFileInASCIIEscapeSequence,
+            error: IniErrorKind::UnexpectedEndOfFileInUnicodeEscapeSequence,
             path: vec![nestr!("a").into()].into(),
         }
     );
-}
-
-#[test]
-fn UnexpectedEndOfFileInUnicodeEscapeSequence() {
     assert_eq!(
         DynConfig::from_ini(IniParser::new("a=\\u000"))
             .err()
@@ -1576,18 +1572,14 @@ fn UnexpectedEndOfFileInUnicodeEscapeSequence() {
             path: vec![nestr!("a").into()].into(),
         }
     );
-}
-
-#[test]
-fn UnexpectedNewLineInASCIIEscapeSequence() {
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\\x\n"))
+        DynConfig::from_ini(IniParser::new("a=\\u{000"))
             .err()
             .unwrap(),
         IniError {
             line: 1,
-            column: 4,
-            error: IniErrorKind::UnexpectedNewLineInASCIIEscapeSequence,
+            column: 8,
+            error: IniErrorKind::UnexpectedEndOfFileInUnicodeEscapeSequence,
             path: vec![nestr!("a").into()].into(),
         }
     );
@@ -1595,6 +1587,17 @@ fn UnexpectedNewLineInASCIIEscapeSequence() {
 
 #[test]
 fn UnexpectedNewLineInUnicodeEscapeSequence() {
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\\x\n"))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 4,
+            error: IniErrorKind::UnexpectedNewLineInUnicodeEscapeSequence,
+            path: vec![nestr!("a").into()].into(),
+        }
+    );
     assert_eq!(
         DynConfig::from_ini(IniParser::new("a=\\u\n"))
             .err()
@@ -1606,10 +1609,21 @@ fn UnexpectedNewLineInUnicodeEscapeSequence() {
             path: vec![nestr!("a").into()].into(),
         }
     );
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("b=\\u{f\n"))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 6,
+            error: IniErrorKind::UnexpectedNewLineInUnicodeEscapeSequence,
+            path: vec![nestr!("b").into()].into(),
+        }
+    );
 }
 
 #[test]
-fn InvalidASCIIEscapeSequence() {
+fn InvalidCharacterInUnicodeEscapeSequence() {
     assert_eq!(
         DynConfig::from_ini(IniParser::new("a=\\x$?"))
             .err()
@@ -1617,18 +1631,40 @@ fn InvalidASCIIEscapeSequence() {
         IniError {
             line: 1,
             column: 5,
-            error: IniErrorKind::InvalidASCIIEscapeSequence,
+            error: IniErrorKind::InvalidCharacterInUnicodeEscapeSequence('$'),
             path: vec![nestr!("a").into()].into(),
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\"\\xf\""))
+        DynConfig::from_ini(IniParser::new("b = \"\\xf\""))
             .err()
             .unwrap(),
         IniError {
             line: 1,
-            column: 7,
-            error: IniErrorKind::InvalidASCIIEscapeSequence,
+            column: 9,
+            error: IniErrorKind::InvalidCharacterInUnicodeEscapeSequence('"'),
+            path: vec![nestr!("b").into()].into(),
+        }
+    );
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\"\\udff\""))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 9,
+            error: IniErrorKind::InvalidCharacterInUnicodeEscapeSequence('"'),
+            path: vec![nestr!("a").into()].into(),
+        }
+    );
+    assert_eq!(
+        DynConfig::from_ini(IniParser::new("a=\"\\u{dff\""))
+            .err()
+            .unwrap(),
+        IniError {
+            line: 1,
+            column: 10,
+            error: IniErrorKind::InvalidCharacterInUnicodeEscapeSequence('"'),
             path: vec![nestr!("a").into()].into(),
         }
     );
@@ -1648,16 +1684,29 @@ fn InvalidUnicodeEscapeSequence() {
         }
     );
     assert_eq!(
-        DynConfig::from_ini(IniParser::new("a=\"\\udff\""))
+        DynConfig::from_ini(IniParser::new("a=\\u{}"))
             .err()
             .unwrap(),
         IniError {
             line: 1,
-            column: 9,
+            column: 6,
             error: IniErrorKind::InvalidUnicodeEscapeSequence,
             path: vec![nestr!("a").into()].into(),
         }
     );
+
+    // But this succeeds.
+
+    let ini = dyn_config("a=\"\\xa7\"");
+    assert_eq!(ini.root().get_string("a").unwrap(), "§");
+    let ini = dyn_config("a=\"\\xA7\"");
+    assert_eq!(ini.root().get_string("a").unwrap(), "§");
+
+    let ini = dyn_config("a=\"\\u0110\"");
+    assert_eq!(ini.root().get_string("a").unwrap(), "Đ");
+
+    let ini = dyn_config("a=\"\\u{1f639}\"");
+    assert_eq!(ini.root().get_string("a").unwrap(), "😹");
 }
 
 #[test]

@@ -40,12 +40,10 @@ pub(super) struct IniParserPersistentState<'s> {
     // Whether we need to skip the current value
     // (i.e., when we encountered a duplicate key and we use the `First` duplicate key policy).
     pub skip_value: bool,
-    // Scratch buffer for ASCII / Unicode escape sequences, if supported.
-    pub escape_sequence_buffer: String,
 }
 
 impl<'s> IniParserPersistentState<'s> {
-    fn new(escape: bool) -> Self {
+    fn new() -> Self {
         Self {
             key: ParsedIniKey::new(),
             value: ParsedIniValue::new(),
@@ -53,11 +51,6 @@ impl<'s> IniParserPersistentState<'s> {
             is_key_unique: true,
             skip_section: false,
             skip_value: false,
-            escape_sequence_buffer: if escape {
-                String::with_capacity(4)
-            } else {
-                String::new()
-            },
         }
     }
 
@@ -267,7 +260,7 @@ impl<'s> IniParser<'s> {
 
         let substr = |range| Self::substr(source, range);
 
-        let mut persistent_state = IniParserPersistentState::new(options.escape);
+        let mut persistent_state = IniParserPersistentState::new();
         let mut src_pos_state = IniParserSrcPositionState::new();
         let mut fsm_state = IniParserFSMState::StartLine;
 

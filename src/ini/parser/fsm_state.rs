@@ -180,12 +180,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - parse the escape sequence as the key.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - start parsing the (now owned) key.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.key.push_owned(c, substr);
@@ -235,12 +230,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported).
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - start parsing the (now owned) section name.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.key.push_owned(c, substr);
@@ -309,12 +299,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - keep parsing the section name.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        true,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, true, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) section name.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.key.push_owned(c, substr);
@@ -369,12 +354,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - keep parsing the section name.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) section name.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.key.push_owned(c, substr);
@@ -554,12 +534,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - keep parsing the key.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) key.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.key.push_owned(c, substr)
@@ -608,12 +583,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - keep parsing the key.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) key.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.key.push_owned(c, substr);
@@ -718,12 +688,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - parse the escape sequence, start parsing the value.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - start parsing the (now owned) value.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.value.push_owned(c, substr);
@@ -813,12 +778,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - parse the escape sequence.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) value.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.value.push_owned(c, substr);
@@ -871,12 +831,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - parse the escape sequence.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) quoted value.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.value.push_owned(c, substr);
@@ -945,12 +900,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - parse the escape sequence, start parsing the array value.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - start parsing the (owned) unquoted array value.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.value.push_owned(c, substr);
@@ -1042,12 +992,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - parse the escape sequence.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) unquoted array value.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.value.push_owned(c, substr);
@@ -1099,12 +1044,7 @@ impl IniParserFSMState {
 
                 // Escaped char (if supported) - parse the escape sequence.
                 } else if options.is_escape_char(c) {
-                    match try_parse_escape_sequence(
-                        next,
-                        &mut state.escape_sequence_buffer,
-                        false,
-                        options,
-                    )? {
+                    match try_parse_escape_sequence(next, false, options)? {
                         // Parsed an escaped char - keep parsing the (now owned) quoted array value.
                         ParseEscapeSequenceResult::EscapedChar(c) => {
                             state.value.push_owned(c, substr);
@@ -1224,11 +1164,47 @@ impl IniParserFSMState {
     }
 }
 
+fn try_char_to_hex_digit(c: char) -> Option<u8> {
+    Some(match c {
+        '0' => 0,
+        '1' => 1,
+        '2' => 2,
+        '3' => 3,
+        '4' => 4,
+        '5' => 5,
+        '6' => 6,
+        '7' => 7,
+        '8' => 8,
+        '9' => 9,
+        'a' | 'A' => 10,
+        'b' | 'B' => 11,
+        'c' | 'C' => 12,
+        'd' | 'D' => 13,
+        'e' | 'E' => 14,
+        'f' | 'F' => 15,
+        _ => return None,
+    })
+}
+
+fn hex_digits_to_number(digits: &[u8]) -> u32 {
+    const RADIX: u32 = 16;
+
+    let mut result = 0;
+
+    for d in digits {
+        debug_assert!(*d < RADIX as _);
+
+        result *= RADIX;
+        result += *d as u32;
+    }
+
+    result
+}
+
 /// Reads up to 4 following characters and tries to parse them as an escape sequence.
 /// `in_unquoted_section` is `true` if we are parsing an unquoted `.ini` section name.
 fn try_parse_escape_sequence<F: FnMut() -> Option<char>>(
     mut next: F,
-    escape_sequence_buffer: &mut String,
     in_unquoted_section: bool,
     options: &IniOptions,
 ) -> Result<ParseEscapeSequenceResult, (IniErrorKind, bool)> {
@@ -1236,6 +1212,35 @@ fn try_parse_escape_sequence<F: FnMut() -> Option<char>>(
     use ParseEscapeSequenceResult::*;
 
     debug_assert!(options.escape);
+
+    const MAX_NUM_UNICODE_ESCAPE_HEX_DIGITS: usize = 6;
+    type HexDigits = [u8; MAX_NUM_UNICODE_ESCAPE_HEX_DIGITS];
+    let mut hex_digits: HexDigits = [0, 0, 0, 0, 0, 0];
+    let mut hex_digits_len: usize = 0;
+
+    // Return `Ok(false)` to stop parsing when the closing bracket (`}`) reached.
+    let mut parse_unicode_escape_hex_digit =
+        |c: Option<char>, bracketed: bool| -> Result<bool, (IniErrorKind, bool)> {
+            match c {
+                None => return Err((UnexpectedEndOfFileInUnicodeEscapeSequence, false)),
+                Some('\n') | Some('\r') => {
+                    return Err((UnexpectedNewLineInUnicodeEscapeSequence, true))
+                }
+                Some(c) => {
+                    if bracketed && c == '}' {
+                        return Ok(false);
+                    } else if let Some(digit) = try_char_to_hex_digit(c) {
+                        debug_assert!(hex_digits_len < MAX_NUM_UNICODE_ESCAPE_HEX_DIGITS);
+                        *(unsafe { hex_digits.get_unchecked_mut(hex_digits_len) }) = digit;
+                        hex_digits_len += 1;
+                    } else {
+                        return Err((InvalidCharacterInUnicodeEscapeSequence(c), false));
+                    }
+                }
+            }
+
+            Ok(true)
+        };
 
     match next() {
         None => Err((UnexpectedEndOfFileInEscapeSequence, false)),
@@ -1278,62 +1283,58 @@ fn try_parse_escape_sequence<F: FnMut() -> Option<char>>(
         // it's just a normal character and must not be escaped.
         Some('/') if (options.nested_sections() && in_unquoted_section) => Ok(EscapedChar('/')),
 
-        // 2 hexadecimal ASCII values.
+        // Exactly 2 hexadecimal digits corresponding to a Unicode scalar value up to 0xff.
         Some('x') => {
-            escape_sequence_buffer.clear();
-
             for _ in 0..2 {
-                match next() {
-                    None => return Err((UnexpectedEndOfFileInASCIIEscapeSequence, false)),
-                    Some('\n') | Some('\r') => {
-                        return Err((UnexpectedNewLineInASCIIEscapeSequence, true))
-                    }
-                    Some(c) => {
-                        if !c.is_digit(16) {
-                            return Err((InvalidASCIIEscapeSequence, false));
-                        }
-
-                        escape_sequence_buffer.push(c);
-                    }
-                }
+                parse_unicode_escape_hex_digit(next(), false)?;
             }
 
+            debug_assert!(hex_digits_len < MAX_NUM_UNICODE_ESCAPE_HEX_DIGITS);
             Ok(EscapedChar(
-                std::char::from_u32(
-                    u32::from_str_radix(&escape_sequence_buffer, 16)
-                        .map_err(|_| (InvalidASCIIEscapeSequence, false))?,
-                )
-                .ok_or_else(|| (InvalidASCIIEscapeSequence, false))?,
+                std::char::from_u32(hex_digits_to_number(unsafe {
+                    hex_digits.get_unchecked(0..hex_digits_len)
+                }))
+                .ok_or_else(|| (InvalidUnicodeEscapeSequence, false))?,
             ))
         }
 
-        // 4 hexadecimal Unicode values.
+        // Exactly 2 hexadecimal digits corresponding to a Unicode scalar value up to 0xffff (i.e. within the BMP),
+        // OR 1 to 6 (inclusive) hexadecimal digits in brackets (`{` / `}`) corresponding to a Unicode scalar value up to 0x10ffff
+        // (i.e. may represent any valid Unicode scalar value).
         Some('u') => {
-            escape_sequence_buffer.clear();
-
-            for _ in 0..4 {
-                match next() {
-                    None => return Err((UnexpectedEndOfFileInUnicodeEscapeSequence, false)),
-                    Some('\n') | Some('\r') => {
-                        return Err((UnexpectedNewLineInUnicodeEscapeSequence, true))
-                    }
-                    Some(c) => {
-                        if !c.is_digit(16) {
-                            return Err((InvalidUnicodeEscapeSequence, false));
+            match next() {
+                None => return Err((UnexpectedEndOfFileInUnicodeEscapeSequence, false)),
+                Some('\n') | Some('\r') => {
+                    return Err((UnexpectedNewLineInUnicodeEscapeSequence, true))
+                }
+                // Start parsing the bracketed Unicode escape sequence.
+                Some('{') => {
+                    for _ in 0..MAX_NUM_UNICODE_ESCAPE_HEX_DIGITS {
+                        if !parse_unicode_escape_hex_digit(next(), true)? {
+                            break;
                         }
-
-                        escape_sequence_buffer.push(c);
+                    }
+                }
+                Some(c) => {
+                    // Start parsing a normal 4-digit Unicode escape sequence (now only 3 digits remain).
+                    parse_unicode_escape_hex_digit(Some(c), false)?;
+                    for _ in 0..3 {
+                        parse_unicode_escape_hex_digit(next(), false)?;
                     }
                 }
             }
 
-            Ok(EscapedChar(
-                std::char::from_u32(
-                    u32::from_str_radix(&escape_sequence_buffer, 16)
-                        .map_err(|_| (InvalidUnicodeEscapeSequence, false))?,
-                )
-                .ok_or_else(|| (InvalidUnicodeEscapeSequence, false))?,
-            ))
+            if hex_digits_len == 0 {
+                Err((InvalidUnicodeEscapeSequence, false))
+            } else {
+                debug_assert!(hex_digits_len < MAX_NUM_UNICODE_ESCAPE_HEX_DIGITS);
+                Ok(EscapedChar(
+                    std::char::from_u32(hex_digits_to_number(unsafe {
+                        hex_digits.get_unchecked(0..hex_digits_len)
+                    }))
+                    .ok_or_else(|| (InvalidUnicodeEscapeSequence, false))?,
+                ))
+            }
         }
 
         Some(c) => Err((InvalidEscapeCharacter(c), false)),
@@ -1633,29 +1634,62 @@ mod tests {
     }
 
     #[test]
-    fn try_parse_ascii_escape_sequence_test() {
-        let mut buffer = String::new();
-
-        let mut parse_char = |src: &str, res: char| {
+    fn try_parse_escape_sequence_test() {
+        let parse_hex = |src: &str, res: char| {
             let mut src = std::iter::once('x').chain(src.chars());
             assert_eq!(
-                try_parse_escape_sequence(|| src.next(), &mut buffer, false, &Default::default())
-                    .unwrap(),
+                try_parse_escape_sequence(|| src.next(), false, &Default::default()).unwrap(),
                 ParseEscapeSequenceResult::EscapedChar(res)
             );
         };
 
-        // ASCII
-        parse_char("20", ' ');
-        parse_char("24", '$');
-        parse_char("2c", ',');
-        parse_char("59", 'Y');
-        parse_char("66", 'f');
+        parse_hex("20", ' ');
+        parse_hex("24", '$');
+        parse_hex("2c", ',');
+        parse_hex("59", 'Y');
+        parse_hex("66", 'f');
 
-        // 0x7f - 0xff
-        parse_char("b5", 'µ');
-        parse_char("b6", '¶');
-        parse_char("c6", 'Æ');
-        parse_char("e9", 'é');
+        parse_hex("b5", 'µ');
+        parse_hex("b6", '¶');
+        parse_hex("c6", 'Æ');
+        parse_hex("e9", 'é');
+
+        let parse_unicode = |src: &str, res: char| {
+            let mut src = std::iter::once('u').chain(src.chars());
+            assert_eq!(
+                try_parse_escape_sequence(|| src.next(), false, &Default::default()).unwrap(),
+                ParseEscapeSequenceResult::EscapedChar(res)
+            );
+        };
+
+        parse_unicode("0020", ' ');
+        parse_unicode("0024", '$');
+        parse_unicode("002c", ',');
+        parse_unicode("0059", 'Y');
+        parse_unicode("0066", 'f');
+
+        parse_unicode("00b5", 'µ');
+        parse_unicode("00b6", '¶');
+        parse_unicode("00c6", 'Æ');
+        parse_unicode("00e9", 'é');
+
+        parse_unicode("0117", 'ė');
+        parse_unicode("0133", 'ĳ');
+        parse_unicode("017D", 'Ž');
+        parse_unicode("2030", '‰');
+
+        let parse_bracketed_unicode = |src: &str, res: char| {
+            let mut src = std::iter::once('u')
+                .chain(std::iter::once('{'))
+                .chain(src.chars())
+                .chain(std::iter::once('}'));
+            assert_eq!(
+                try_parse_escape_sequence(|| src.next(), false, &Default::default()).unwrap(),
+                ParseEscapeSequenceResult::EscapedChar(res)
+            );
+        };
+
+        parse_bracketed_unicode("1f639", '😹');
+        parse_bracketed_unicode("1f607", '😇');
     }
 }

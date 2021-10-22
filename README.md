@@ -56,6 +56,7 @@ These are the special `.ini` characters:
 - `/` (optional nested section separator, must be escaped in unquoted section names when using nested sections)
 
 Section names, keys and string values may be enclosed in (matching) single (`'`) or double (`"`) quotes. In this case spaces (`' '`), non-matching double (`"`) or single (`'`) quotes and special `.ini` characters do not have to be (but may be) escaped.
+Unicode 2-digit (`\xXX`), 4-digit (`\uXXXX`) and 1 to 6 digit (inclusive) (`\u{X} - \u{XXXXXX}`) escape sequences are sipported.
 
 ### **Values**
 
@@ -145,7 +146,7 @@ key\ 2 = true
 ; (note the skipped spaces).
 [ some_section ]
 
-; 2 hexadecimal digit ASCII escape sequences are supported.
+; 2 hexadecimal digit Unicode escape sequences are supported.
 ; This key is `foo`.
 ; Quoted values (in single quotes here) are always parsed as strings.
 ; Non-matching quotes (double quotes here) don't have to be escaped.
@@ -156,9 +157,11 @@ key\ 2 = true
 ; This key is `baz`.
 \u0066\u006f\u007a = "áêìõü"
 
+; Up to 6 hexadecimal digit Unicode escape sequences are supported.
+; This key is `bar`.
 ; Colon (`:`) is supported as an optional key-value separator.
 ; This key is `bar`, value is a 64-bit floating point value `3.14`.
-bar : 3.14
+\u{0066}\u{006f}\u{0072} : 3.14
 
 ; Section names may be enclosed in quotes; same rules as keys.
 ["other section"]
@@ -193,7 +196,8 @@ string
 baz = "an overridden value"
 
 ; Nested sections (separated by forward slashes (`/`)) are optionally supported.
-; Each parent section must be declared prior.
+; Each parent section must be declared prior by default;
+; but may be optionally treated as an implicit empty section.
 ; If nested sections are not enabled, `/` is treated as a normal key/value character.
 ; Otherwise it must be escaped in unquoted section names.
 [some_section / nested_section]
