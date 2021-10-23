@@ -556,30 +556,28 @@ impl BinConfig {
     fn value_to_dyn_table(key: &NonEmptyStr, value: BinConfigValue<'_>, dyn_table: &mut DynTable) {
         use crate::Value::*;
 
-        // Must succeed - we are only adding values to the dyn table.
-        if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set_impl(key, Some(Bool(value))),
-            I64(value) => dyn_table.set_impl(key, Some(I64(value))),
-            F64(value) => dyn_table.set_impl(key, Some(F64(value))),
-            String(value) => dyn_table.set_impl(key, Some(String(value.into()))),
+        let already_existed = match value {
+            Bool(value) => dyn_table.set(key, value),
+            I64(value) => dyn_table.set(key, value),
+            F64(value) => dyn_table.set(key, value),
+            String(value) => dyn_table.set(key, value),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set_impl(key, Some(Array(array)))
+                dyn_table.set(key, array)
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set_impl(key, Some(Table(table)))
+                dyn_table.set(key, table)
             }
-        } {
-            debug_assert!(
-                !already_existed,
-                "value unexpectedly already existed in the table"
-            );
-        } else {
-            debug_unreachable!("adding a value to the table failed")
-        }
+        };
+
+        // Must succeed - we are only adding values to the dyn table.
+        debug_assert!(
+            !already_existed,
+            "value unexpectedly already existed in the table"
+        );
     }
 
     #[cfg(feature = "dyn")]
@@ -694,35 +692,6 @@ mod tests {
     use {crate::*, ministr_macro::nestr, std::num::NonZeroU32};
 
     #[test]
-    fn GetPathError_EmptyKey() {
-        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
-        writer.table(nestr!("foo"), 1).unwrap();
-        writer.bool(nestr!("bar"), true).unwrap();
-        writer.end().unwrap();
-        let data = writer.finish().unwrap();
-        let config = BinConfig::new(data).unwrap();
-
-        assert_eq!(
-            config
-                .root()
-                .get_val_path(&["foo".into(), "".into()])
-                .err()
-                .unwrap(),
-            GetPathError::EmptyKey(ConfigPath(vec![nestr!("foo").into()]))
-        );
-
-        // But this works.
-
-        assert_eq!(
-            config
-                .root()
-                .get_bool_path(&["foo".into(), "bar".into()])
-                .unwrap(),
-            true,
-        );
-    }
-
-    #[test]
     fn GetPathError_PathDoesNotExist() {
         let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.table(nestr!("foo"), 1).unwrap();
@@ -735,6 +704,18 @@ mod tests {
         let data = writer.finish().unwrap();
         let config = BinConfig::new(data).unwrap();
 
+        assert_eq!(
+            config.root().get_val_path(&["".into()]).err().unwrap(),
+            GetPathError::KeyDoesNotExist(ConfigPath::new())
+        );
+        assert_eq!(
+            config
+                .root()
+                .get_val_path(&["foo".into(), "".into()])
+                .err()
+                .unwrap(),
+            GetPathError::KeyDoesNotExist(vec![nestr!("foo").into()].into())
+        );
         assert_eq!(
             config
                 .root()
@@ -770,6 +751,11 @@ mod tests {
                 .unwrap(),
             true
         );
+        let val: bool = config
+            .root()
+            .get_path(&["foo".into(), "bar".into(), 0.into(), "bob".into()])
+            .unwrap();
+        assert_eq!(val, true);
     }
 
     #[test]

@@ -83,19 +83,10 @@ impl<'lua> LuaConfigValue<'lua> {
                 ConfigKey::Table(ref table_key) => match self {
                     Value::Table(table) => {
                         let key = NonEmptyStr::new(table_key.as_str())
-                            .ok_or_else(|| GetPathError::EmptyKey(ConfigPath::new()))?;
-                        let value = table.get_impl(key).map_err(|err| match err {
-                            TableError::KeyDoesNotExist => {
-                                GetPathError::KeyDoesNotExist(vec![key.into()].into())
-                            }
-                            TableError::IncorrectValueType(_) => debug_unreachable!(
-                                "`get_impl()` does not return `IncorrectValueType(_)`"
-                            ),
-                            TableError::EmptyKey => {
-                                debug_unreachable!("`get_impl()` does not return `EmptyKey`")
-                            }
+                            .ok_or_else(|| GetPathError::KeyDoesNotExist(ConfigPath::new()))?;
+                        let value = table.get_impl(key).ok_or_else(|| {
+                            GetPathError::KeyDoesNotExist(vec![key.into()].into())
                         })?;
-
                         value.get_path(path).map_err(|err| err.push_key(key.into()))
                     }
                     _ => Err(GetPathError::ValueNotATable {

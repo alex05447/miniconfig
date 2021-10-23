@@ -2108,10 +2108,7 @@ string = "bar""#;
 #[test]
 fn ArraysNotAllowed() {
     let mut config = DynConfig::new();
-    config
-        .root_mut()
-        .set("array", Value::Array(DynArray::new()))
-        .unwrap();
+    assert!(!config.root_mut().set(nestr!("array"), DynArray::new()));
 
     assert_eq!(
         config.to_ini_string().err().unwrap(),
@@ -2137,7 +2134,7 @@ fn InvalidArrayType() {
         let mut config = DynConfig::new();
         let mut array = DynArray::new();
         array.push(Value::Table(DynTable::new())).unwrap();
-        config.root_mut().set("array", Value::Array(array)).unwrap();
+        assert!(!config.root_mut().set(nestr!("array"), array));
 
         assert_eq!(
             config
@@ -2156,7 +2153,7 @@ fn InvalidArrayType() {
         let mut config = DynConfig::new();
         let mut array = DynArray::new();
         array.push(Value::Array(DynArray::new())).unwrap();
-        config.root_mut().set("array", Value::Array(array)).unwrap();
+        assert!(!config.root_mut().set(nestr!("array"), array));
 
         assert_eq!(
             config
@@ -2174,14 +2171,9 @@ fn InvalidArrayType() {
 #[test]
 fn NestedSectionsNotAllowed() {
     let mut config = DynConfig::new();
-    config
-        .root_mut()
-        .set("table", Value::Table(DynTable::new()))
-        .unwrap();
+    assert!(!config.root_mut().set(nestr!("table"), DynTable::new()));
     let table = config.root_mut().get_table_mut("table").unwrap();
-    table
-        .set("nested_table", Value::Table(DynTable::new()))
-        .unwrap();
+    assert!(!table.set(nestr!("nested_table"), DynTable::new()));
 
     assert_eq!(
         config.to_ini_string(),
@@ -2212,15 +2204,12 @@ fn NestedSectionsNotAllowed() {
         "[table/nested_table]"
     );
 
-    config.root_mut().set("baz", Value::Bool(true)).unwrap();
-    config
-        .root_mut()
-        .set("bill", Value::String("bob".into()))
-        .unwrap();
+    assert!(!config.root_mut().set(nestr!("baz"), true));
+    assert!(!config.root_mut().set(nestr!("bill"), "bob"));
 
     let table = config.root_mut().get_table_mut("table").unwrap();
-    table.set("foo", Value::I64(7)).unwrap();
-    table.set("bar", Value::F64(3.14)).unwrap();
+    assert!(!table.set(nestr!("foo"), 7));
+    assert!(!table.set(nestr!("bar"), 3.14));
 
     assert_eq!(
         config
@@ -2233,11 +2222,10 @@ fn NestedSectionsNotAllowed() {
     );
 
     let table = config.root_mut().get_table_mut("table").unwrap();
-    table
+    assert!(!table
         .get_table_mut("nested_table")
         .unwrap()
-        .set("another_nested_table", Value::Table(DynTable::new()))
-        .unwrap();
+        .set(nestr!("another_nested_table"), DynTable::new()));
 
     assert_eq!(config
         .to_ini_string_opts(ToIniStringOptions {
@@ -2259,10 +2247,7 @@ fn NestedSectionsNotAllowed() {
         "baz = true\nbill = \"bob\"\n\n[table]\nbar = 3.14\nfoo = 7\n\n[table/nested_table/another_nested_table]"
     );
 
-    config
-        .root_mut()
-        .set("test_table", Value::Table(DynTable::new()))
-        .unwrap();
+    assert!(!config.root_mut().set(nestr!("test_table"), DynTable::new()));
 
     assert_eq!(config
         .to_ini_string_opts(ToIniStringOptions {

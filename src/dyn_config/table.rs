@@ -13,7 +13,7 @@ use {
 ///
 /// [`Value`]: enum.Value.html
 #[derive(Clone)]
-pub struct DynTable(HashMap<String, DynConfigValue>);
+pub struct DynTable(HashMap<NonEmptyString, DynConfigValue>);
 
 impl DynTable {
     /// Creates a new empty [`table`].
@@ -50,34 +50,22 @@ impl DynTable {
     /// [`table`]: struct.DynTable.html
     /// [`value`]: type.DynConfigValueRef.html
     pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
-        use TableError::*;
-
-        match self.get_val(key) {
-            Ok(_) => true,
-            Err(err) => match err {
-                EmptyKey | KeyDoesNotExist => false,
-                IncorrectValueType(_) => {
-                    debug_unreachable!("`get_val()` does not return `IncorrectValueType`")
-                }
-            },
-        }
+        self.get_val(key).is_some()
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty or if the [`table`] does not contain the `key`.
-    ///
     /// [`value`]: type.DynConfigValueRef.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_val<K: AsRef<str>>(&self, key: K) -> Result<DynConfigValueRef<'_>, TableError> {
-        self.get_impl(key.as_ref().try_into().map_err(|_| TableError::EmptyKey)?)
+    pub fn get_val<K: AsRef<str>>(&self, key: K) -> Option<DynConfigValueRef<'_>> {
+        self.get_impl(key.as_ref().try_into().ok()?)
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] with the (non-empty) string `key`,
     /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key`,
+    /// Returns an [`error`] if the [`table`] does not contain the `key`,
     /// or if the [`value`] is of incorrect and incompatible type.
     ///
     /// [`value`]: type.DynConfigValueRef.html
@@ -87,7 +75,11 @@ impl DynTable {
         &'t self,
         key: K,
     ) -> Result<V, TableError> {
-        V::try_from(self.get_val(key)?).map_err(TableError::IncorrectValueType)
+        V::try_from(
+            self.get_val(key)
+                .ok_or_else(|| TableError::KeyDoesNotExist)?,
+        )
+        .map_err(TableError::IncorrectValueType)
     }
 
     /// Tries to get an immutable reference to a [`value`] in the [`table`] at `path`.
@@ -144,7 +136,7 @@ impl DynTable {
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
     ///
     /// [`bool`]: enum.Value.html#variant.Bool
     /// [`value`]: type.DynConfigValue.html
@@ -178,13 +170,13 @@ impl DynTable {
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
     ///
-    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: enum.TableError.html
+    /// [`f64`]: enum.Value.html#variant.F64
     pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, TableError> {
         self.get(key)
     }
@@ -196,7 +188,6 @@ impl DynTable {
     /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
     /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
     ///
-    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
@@ -204,6 +195,7 @@ impl DynTable {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: enum.Value.html#variant.Array
+    /// [`f64`]: enum.Value.html#variant.F64
     pub fn get_i64_path<'k, K, P>(&self, path: P) -> Result<i64, GetPathError>
     where
         K: Borrow<ConfigKey<'k>>,
@@ -214,13 +206,13 @@ impl DynTable {
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
-    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`error`]: enum.TableError.html
+    /// [`i64`]: enum.Value.html#variant.I64
     pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, TableError> {
         self.get(key)
     }
@@ -230,16 +222,16 @@ impl DynTable {
     /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
     /// or (`0`-based) [`array indices`].
     /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
-    /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
+    /// The last key must correspond to an [`f64`] / [`i64`] [`value`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
-    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: struct.DynArray.html
+    /// [`i64`]: enum.Value.html#variant.I64
     pub fn get_f64_path<'k, K, P>(&self, path: P) -> Result<f64, GetPathError>
     where
         K: Borrow<ConfigKey<'k>>,
@@ -250,7 +242,7 @@ impl DynTable {
 
     /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`string`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
     ///
     /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.DynConfigValue.html
@@ -284,7 +276,7 @@ impl DynTable {
 
     /// Tries to get an immutable reference to an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`array`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.DynConfigValue.html
@@ -317,7 +309,7 @@ impl DynTable {
 
     /// Tries to get an immutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
     ///
     /// [`value`]: type.DynConfigValue.html
     /// [`table`]: struct.DynTable.html
@@ -357,7 +349,7 @@ impl DynTable {
 
     /// Tries to get a mutable reference to a [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty or if the [`table`] does not contain the `key`.
+    /// Returns an [`error`] or if the [`table`] does not contain the `key`.
     ///
     /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
     /// Use [`set`] to mutate other value types in the [`table`].
@@ -368,17 +360,14 @@ impl DynTable {
     /// [`arrays`]: enum.Value.html#variant.Array
     /// [`tables`]: enum.Value.html#variant.Table
     /// [`set`]: #method.set
-    pub fn get_val_mut<K: AsRef<str>>(
-        &mut self,
-        key: K,
-    ) -> Result<DynConfigValueMut<'_>, TableError> {
-        self.get_mut_impl(key.as_ref().try_into().map_err(|_| TableError::EmptyKey)?)
+    pub fn get_val_mut<K: AsRef<str>>(&mut self, key: K) -> Option<DynConfigValueMut<'_>> {
+        self.get_mut_impl(key.as_ref().try_into().ok()?)
     }
 
     /// Tries to get a mutable reference to a [`value`] in the [`table`] with the (non-empty) string `key`,
     /// and convert it to the user-requested type [`convertible`](TryFromDynConfigValueMut) from a [`value`].
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key`,
+    /// Returns an [`error`] if the [`table`] does not contain the `key`,
     /// or if the [`value`] is of incorrect and incompatible type.
     ///
     /// [`value`]: type.DynConfigValueRef.html
@@ -392,7 +381,9 @@ impl DynTable {
         &'a mut self,
         key: K,
     ) -> Result<V, TableError> {
-        V::try_from(self.get_val_mut(key)?).map_err(TableError::IncorrectValueType)
+        use TableError::*;
+        V::try_from(self.get_val_mut(key).ok_or_else(|| KeyDoesNotExist)?)
+            .map_err(IncorrectValueType)
     }
 
     /// Tries to get a mutable reference to a [`value`] in the [`table`] at `path`.
@@ -464,7 +455,7 @@ impl DynTable {
 
     /// Tries to get a mutable reference to an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`array`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
     ///
     /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
     /// Use [`set`] to mutate other value types in the [`table`].
@@ -509,7 +500,7 @@ impl DynTable {
 
     /// Tries to get a mutable reference to a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
     ///
     /// NOTE: mutable reference extends to [`arrays`] and [`tables`], not other value types.
     /// Use [`set`] to mutate other value types in the [`table`].
@@ -545,91 +536,55 @@ impl DynTable {
         self.get_path_mut(path)
     }
 
-    /// If [`value`] is `Some`, inserts or changes the value at (non-empty) string `key`.
-    /// Returns `Ok(true)` if the value at `key` already existed and was modified.
-    /// Returns `Ok(false)` if the value at `key` did not exist and was added.
-    ///
-    /// If [`value`] is `None`, tries to remove the value at `key`.
-    /// Returns an [`error`](TableError::KeyDoesNotExist) if the value at `key` did not exist,
-    /// otherwise returns `Ok(true)`.
-    ///
-    /// Returns an [`error`](TableError::EmptyKey) if the the `key` is empty.
+    /// Inserts or changes the [`value`] at (non-empty) string `key`.
+    /// Returns `true` if the [`value`] at `key` already existed and was modified.
+    /// Returns `false` if the [`value`] at `key` did not exist and was added.
     ///
     /// [`value`]: type.DynConfigValue.html
-    pub fn set<K, V>(&mut self, key: K, value: V) -> Result<bool, TableError>
+    pub fn set<K, V>(&mut self, key: K, value: V) -> bool
     where
-        K: AsRef<str>,
-        V: Into<Option<DynConfigValue>>,
+        K: AsRef<NonEmptyStr>,
+        V: Into<DynConfigValue>,
     {
-        self.set_impl(
-            key.as_ref().try_into().map_err(|_| TableError::EmptyKey)?,
-            value.into(),
-        )
+        self.set_impl(key.as_ref(), value.into())
+    }
+
+    /// Tries to remove the [`value`] at (non-empty) string `key`.
+    /// Returns the now-removed [`value`] at `key` if it existed,
+    /// otherwise returns `None`.
+    ///
+    /// [`value`]: type.DynConfigValue.html
+    pub fn remove<K: AsRef<str>>(&mut self, key: K) -> Option<DynConfigValue> {
+        self.remove_impl(key.as_ref().try_into().ok()?)
     }
 
     fn len_impl(&self) -> u32 {
         self.0.len() as u32
     }
 
-    pub(crate) fn get_impl(&self, key: &NonEmptyStr) -> Result<DynConfigValueRef<'_>, TableError> {
-        use TableError::*;
+    pub(crate) fn get_impl(&self, key: &NonEmptyStr) -> Option<DynConfigValueRef<'_>> {
+        self.0.get(key).map(|val| val.into())
+    }
 
-        if let Some(value) = self.0.get(key.as_ref()) {
-            Ok(value.into())
+    fn set_impl(&mut self, key: &NonEmptyStr, value: DynConfigValue) -> bool {
+        // Modify.
+        if let Some(cur_value) = self.0.get_mut(key) {
+            *cur_value = value;
+            true
+
+        // Add.
         } else {
-            Err(KeyDoesNotExist)
+            self.0.insert(key.into(), value);
+            false
         }
     }
 
-    /// When adding or modifying a value (`value` is `Some`), returns `true` if the value at `key` already existed and was modified,
-    /// `false` if the value did not exist and was added.
-    /// When removing an existing value (`value` is `None`), returns `true` if the value existed and was removed,
-    /// or a `KeyDoesNotExist` error if it did not exist.
-    pub(crate) fn set_impl(
-        &mut self,
-        key: &NonEmptyStr,
-        value: Option<DynConfigValue>,
-    ) -> Result<bool, TableError> {
-        use TableError::*;
-
-        let key = key.as_ref();
-
-        // Add or modify a value - always succeeds.
-        if let Some(value) = value {
-            // Modify.
-            if let Some(cur_value) = self.0.get_mut(key) {
-                *cur_value = value;
-                Ok(true)
-
-            // Add.
-            } else {
-                self.0.insert(key.into(), value);
-                Ok(false)
-            }
-
-        // (Try to) remove a value.
-        // Succeeds if key existed.
-        } else {
-            match self.0.remove(key) {
-                None => Err(KeyDoesNotExist),
-                Some(_) => Ok(true),
-            }
-        }
+    pub(crate) fn remove_impl(&mut self, key: &NonEmptyStr) -> Option<DynConfigValue> {
+        self.0.remove(key)
     }
 
-    #[cfg(feature = "ini")]
-    pub(crate) fn remove(&mut self, key: &NonEmptyStr) -> Option<DynConfigValue> {
-        self.0.remove(key.as_ref())
-    }
-
-    pub(crate) fn get_mut_impl(
-        &mut self,
-        key: &NonEmptyStr,
-    ) -> Result<DynConfigValueMut<'_>, TableError> {
-        self.0
-            .get_mut(key.as_str())
-            .map(|val| val.into())
-            .ok_or_else(|| TableError::KeyDoesNotExist)
+    pub(crate) fn get_mut_impl(&mut self, key: &NonEmptyStr) -> Option<DynConfigValueMut<'_>> {
+        self.0.get_mut(key).map(|val| val.into())
     }
 
     fn fmt_lua_impl<W: Write>(&self, w: &mut W, indent: u32) -> std::fmt::Result {
@@ -639,7 +594,7 @@ impl DynTable {
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
 
         // Sort the keys in alphabetical order.
-        keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
+        keys.sort();
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
@@ -661,7 +616,7 @@ impl DynTable {
             write!(w, ",")?;
 
             if is_array_or_table {
-                write!(w, " -- {}", key.as_ref())?;
+                write!(w, " -- {}", key)?;
             }
 
             writeln!(w)?;
@@ -707,7 +662,7 @@ impl DynTable {
             } else if l_is_a_table && !r_is_a_table {
                 std::cmp::Ordering::Greater
             } else {
-                l.as_ref().cmp(r.as_ref())
+                l.cmp(r)
             }
         });
 
@@ -768,7 +723,7 @@ impl DynTable {
 ///
 /// [`value`]: type.DynConfigValue.html
 /// [`table`]: struct.DynTable.html
-struct DynTableIter<'t>(HashMapIter<'t, String, DynConfigValue>);
+struct DynTableIter<'t>(HashMapIter<'t, NonEmptyString, DynConfigValue>);
 
 impl<'t> Iterator for DynTableIter<'t> {
     type Item = (&'t NonEmptyStr, DynConfigValueRef<'t>);
@@ -851,7 +806,7 @@ impl Display for DynTable {
 mod tests {
     #![allow(non_snake_case)]
 
-    use crate::*;
+    use {crate::*, ministr_macro::nestr};
 
     #[test]
     fn len_empty_clear() {
@@ -860,12 +815,12 @@ mod tests {
         assert_eq!(table.len(), 0);
         assert!(table.is_empty());
 
-        table.set("foo", Some(true.into())).unwrap();
+        assert!(!table.set(nestr!("foo"), true));
 
         assert_eq!(table.len(), 1);
         assert!(!table.is_empty());
 
-        table.set("bar", Some(7.into())).unwrap();
+        assert!(!table.set(nestr!("bar"), 7));
 
         assert_eq!(table.len(), 2);
         assert!(!table.is_empty());
@@ -881,44 +836,33 @@ mod tests {
         let mut table = DynTable::new();
 
         assert!(!table.contains("foo"));
+        assert!(!table.contains("bar"));
 
-        table.set("foo", Some(true.into())).unwrap();
+        assert!(!table.set(nestr!("foo"), true));
+        assert!(!table.set(nestr!("bar"), 7));
 
         assert!(table.contains("foo"));
+        assert!(table.contains("bar"));
+
+        assert_eq!(table.remove("bar").unwrap().i64().unwrap(), 7);
+
+        assert!(table.contains("foo"));
+        assert!(!table.contains("bar"));
 
         table.clear();
 
         assert!(!table.contains("foo"));
-    }
-
-    #[test]
-    fn DynTableError_EmptyKey() {
-        let mut table = DynTable::new();
-
-        assert_eq!(table.get_val("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_bool("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_i64("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_f64("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_string("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_table("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_array("").err().unwrap(), TableError::EmptyKey);
-
-        assert_eq!(table.get_val_mut("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_table_mut("").err().unwrap(), TableError::EmptyKey);
-        assert_eq!(table.get_array_mut("").err().unwrap(), TableError::EmptyKey);
-
-        assert_eq!(
-            table.set("", Some(true.into())).err().unwrap(),
-            TableError::EmptyKey
-        );
+        assert!(!table.contains("bar"));
     }
 
     #[test]
     fn DynTableError_KeyDoesNotExist() {
         let mut table = DynTable::new();
 
+        assert!(table.get_val("").is_none());
+        assert!(table.get_val("foo").is_none());
         assert_eq!(
-            table.get_val("foo").err().unwrap(),
+            table.get_bool("").err().unwrap(),
             TableError::KeyDoesNotExist
         );
         assert_eq!(
@@ -946,10 +890,7 @@ mod tests {
             TableError::KeyDoesNotExist
         );
 
-        assert_eq!(
-            table.get_val_mut("foo").err().unwrap(),
-            TableError::KeyDoesNotExist
-        );
+        assert!(table.get_val_mut("foo").is_none(),);
         assert_eq!(
             table.get_table_mut("foo").err().unwrap(),
             TableError::KeyDoesNotExist
@@ -959,23 +900,22 @@ mod tests {
             TableError::KeyDoesNotExist
         );
 
-        assert_eq!(
-            table.set("foo", None).err().unwrap(),
-            TableError::KeyDoesNotExist
-        );
+        assert!(table.remove(nestr!("foo")).is_none());
 
         // But this works.
 
-        table.set("foo", Some(true.into())).unwrap();
-
+        assert!(!table.set(nestr!("foo"), true));
         assert_eq!(table.get_val("foo").unwrap().bool().unwrap(), true);
+        assert_eq!(table.get_bool("foo").unwrap(), true);
+        let val: bool = table.get("foo").unwrap();
+        assert_eq!(val, true);
     }
 
     #[test]
     fn DynTableError_IncorrectValueType() {
         let mut table = DynTable::new();
 
-        table.set("foo", Some(true.into())).unwrap();
+        assert!(!table.set(nestr!("foo"), true));
 
         assert_eq!(
             table.get_i64("foo").err().unwrap(),
@@ -1049,7 +989,7 @@ mod tests {
 
         // But this works.
 
-        table.set("bar", Some(3.14.into())).unwrap();
+        assert!(!table.set(nestr!("bar"), 3.14));
 
         assert_eq!(table.get_i64("bar").unwrap(), 3);
         let bar: i64 = table.get("bar").unwrap();
@@ -1058,7 +998,7 @@ mod tests {
         let bar: f64 = table.get("bar").unwrap();
         assert!(cmp_f64(bar, 3.14));
 
-        table.set("baz", Some((-7).into())).unwrap();
+        assert!(!table.set(nestr!("baz"), -7));
 
         assert_eq!(table.get_i64("baz").unwrap(), -7);
         let baz: i64 = table.get("baz").unwrap();
@@ -1067,7 +1007,7 @@ mod tests {
         let baz: f64 = table.get("baz").unwrap();
         assert!(cmp_f64(baz, -7.0));
 
-        table.set("bob", Some("bill".into())).unwrap();
+        assert!(!table.set(nestr!("bob"), "bill"));
 
         assert_eq!(table.get_string("bob").unwrap(), "bill");
         let bob: &str = table.get("bob").unwrap();
@@ -1076,8 +1016,8 @@ mod tests {
         assert_eq!(bob, "bill");
 
         let mut nested_table = DynTable::new();
-        nested_table.set("anne", Some(true.into())).unwrap();
-        table.set("amy", Some(nested_table.into())).unwrap();
+        assert!(!nested_table.set(nestr!("anne"), true));
+        assert!(!table.set(nestr!("amy"), nested_table));
 
         let amy = table.get_table("amy").unwrap();
         assert_eq!(amy.len(), 1);
@@ -1089,7 +1029,7 @@ mod tests {
         let amy = table.get_table_mut("amy").unwrap();
         assert_eq!(amy.len(), 1);
         assert_eq!(amy.get_bool("anne").unwrap(), true);
-        amy.set("anne", Some(false.into())).unwrap();
+        assert!(amy.set(nestr!("anne"), false));
         let amy: &mut DynTable = table.get_mut("amy").unwrap();
         assert_eq!(amy.len(), 1);
         assert_eq!(amy.get_bool("anne").unwrap(), false);
@@ -1098,7 +1038,7 @@ mod tests {
         nested_array.push(1.into()).unwrap();
         nested_array.push(2.into()).unwrap();
         nested_array.push(3.into()).unwrap();
-        table.set("arne", Some(nested_array.into())).unwrap();
+        assert!(!table.set(nestr!("arne"), nested_array));
 
         let arne = table.get_array("arne").unwrap();
         assert_eq!(arne.len(), 3);
@@ -1134,7 +1074,7 @@ mod tests {
 
         // Add a value.
         assert!(!table.contains("bool"));
-        table.set("bool", Some(true.into())).unwrap();
+        assert!(!table.set(nestr!("bool"), true));
         assert_eq!(table.len(), 1);
         assert!(!table.is_empty());
         assert!(table.contains("bool"));
@@ -1142,28 +1082,28 @@ mod tests {
 
         // Add a couple more.
         assert!(!table.contains("i64"));
-        table.set("i64", Some(7.into())).unwrap();
+        assert!(!table.set(nestr!("i64"), 7));
         assert_eq!(table.len(), 2);
         assert!(!table.is_empty());
         assert!(table.contains("i64"));
         assert_eq!(table.get_i64("i64").unwrap(), 7);
 
         assert!(!table.contains("string"));
-        table.set("string", Some("foo".into())).unwrap();
+        assert!(!table.set(nestr!("string"), "foo"));
         assert_eq!(table.len(), 3);
         assert!(!table.is_empty());
         assert!(table.contains("string"));
         assert_eq!(table.get_string("string").unwrap(), "foo");
 
         // Change a value.
-        table.set("string", Some("bar".into())).unwrap();
+        assert!(table.set(nestr!("string"), "bar"));
         assert_eq!(table.len(), 3);
         assert!(!table.is_empty());
         assert!(table.contains("string"));
         assert_eq!(table.get_string("string").unwrap(), "bar");
 
         // Remove a value.
-        table.set("bool", None).unwrap();
+        assert!(table.remove(nestr!("bool")).is_some());
         assert_eq!(table.len(), 2);
         assert!(!table.is_empty());
         assert!(!table.contains("bool"));
@@ -1174,18 +1114,18 @@ mod tests {
         assert!(nested_table.is_empty());
 
         assert!(!nested_table.contains("nested_bool"));
-        nested_table.set("nested_bool", Some(false.into())).unwrap();
+        assert!(!nested_table.set(nestr!("nested_bool"), false));
         assert!(nested_table.contains("nested_bool"));
 
         assert!(!nested_table.contains("nested_int"));
-        nested_table.set("nested_int", Some((-9).into())).unwrap();
+        assert!(!nested_table.set(nestr!("nested_int"), -9));
         assert!(nested_table.contains("nested_int"));
 
         assert_eq!(nested_table.len(), 2);
         assert!(!nested_table.is_empty());
 
         assert!(!table.contains("table"));
-        table.set("table", Some(nested_table.into())).unwrap();
+        assert!(!table.set(nestr!("table"), nested_table));
         assert_eq!(table.len(), 3);
         assert!(!table.is_empty());
         assert!(table.contains("table"));
@@ -1245,7 +1185,7 @@ mod tests {
         assert!(!nested_array.is_empty());
 
         assert!(!table.contains("array"));
-        table.set("array", Value::Array(nested_array)).unwrap();
+        assert!(!table.set(nestr!("array"), nested_array));
         assert_eq!(table.len(), 4);
         assert!(!table.is_empty());
         assert!(table.contains("array"));

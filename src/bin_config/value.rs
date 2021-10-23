@@ -4,6 +4,7 @@ use {
     static_assertions::const_assert,
     std::{
         borrow::Borrow,
+        convert::TryInto,
         fmt::{Display, Formatter},
         io::Write,
     },
@@ -57,7 +58,7 @@ pub(super) type StringIndex = u32;
 
 /// Represents a single config value as stored directly in the binary config data blob.
 ///
-/// Fields are in whatever endianness we use; see `super::util::__to_bin_bytes(), _from_bin()`.
+/// Fields are in whatever endianness we use; see `super::util::x_to_bin_bytes(), x_from_bin()`.
 #[repr(C, packed)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) struct BinConfigPackedValue {
@@ -393,23 +394,13 @@ impl<'at> BinConfigValue<'at> {
                 },
                 ConfigKey::Table(table_key) => match self {
                     Value::Table(table) => {
-                        let key = NonEmptyStr::new(table_key.as_str())
-                            .ok_or_else(|| GetPathError::EmptyKey(ConfigPath::new()))?;
-                        let value =
-                            table
-                                .get_impl(key, table_key.key_hash())
-                                .map_err(|err| match err {
-                                    TableError::KeyDoesNotExist => {
-                                        GetPathError::KeyDoesNotExist(vec![key.into()].into())
-                                    }
-                                    TableError::IncorrectValueType(_) => debug_unreachable!(
-                                        "`get_impl()` does not return `IncorrectValueType(_)`"
-                                    ),
-                                    TableError::EmptyKey => debug_unreachable!(
-                                        "`get_impl()` does not return `EmptyKey`"
-                                    ),
-                                })?;
-
+                        let key = table_key
+                            .as_str()
+                            .try_into()
+                            .map_err(|_| GetPathError::KeyDoesNotExist(ConfigPath::new()))?;
+                        let value = table.get_impl(key, table_key.key_hash()).ok_or_else(|| {
+                            GetPathError::KeyDoesNotExist(vec![key.into()].into())
+                        })?;
                         value.get_path(path).map_err(|err| err.push_key(key))
                     }
                     _ => Err(GetPathError::ValueNotATable {

@@ -281,11 +281,11 @@ impl IniParserFSMState {
                     // in which case we start a new empty sections.
                     match config.contains_key(section) {
                         // Parent section already exists.
-                        Ok(true) => {}
+                        Some(true) => {}
                         // Parent section doesn't exist, but we allow it.
-                        Err(_) if options.implicit_parent_sections => {}
+                        None if options.implicit_parent_sections => {}
                         // Parent section doesn't exist and we don't allow it, or it's not a section.
-                        Ok(false) | Err(_) => {
+                        Some(false) | None => {
                             return Err((InvalidParentSection, true));
                         }
                     }
@@ -427,11 +427,11 @@ impl IniParserFSMState {
                     // in which case we start a new empty sections.
                     match config.contains_key(section) {
                         // Parent section already exists.
-                        Ok(true) => {}
+                        Some(true) => {}
                         // Parent section doesn't exist, but we allow it.
-                        Err(_) if options.implicit_parent_sections => {}
+                        None if options.implicit_parent_sections => {}
                         // Parent section doesn't exist and we don't allow it, or it's not a section.
-                        Ok(false) | Err(_) => {
+                        Some(false) | None => {
                             return Err((InvalidParentSection, true));
                         }
                     }
@@ -1351,7 +1351,7 @@ fn start_section<'s, C: IniConfig<'s>>(
     let key_already_exists = config.contains_key(section);
 
     // Section already exists.
-    if let Ok(true) = key_already_exists {
+    if let Some(true) = key_already_exists {
         match options.duplicate_sections {
             // We don't support duplicate sections - error.
             IniDuplicateSections::Forbid => {
@@ -1374,7 +1374,7 @@ fn start_section<'s, C: IniConfig<'s>>(
     // Section does not exist in the config.
     } else {
         // Key already exists.
-        if let Ok(false) = key_already_exists {
+        if let Some(false) = key_already_exists {
             match options.duplicate_keys {
                 // We don't support duplicate keys - error.
                 IniDuplicateKeys::Forbid => {
@@ -1415,7 +1415,7 @@ fn check_is_key_duplicate<'s, C: IniConfig<'s>>(
         return Ok(());
     }
 
-    let is_unique = config.contains_key(key).is_err();
+    let is_unique = config.contains_key(key).is_none();
 
     match duplicate_keys {
         IniDuplicateKeys::Forbid => {

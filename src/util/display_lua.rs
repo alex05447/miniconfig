@@ -35,10 +35,10 @@ pub(crate) fn write_lua_string<W: Write>(w: &mut W, string: &str) -> std::fmt::R
 /// ('\\', '\0', '\a', '\b', '\t', '\n', '\r', '\v', '\f') and quotes ('"').
 pub(crate) fn write_lua_key<W: Write>(w: &mut W, key: &NonEmptyStr) -> std::fmt::Result {
     if is_lua_identifier_key(key) {
-        write!(w, "{}", key.as_ref())
+        write!(w, "{}", key)
     } else {
         w.write_char('[')?;
-        write_lua_string(w, key.as_ref())?;
+        write_lua_string(w, key.as_str())?;
         w.write_char(']')
     }
 }
@@ -46,7 +46,7 @@ pub(crate) fn write_lua_key<W: Write>(w: &mut W, key: &NonEmptyStr) -> std::fmt:
 /// Returns `true` if the non-empty string `key` is a valid Lua identifier.
 /// Lua identifiers start with an ASCII letter and may contain ASCII letters, digits and underscores.
 fn is_lua_identifier_key(key: &NonEmptyStr) -> bool {
-    for (idx, key_char) in key.as_ref().chars().enumerate() {
+    for (idx, key_char) in key.as_str().chars().enumerate() {
         if !is_lua_identifier_char(key_char, idx == 0) {
             return false;
         }

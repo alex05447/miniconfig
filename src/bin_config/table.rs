@@ -3,6 +3,7 @@ use {
     crate::{util::*, *},
     std::{
         borrow::Borrow,
+        convert::TryInto,
         fmt::{Display, Formatter, Write},
         iter::Iterator,
     },
@@ -32,46 +33,35 @@ impl<'t> BinTable<'t> {
     ///
     /// [`table`]: struct.BinTable.html
     /// [`value`]: type.BinConfigValue.html
-    pub fn contains<'a>(&self, key: TableKey<'a>) -> bool {
-        use TableError::*;
-
-        match self.get_val(key.as_ref().into()) {
-            Ok(_) => true,
-            Err(err) => match err {
-                EmptyKey | KeyDoesNotExist => false,
-                IncorrectValueType(_) => {
-                    debug_unreachable!("`get_val()` does not return `IncorrectValueType(_)`")
-                }
-            },
-        }
+    pub fn contains(&self, key: TableKey<'_>) -> bool {
+        self.get_val(key).is_some()
     }
 
     /// Tries to get a reference to a [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty or if the [`table`] does not contain the `key`.
-    ///
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_val<'k>(&self, key: TableKey<'k>) -> Result<BinConfigValue<'t>, TableError> {
-        let ne_key = NonEmptyStr::new(key.as_str()).ok_or_else(|| TableError::EmptyKey)?;
-        self.get_impl(ne_key, key.key_hash())
+    pub fn get_val(&self, key: TableKey<'_>) -> Option<BinConfigValue<'t>> {
+        self.get_impl(key.as_str().try_into().ok()?, key.key_hash())
     }
 
     /// Tries to get a reference to a [`value`] in the [`table`] with the (non-empty) string `key`,
     /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key`,
-    /// or if the [`value`] is of incorrect and incompatible type.
+    /// Returns an [`error`] if the [`table`] does not contain the `key`,
+    /// or if the [`value`] is of incorrect and incompatible [`type`].
     ///
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get<'k, V: TryFromValue<&'t str, BinArray<'t>, BinTable<'t>>>(
+    /// [`type`]: enum.ValueType.html
+    pub fn get<V: TryFromValue<&'t str, BinArray<'t>, BinTable<'t>>>(
         &self,
-        key: TableKey<'k>,
+        key: TableKey<'_>,
     ) -> Result<V, TableError> {
-        V::try_from(self.get_val(key)?).map_err(TableError::IncorrectValueType)
+        use TableError::*;
+        V::try_from(self.get_val(key).ok_or_else(|| KeyDoesNotExist)?).map_err(IncorrectValueType)
     }
 
     /// Tries to get a reference to a [`value`] in the [`table`] at `path`.
@@ -128,13 +118,13 @@ impl<'t> BinTable<'t> {
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
     ///
     /// [`bool`]: enum.Value.html#variant.Bool
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_bool<'k>(&self, key: TableKey<'k>) -> Result<bool, TableError> {
+    pub fn get_bool(&self, key: TableKey<'_>) -> Result<bool, TableError> {
         self.get(key)
     }
 
@@ -162,14 +152,14 @@ impl<'t> BinTable<'t> {
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
     ///
-    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_i64<'k>(&self, key: TableKey<'k>) -> Result<i64, TableError> {
+    /// [`f64`]: enum.Value.html#variant.F64
+    pub fn get_i64(&self, key: TableKey<'_>) -> Result<i64, TableError> {
         self.get(key)
     }
 
@@ -180,7 +170,6 @@ impl<'t> BinTable<'t> {
     /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
     /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
     ///
-    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
@@ -188,6 +177,7 @@ impl<'t> BinTable<'t> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: struct.BinArray.html
+    /// [`f64`]: enum.Value.html#variant.F64
     pub fn get_i64_path<'k, K, P>(&self, path: P) -> Result<i64, GetPathError>
     where
         K: Borrow<ConfigKey<'k>>,
@@ -198,14 +188,14 @@ impl<'t> BinTable<'t> {
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
-    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_f64<'k>(&self, key: TableKey<'k>) -> Result<f64, TableError> {
+    /// [`i64`]: enum.Value.html#variant.I64
+    pub fn get_f64(&self, key: TableKey<'_>) -> Result<f64, TableError> {
         self.get(key)
     }
 
@@ -214,16 +204,16 @@ impl<'t> BinTable<'t> {
     /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
     /// or (`0`-based) [`array indices`].
     /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
-    /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
+    /// The last key must correspond to an [`f64`] / [`i64`] [`value`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
-    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: struct.BinArray.html
+    /// [`i64`]: enum.Value.html#variant.I64
     pub fn get_f64_path<'k, K, P>(&self, path: P) -> Result<f64, GetPathError>
     where
         K: Borrow<ConfigKey<'k>>,
@@ -234,13 +224,13 @@ impl<'t> BinTable<'t> {
 
     /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`string`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
     ///
     /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_string<'k>(&self, key: TableKey<'k>) -> Result<&str, TableError> {
+    pub fn get_string(&self, key: TableKey<'_>) -> Result<&str, TableError> {
         self.get(key)
     }
 
@@ -268,7 +258,7 @@ impl<'t> BinTable<'t> {
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`array`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.BinConfigValue.html
@@ -301,12 +291,12 @@ impl<'t> BinTable<'t> {
 
     /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
     ///
     /// [`value`]: type.BinConfigValue.html
     /// [`table`]: struct.BinTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_table<'k>(&self, key: TableKey<'k>) -> Result<BinTable<'t>, TableError> {
+    pub fn get_table(&self, key: TableKey<'_>) -> Result<BinTable<'t>, TableError> {
         self.get(key)
     }
 
@@ -343,36 +333,28 @@ impl<'t> BinTable<'t> {
         Self(table)
     }
 
-    pub(super) fn get_impl(
-        &self,
-        key: &NonEmptyStr,
-        hash: u32,
-    ) -> Result<BinConfigValue<'t>, TableError> {
-        use TableError::*;
+    pub(super) fn get_impl(&self, key: &NonEmptyStr, hash: u32) -> Option<BinConfigValue<'t>> {
+        (0..self.len()).find_map(|idx| {
+            // Safe to call - the config was validated.
+            let (table_key, value) = unsafe { self.0.key_and_value(idx) };
 
-        (0..self.len())
-            .find_map(|idx| {
+            // Compare the hashes first.
+            if table_key.hash == hash {
+                // Hashes match - compare the strings.
+
                 // Safe to call - the config was validated.
-                let (table_key, value) = unsafe { self.0.key_and_value(idx) };
+                let table_key = unsafe { self.0.key_ofset_and_len(table_key.index) };
 
-                // Compare the hashes first.
-                if table_key.hash == hash {
-                    // Hashes match - compare the strings.
-
-                    // Safe to call - the config was validated.
-                    let table_key = unsafe { self.0.key_ofset_and_len(table_key.index) };
-
-                    // Safe to call - the key string was validated.
-                    if key == unsafe { self.0.string(table_key.offset(), table_key.len()) } {
-                        Some(self.get_value(value))
-                    } else {
-                        None
-                    }
+                // Safe to call - the key string was validated.
+                if key == unsafe { self.0.string(table_key.offset(), table_key.len()) } {
+                    Some(self.get_value(value))
                 } else {
                     None
                 }
-            })
-            .ok_or_else(|| KeyDoesNotExist)
+            } else {
+                None
+            }
+        })
     }
 
     fn get_value(&self, value: BinConfigUnpackedValue) -> BinConfigValue<'t> {
@@ -408,7 +390,7 @@ impl<'t> BinTable<'t> {
         let mut keys: Vec<_> = self.iter().map(|(key, _)| key).collect();
 
         // Sort the keys in alphabetical order.
-        keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
+        keys.sort();
 
         // Iterate the table using the sorted keys.
         for key in keys.into_iter() {
@@ -430,7 +412,7 @@ impl<'t> BinTable<'t> {
             write!(w, ",")?;
 
             if is_array_or_table {
-                write!(w, " -- {}", key.as_ref())?;
+                write!(w, " -- {}", key)?;
             }
 
             writeln!(w)?;
@@ -460,11 +442,11 @@ impl<'t> BinTable<'t> {
         keys.sort_by(|&l, &r| {
             // Must succeed - all keys are valid.
             let l_val = unwrap_unchecked(
-                self.get_val(TableKey::String(l.into())),
+                self.get_val(l.into()),
                 "failed to get a value from a bin config table with a valid key",
             );
             let r_val = unwrap_unchecked(
-                self.get_val(TableKey::String(r.into())),
+                self.get_val(r.into()),
                 "failed to get a value from a bin config table with a valid key",
             );
 
@@ -476,7 +458,7 @@ impl<'t> BinTable<'t> {
             } else if l_is_a_table && !r_is_a_table {
                 std::cmp::Ordering::Greater
             } else {
-                l.as_ref().cmp(r.as_ref())
+                l.cmp(r)
             }
         });
 
@@ -611,7 +593,7 @@ mod tests {
     use {crate::*, ministr_macro::nestr, std::num::NonZeroU32};
 
     #[test]
-    fn BinTableError_EmptyKey() {
+    fn BinTableError_KeyDoesNotExist() {
         let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
         writer.bool(nestr!("bool"), true).unwrap();
         let data = writer.finish().unwrap();
@@ -619,26 +601,8 @@ mod tests {
 
         assert_eq!(
             config.root().get_bool("".into()).err().unwrap(),
-            TableError::EmptyKey
+            TableError::KeyDoesNotExist
         );
-
-        // But this works.
-
-        assert_eq!(config.root().get_bool("bool".into()).unwrap(), true);
-
-        #[cfg(feature = "str_hash")]
-        {
-            assert_eq!(config.root().get_bool(key!("bool")).unwrap(), true);
-        }
-    }
-
-    #[test]
-    fn BinTableError_KeyDoesNotExist() {
-        let mut writer = BinConfigWriter::new(NonZeroU32::new(1).unwrap()).unwrap();
-        writer.bool(nestr!("bool"), true).unwrap();
-        let data = writer.finish().unwrap();
-        let config = BinConfig::new(data).unwrap();
-
         assert_eq!(
             config.root().get_bool("missing".into()).err().unwrap(),
             TableError::KeyDoesNotExist

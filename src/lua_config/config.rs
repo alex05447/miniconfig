@@ -229,30 +229,28 @@ impl<'lua> LuaConfig<'lua> {
     ) {
         use Value::*;
 
-        // Must succeed - we are only adding values to the dyn table.
-        if let Ok(already_existed) = match value {
-            Bool(value) => dyn_table.set_impl(key, Some(Value::Bool(value))),
-            I64(value) => dyn_table.set_impl(key, Some(Value::I64(value))),
-            F64(value) => dyn_table.set_impl(key, Some(Value::F64(value))),
-            String(value) => dyn_table.set_impl(key, Some(Value::String(value.as_ref().into()))),
+        let already_existed = match value {
+            Bool(value) => dyn_table.set(key, value),
+            I64(value) => dyn_table.set(key, value),
+            F64(value) => dyn_table.set(key, value),
+            String(value) => dyn_table.set(key, value.as_ref()),
             Array(value) => {
                 let mut array = DynArray::new();
                 Self::array_to_dyn_array(value, &mut array);
-                dyn_table.set_impl(key, Some(Value::Array(array)))
+                dyn_table.set(key, array)
             }
             Table(value) => {
                 let mut table = DynTable::new();
                 Self::table_to_dyn_table(value, &mut table);
-                dyn_table.set_impl(key, Some(Value::Table(table)))
+                dyn_table.set(key, table)
             }
-        } {
-            debug_assert!(
-                !already_existed,
-                "value unexpectedly already existed in the table"
-            );
-        } else {
-            debug_unreachable!("adding a value to the table failed")
-        }
+        };
+
+        // Must succeed - we are only adding values to the dyn table.
+        debug_assert!(
+            !already_existed,
+            "value unexpectedly already existed in the table"
+        );
     }
 
     #[cfg(feature = "dyn")]
@@ -918,42 +916,6 @@ string = "bar""#;
     }
 
     #[test]
-    fn GetPathError_EmptyKey() {
-        let lua = rlua::Lua::new();
-
-        lua.context(|lua| {
-            let mut table = LuaTable::new(lua);
-
-            assert_eq!(
-                table.get_val_path(&["".into()]).err().unwrap(),
-                GetPathError::EmptyKey(ConfigPath::new())
-            );
-
-            let mut other_table = LuaTable::new(lua);
-            other_table.set("bar", Some(true.into())).unwrap();
-
-            table.set("foo", Some(other_table.into())).unwrap();
-
-            assert_eq!(
-                table
-                    .get_val_path(&["foo".into(), "".into()])
-                    .err()
-                    .unwrap(),
-                GetPathError::EmptyKey(vec![nestr!("foo").into()].into())
-            );
-
-            // But this works.
-
-            assert_eq!(
-                table
-                    .get_bool_path(&[nestr!("foo").into(), nestr!("bar").into()])
-                    .unwrap(),
-                true,
-            );
-        });
-    }
-
-    #[test]
     fn GetPathError_PathDoesNotExist() {
         let lua = rlua::Lua::new();
 
@@ -964,10 +926,23 @@ string = "bar""#;
             let mut bar = LuaArray::new(lua);
             let mut baz = LuaTable::new(lua);
 
-            baz.set("bob", Some(true.into())).unwrap();
+            baz.set(nestr!("bob"), true);
             bar.push(baz.into()).unwrap();
-            foo.set("bar", Some(bar.into())).unwrap();
-            table.set("foo", Some(foo.into())).unwrap();
+            foo.set(nestr!("bar"), bar);
+            table.set(nestr!("foo"), foo);
+
+            assert_eq!(
+                table.get_val_path(&["".into()]).err().unwrap(),
+                GetPathError::KeyDoesNotExist(ConfigPath::new())
+            );
+
+            assert_eq!(
+                table
+                    .get_val_path(&["foo".into(), "".into()])
+                    .err()
+                    .unwrap(),
+                GetPathError::KeyDoesNotExist(vec![nestr!("foo").into()].into())
+            );
 
             assert_eq!(
                 table
@@ -1016,7 +991,7 @@ string = "bar""#;
             let mut array = LuaArray::new(lua);
             array.push(true.into()).unwrap();
 
-            table.set("array", Some(array.into())).unwrap();
+            table.set(nestr!("array"), array);
 
             assert_eq!(
                 table
@@ -1046,9 +1021,9 @@ string = "bar""#;
             let mut table = LuaTable::new(lua);
 
             let mut other_table = LuaTable::new(lua);
-            other_table.set("array", Some(true.into())).unwrap();
+            other_table.set(nestr!("array"), true);
 
-            table.set("table", Some(other_table.into())).unwrap();
+            table.set(nestr!("table"), other_table);
 
             assert_eq!(
                 table
@@ -1082,7 +1057,7 @@ string = "bar""#;
             let mut array = LuaArray::new(lua);
             array.push(true.into()).unwrap();
 
-            table.set("array", Some(array.into())).unwrap();
+            table.set(nestr!("array"), array);
 
             assert_eq!(
                 table
@@ -1112,10 +1087,10 @@ string = "bar""#;
             let mut table = LuaTable::new(lua);
 
             let mut other_table = LuaTable::new(lua);
-            other_table.set("foo", Some(true.into())).unwrap();
-            other_table.set("bar", Some(3.14.into())).unwrap();
+            other_table.set(nestr!("foo"), true);
+            other_table.set(nestr!("bar"), 3.14);
 
-            table.set("table", Some(other_table.into())).unwrap();
+            table.set(nestr!("table"), other_table);
 
             assert_eq!(
                 table

@@ -9,7 +9,7 @@ use {
     },
 };
 
-/// Represents a mutable Lua hash table of [`Value`]'s with string keys.
+/// Represents a mutable Lua hash table of [`Value`]'s with (non-empty) string keys.
 ///
 /// [`Value`]: enum.Value.html
 #[derive(Clone)]
@@ -46,39 +46,28 @@ impl<'lua> LuaTable<'lua> {
         set_table_len(&self.0, 0);
     }
 
-    /// Returns `true` if the [`table`] contains a [`value`] with the string `key`.
+    /// Returns `true` if the [`table`] contains a [`value`] with the (non-empty) string `key`.
+    /// Returns `false` if the `key` is empty.
     ///
     /// [`table`]: struct.LuaTable.html
     /// [`value`]: type.LuaConfigValue.html
     pub fn contains<K: AsRef<str>>(&self, key: K) -> bool {
-        use TableError::*;
-
-        match self.get_val(key) {
-            Ok(_) => true,
-            Err(err) => match err {
-                KeyDoesNotExist | EmptyKey => false,
-                IncorrectValueType(_) => {
-                    debug_unreachable!("`get_val()` does not return `IncorrectValueType(_)`")
-                }
-            },
-        }
+        self.get_val(key).is_some()
     }
 
-    /// Tries to get a reference to a [`value`] in the [`table`] with the string `key`.
-    ///
-    /// Returns an [`error`] if the `key` is empty or if [`table`] does not contain the `key`.
+    /// Tries to get a reference to a [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
-    pub fn get_val<K: AsRef<str>>(&self, key: K) -> Result<LuaConfigValue<'lua>, TableError> {
-        self.get_impl(key.as_ref().try_into().map_err(|_| TableError::EmptyKey)?)
+    pub fn get_val<K: AsRef<str>>(&self, key: K) -> Option<LuaConfigValue<'lua>> {
+        self.get_impl(key.as_ref().try_into().ok()?)
     }
 
     /// Tries to get a reference to a [`value`] in the [`table`] with the (non-empty) string `key`,
     /// and convert it to the user-requested type [`convertible`](TryFromValue) from a [`value`].
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key`,
+    /// Returns an [`error`] if the [`table`] does not contain the `key`,
     /// or if the [`value`] is of incorrect and incompatible type.
     ///
     /// [`value`]: type.LuaConfigValue.html
@@ -88,7 +77,8 @@ impl<'lua> LuaTable<'lua> {
         &self,
         key: K,
     ) -> Result<V, TableError> {
-        V::try_from(self.get_val(key)?).map_err(TableError::IncorrectValueType)
+        use TableError::*;
+        V::try_from(self.get_val(key).ok_or_else(|| KeyDoesNotExist)?).map_err(IncorrectValueType)
     }
 
     /// Tries to get a reference to a [`value`] in the [`table`] at `path`.
@@ -145,7 +135,7 @@ impl<'lua> LuaTable<'lua> {
 
     /// Tries to get a [`bool`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`bool`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`bool`].
     ///
     /// [`bool`]: enum.Value.html#variant.Bool
     /// [`value`]: type.LuaConfigValue.html
@@ -179,13 +169,13 @@ impl<'lua> LuaTable<'lua> {
 
     /// Tries to get an [`i64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`i64`] / [`f64`].
     ///
-    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
+    /// [`f64`]: enum.Value.html#variant.F64
     pub fn get_i64<K: AsRef<str>>(&self, key: K) -> Result<i64, TableError> {
         self.get(key)
     }
@@ -197,7 +187,6 @@ impl<'lua> LuaTable<'lua> {
     /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
     /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
     ///
-    /// [`f64`]: enum.Value.html#variant.F64
     /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
@@ -205,6 +194,7 @@ impl<'lua> LuaTable<'lua> {
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: enum.Value.html#variant.Array
+    /// [`f64`]: enum.Value.html#variant.F64
     pub fn get_i64_path<'k, K, P>(&self, path: P) -> Result<i64, GetPathError>
     where
         K: Borrow<ConfigKey<'k>>,
@@ -215,12 +205,13 @@ impl<'lua> LuaTable<'lua> {
 
     /// Tries to get an [`f64`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`f64`] / [`i64`].
     ///
-    /// [`f64`]: enum.Value.html#variant.I64
+    /// [`f64`]: enum.Value.html#variant.F64
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`error`]: enum.TableError.html
+    /// [`i64`]: enum.Value.html#variant.I64
     pub fn get_f64<K: AsRef<str>>(&self, key: K) -> Result<f64, TableError> {
         self.get(key)
     }
@@ -230,16 +221,16 @@ impl<'lua> LuaTable<'lua> {
     /// `path` is an iterator over consecutively nested [`config keys`] - either (non-empty) string [`table keys`],
     /// or (`0`-based) [`array indices`].
     /// All keys except the last one must correspond to a [`table`](enum.Value.html#variant.Table) or an [`array`] value.
-    /// The last key must correspond to an [`i64`] / [`f64`] [`value`].
+    /// The last key must correspond to an [`f64`] / [`i64`] [`value`].
     ///
     /// [`f64`]: enum.Value.html#variant.F64
-    /// [`i64`]: enum.Value.html#variant.I64
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
     /// [`config keys`]: enum.ConfigKey.html
     /// [`table keys`]: enum.ConfigKey.html#variant.Table
     /// [`array indices`]: enum.ConfigKey.html#variant.Array
     /// [`array`]: struct.DynArray.html
+    /// [`i64`]: enum.Value.html#variant.I64
     pub fn get_f64_path<'k, K, P>(&self, path: P) -> Result<f64, GetPathError>
     where
         K: Borrow<ConfigKey<'k>>,
@@ -250,7 +241,7 @@ impl<'lua> LuaTable<'lua> {
 
     /// Tries to get a [`string`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`string`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`string`].
     ///
     /// [`string`]: enum.Value.html#variant.String
     /// [`value`]: type.LuaConfigValue.html
@@ -284,7 +275,7 @@ impl<'lua> LuaTable<'lua> {
 
     /// Tries to get an [`array`] [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not an [`array`].
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not an [`array`].
     ///
     /// [`array`]: enum.Value.html#variant.Array
     /// [`value`]: type.LuaConfigValue.html
@@ -317,7 +308,7 @@ impl<'lua> LuaTable<'lua> {
 
     /// Tries to get a [`table`](enum.Value.html#variant.Table) [`value`] in the [`table`] with the (non-empty) string `key`.
     ///
-    /// Returns an [`error`] if the `key` is empty, if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
+    /// Returns an [`error`] if the [`table`] does not contain the `key` or if value is not a [`table`](enum.Value.html#variant.Table).
     ///
     /// [`value`]: type.LuaConfigValue.html
     /// [`table`]: struct.LuaTable.html
@@ -356,19 +347,26 @@ impl<'lua> LuaTable<'lua> {
         LuaTableIter(self.0.clone().pairs())
     }
 
-    /// If [`value`] is `Some`, inserts or changes the value at (non-empty) string `key`.
+    /// Inserts or changes the [`value`] at (non-empty) string `key`.
+    /// Returns `true` if the [`value`] at `key` already existed and was modified.
+    /// Returns `false` if the [`value`] at `key` did not exist and was added.
     ///
-    /// If [`value`] is `None`, tries to remove the value at `key`.
-    /// Returns an [`error`] if the `key` does not exist in this case.
-    ///
-    /// [`value`]: enum.Value.html
-    /// [`error`]: enum.TableError.html
-    pub fn set<'s, K, V>(&mut self, key: K, value: V) -> Result<(), TableError>
+    /// [`value`]: type.LuaConfigValue.html
+    pub fn set<'s, K, V>(&mut self, key: K, value: V) -> bool
     where
-        K: AsRef<str>,
-        V: Into<Option<Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>>>,
+        K: AsRef<NonEmptyStr>,
+        V: Into<Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>>,
     {
         self.set_impl(key.as_ref(), value.into())
+    }
+
+    /// Tries to remove the [`value`] at (non-empty) string `key`.
+    /// Returns the now-removed [`value`] at `key` if it existed,
+    /// otherwise returns `None`.
+    ///
+    /// [`value`]: type.LuaConfigValue.html
+    pub fn remove<K: AsRef<str>>(&mut self, key: K) -> Option<LuaConfigValue<'lua>> {
+        self.remove_impl(key.as_ref().try_into().ok()?)
     }
 
     pub(super) fn from_valid_table(table: rlua::Table<'lua>) -> Self {
@@ -379,17 +377,20 @@ impl<'lua> LuaTable<'lua> {
         get_table_len(&self.0)
     }
 
-    pub(crate) fn get_impl(&self, key: &NonEmptyStr) -> Result<LuaConfigValue<'lua>, TableError> {
-        use TableError::*;
+    pub(crate) fn get_impl(&self, key: &NonEmptyStr) -> Option<LuaConfigValue<'lua>> {
+        let value: rlua::Value = self.0.raw_get(key.as_str()).ok()?;
 
-        let value: rlua::Value = self.0.raw_get(key.as_str()).map_err(|_| KeyDoesNotExist)?;
-
-        value_from_lua_value(value).map_err(|err| match err {
-            ValueFromLuaValueError::KeyDoesNotExist => KeyDoesNotExist,
-            ValueFromLuaValueError::InvalidValueType(_) => {
-                debug_unreachable!("invalid type values may not exist in a valid Lua config table")
-            }
-        })
+        match value_from_lua_value(value) {
+            Err(err) => match err {
+                ValueFromLuaValueError::KeyDoesNotExist => None,
+                ValueFromLuaValueError::InvalidValueType(_) => {
+                    debug_unreachable!(
+                        "invalid type values may not exist in a valid Lua config table"
+                    )
+                }
+            },
+            Ok(value) => Some(value),
+        }
     }
 
     /// The caller guarantees `key` and `value` are valid.
@@ -412,37 +413,34 @@ impl<'lua> LuaTable<'lua> {
         );
     }
 
-    fn set_impl<'s>(
+    fn set_impl(
         &mut self,
-        key: &str,
-        value: Option<Value<&'s str, LuaArray<'lua>, LuaTable<'lua>>>,
-    ) -> Result<(), TableError> {
-        use TableError::*;
-
-        if key.is_empty() {
-            return Err(EmptyKey);
-        }
-
+        key: &NonEmptyStr,
+        value: Value<&str, LuaArray<'lua>, LuaTable<'lua>>,
+    ) -> bool {
         let contains_key = self.contains_key(key);
 
         // Add or modify a value - always succeeds.
-        if let Some(value) = value {
-            Self::set_table_value(&self.0, key, value);
+        Self::set_table_value(&self.0, key, value);
 
-            // Change table length on value added.
-            if !contains_key {
-                set_table_len(&self.0, get_table_len(&self.0) + 1);
-            }
+        // Change table length on value added.
+        if !contains_key {
+            set_table_len(&self.0, get_table_len(&self.0) + 1);
+        }
 
-            Ok(())
+        contains_key
+    }
 
-        // (Try to) remove a value.
-        // Succeeds if key existed.
-        } else if contains_key {
-            // Must succeed.
+    fn remove_impl(&mut self, key: &NonEmptyStr) -> Option<LuaConfigValue<'lua>> {
+        let value: rlua::Value = unwrap_unchecked(
+            self.0.raw_get(key.as_str()),
+            "failed to get a value from the Lua table",
+        );
+
+        if let Ok(value) = value_from_lua_value(value) {
             unwrap_unchecked(
-                self.0.raw_set(key, rlua::Value::Nil),
-                "failed to set a value in the Lua table",
+                self.0.raw_set(key.as_str(), rlua::Value::Nil),
+                "failed to remove a value from the Lua table",
             );
 
             // Change table length on value removed.
@@ -450,16 +448,16 @@ impl<'lua> LuaTable<'lua> {
             debug_assert!(len > 0);
             set_table_len(&self.0, len - 1);
 
-            Ok(())
+            Some(value)
 
-        // Else tried to remove a non-existant key.
+        // Else the value was `Nil`, tried to remove a non-existant key.
         } else {
-            Err(KeyDoesNotExist)
+            None
         }
     }
 
-    fn contains_key(&self, key: &str) -> bool {
-        if let Ok(value) = self.0.raw_get::<_, rlua::Value<'_>>(key) {
+    fn contains_key(&self, key: &NonEmptyStr) -> bool {
+        if let Ok(value) = self.0.raw_get::<_, rlua::Value<'_>>(key.as_str()) {
             !matches!(value, rlua::Value::Nil)
         } else {
             false
@@ -497,7 +495,7 @@ impl<'lua> LuaTable<'lua> {
             write!(w, ",")?;
 
             if is_array_or_table {
-                write!(w, " -- {}", key.as_ref())?;
+                write!(w, " -- {}", key)?;
             }
 
             writeln!(w)?;
@@ -669,7 +667,7 @@ impl<'lua> Display for LuaTable<'lua> {
 mod tests {
     #![allow(non_snake_case)]
 
-    use crate::*;
+    use {crate::*, ministr_macro::nestr};
 
     #[test]
     fn len_empty_clear() {
@@ -681,12 +679,12 @@ mod tests {
             assert_eq!(table.len(), 0);
             assert!(table.is_empty());
 
-            table.set("foo", Some(true.into())).unwrap();
+            assert!(!table.set(nestr!("foo"), true));
 
             assert_eq!(table.len(), 1);
             assert!(!table.is_empty());
 
-            table.set("bar", Some(7.into())).unwrap();
+            assert!(!table.set(nestr!("bar"), 7));
 
             assert_eq!(table.len(), 2);
             assert!(!table.is_empty());
@@ -707,7 +705,7 @@ mod tests {
 
             assert!(!table.contains("foo"));
 
-            table.set("foo", Some(true.into())).unwrap();
+            assert!(!table.set(nestr!("foo"), true));
 
             assert!(table.contains("foo"));
 
@@ -718,38 +716,14 @@ mod tests {
     }
 
     #[test]
-    fn LuaTableError_EmptyKey() {
-        let lua = rlua::Lua::new();
-
-        lua.context(|lua| {
-            let mut table = LuaTable::new(lua);
-
-            assert_eq!(table.get_val("").err().unwrap(), TableError::EmptyKey);
-            assert_eq!(table.get_bool("").err().unwrap(), TableError::EmptyKey);
-            assert_eq!(table.get_i64("").err().unwrap(), TableError::EmptyKey);
-            assert_eq!(table.get_f64("").err().unwrap(), TableError::EmptyKey);
-            assert_eq!(table.get_string("").err().unwrap(), TableError::EmptyKey);
-            assert_eq!(table.get_table("").err().unwrap(), TableError::EmptyKey);
-            assert_eq!(table.get_array("").err().unwrap(), TableError::EmptyKey);
-
-            assert_eq!(
-                table.set("", Some(true.into())).err().unwrap(),
-                TableError::EmptyKey
-            );
-        });
-    }
-
-    #[test]
     fn LuaTableError_KeyDoesNotExist() {
         let lua = rlua::Lua::new();
 
         lua.context(|lua| {
             let mut table = LuaTable::new(lua);
 
-            assert_eq!(
-                table.get_val("foo").err().unwrap(),
-                TableError::KeyDoesNotExist
-            );
+            assert!(table.get_val("").is_none());
+            assert!(table.get_val("foo").is_none());
             assert_eq!(
                 table.get_bool("foo").err().unwrap(),
                 TableError::KeyDoesNotExist
@@ -775,16 +749,16 @@ mod tests {
                 TableError::KeyDoesNotExist
             );
 
-            assert_eq!(
-                table.set("foo", None).err().unwrap(),
-                TableError::KeyDoesNotExist
-            );
+            assert!(table.remove("foo").is_none());
 
             // But this works.
 
-            table.set("foo", Some(true.into())).unwrap();
+            assert!(!table.set(nestr!("foo"), true));
 
             assert_eq!(table.get_val("foo").unwrap().bool().unwrap(), true);
+            assert_eq!(table.get_bool("foo").unwrap(), true);
+            let val: bool = table.get("foo").unwrap();
+            assert_eq!(val, true);
         });
     }
 
@@ -795,7 +769,7 @@ mod tests {
         lua.context(|lua| {
             let mut table = LuaTable::new(lua);
 
-            table.set("foo", Some(true.into())).unwrap();
+            assert!(!table.set(nestr!("foo"), true));
 
             assert_eq!(
                 table.get_i64("foo").err().unwrap(),
@@ -849,7 +823,7 @@ mod tests {
             let val: bool = table.get("foo").unwrap();
             assert_eq!(val, true);
 
-            table.set("bar", Some(3.14.into())).unwrap();
+            assert!(!table.set(nestr!("bar"), 3.14));
 
             assert_eq!(table.get_i64("bar").unwrap(), 3);
             let val: i64 = table.get("bar").unwrap();
@@ -859,7 +833,7 @@ mod tests {
             let val: f64 = table.get("bar").unwrap();
             assert!(cmp_f64(val, 3.14));
 
-            table.set("baz", Some((-7).into())).unwrap();
+            assert!(!table.set(nestr!("baz"), -7));
 
             assert_eq!(table.get_i64("baz").unwrap(), -7);
             let val: i64 = table.get("baz").unwrap();
@@ -883,7 +857,7 @@ mod tests {
 
             // Add a value.
             assert!(!table.contains("bool"));
-            table.set("bool", Some(true.into())).unwrap();
+            assert!(!table.set(nestr!("bool"), true));
             assert_eq!(table.len(), 1);
             assert!(!table.is_empty());
             assert!(table.contains("bool"));
@@ -891,28 +865,31 @@ mod tests {
 
             // Add a couple more.
             assert!(!table.contains("i64"));
-            table.set("i64", Some(7.into())).unwrap();
+            assert!(!table.set(nestr!("i64"), 7));
             assert_eq!(table.len(), 2);
             assert!(!table.is_empty());
             assert!(table.contains("i64"));
             assert_eq!(table.get_i64("i64").unwrap(), 7);
 
             assert!(!table.contains("string"));
-            table.set("string", Some("foo".into())).unwrap();
+            assert!(!table.set(nestr!("string"), "foo"));
             assert_eq!(table.len(), 3);
             assert!(!table.is_empty());
             assert!(table.contains("string"));
             assert_eq!(table.get_string("string").unwrap().as_ref(), "foo");
 
             // Change a value.
-            table.set("string", Some("bar".into())).unwrap();
+            assert!(table.set(nestr!("string"), "bar"));
             assert_eq!(table.len(), 3);
             assert!(!table.is_empty());
             assert!(table.contains("string"));
             assert_eq!(table.get_string("string").unwrap().as_ref(), "bar");
 
             // Remove a value.
-            table.set("bool", None).unwrap();
+            assert!(matches!(
+                table.remove(nestr!("bool")).unwrap(),
+                LuaConfigValue::Bool(true)
+            ));
             assert_eq!(table.len(), 2);
             assert!(!table.is_empty());
             assert!(!table.contains("bool"));
@@ -923,18 +900,18 @@ mod tests {
             assert!(nested_table.is_empty());
 
             assert!(!nested_table.contains("nested_bool"));
-            nested_table.set("nested_bool", Some(false.into())).unwrap();
+            assert!(!nested_table.set(nestr!("nested_bool"), false));
             assert!(nested_table.contains("nested_bool"));
 
             assert!(!nested_table.contains("nested_int"));
-            nested_table.set("nested_int", Some((-9).into())).unwrap();
+            assert!(!nested_table.set(nestr!("nested_int"), -9));
             assert!(nested_table.contains("nested_int"));
 
             assert_eq!(nested_table.len(), 2);
             assert!(!nested_table.is_empty());
 
             assert!(!table.contains("table"));
-            table.set("table", Some(nested_table.into())).unwrap();
+            assert!(!table.set(nestr!("table"), nested_table));
             assert_eq!(table.len(), 3);
             assert!(!table.is_empty());
             assert!(table.contains("table"));
@@ -994,7 +971,7 @@ mod tests {
             assert!(!nested_array.is_empty());
 
             assert!(!table.contains("array"));
-            table.set("array", Value::Array(nested_array)).unwrap();
+            assert!(!table.set(nestr!("array"), nested_array));
             assert_eq!(table.len(), 4);
             assert!(!table.is_empty());
             assert!(table.contains("array"));

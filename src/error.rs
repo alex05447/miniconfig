@@ -11,11 +11,7 @@ use {
 /// [`table`]: enum.Value.html#variant.Table
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TableError {
-    /// Provided [`table`] key is empty.
-    ///
-    /// [`table`]: enum.Value.html#variant.Table
-    EmptyKey,
-    /// Provided key does not exist in the [`table`].
+    /// Provided key does not exist in the [`table`], or is empty.
     ///
     /// [`table`]: enum.Value.html#variant.Table
     KeyDoesNotExist,
@@ -34,7 +30,6 @@ impl Display for TableError {
         use TableError::*;
 
         match self {
-            EmptyKey => "provided table key is empty".fmt(f),
             KeyDoesNotExist => "provided key does not exist in the table".fmt(f),
             IncorrectValueType(actual_type) => {
                 write!(
@@ -96,14 +91,7 @@ impl Display for ArrayError {
 /// [`array`]: enum.Value.html#variant.Array
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum GetPathError {
-    /// One of the provided [`table string keys`] is empty.
-    /// Contains the path to the empty key, or an empty path if the empty key is in the root [`table`] / [`array`].
-    ///
-    /// [`table string keys`]: enum.ConfigKey.html#variant.Table
-    /// [`table`]: enum.Value.html#variant.Table
-    /// [`array`]: enum.Value.html#variant.Array
-    EmptyKey(ConfigPath),
-    /// One of the [`table string keys`] does not exist in the [`table`].
+    /// One of the [`table string keys`] does not exist in the [`table`], or is empty.
     /// Contains the path to the invalid key, or an empty path for the root [`table`]
     ///
     /// [`table string keys`]: enum.ConfigKey.html#variant.Table
@@ -167,7 +155,6 @@ impl GetPathError {
         let key = OwnedConfigKey::Table(key.into());
 
         match &mut self {
-            EmptyKey(path) => path.0.push(key),
             KeyDoesNotExist(path) => path.0.push(key),
             ValueNotAnArray { path, .. } => path.0.push(key),
             ValueNotATable { path, .. } => path.0.push(key),
@@ -185,7 +172,6 @@ impl GetPathError {
         let index = OwnedConfigKey::Array(index);
 
         match &mut self {
-            EmptyKey(path) => path.0.push(index),
             KeyDoesNotExist(path) => path.0.push(index),
             ValueNotAnArray { path, .. } => path.0.push(index),
             ValueNotATable { path, .. } => path.0.push(index),
@@ -204,7 +190,6 @@ impl GetPathError {
         use GetPathError::*;
 
         match &mut self {
-            EmptyKey(path) => path.0.reverse(),
             KeyDoesNotExist(path) => path.0.reverse(),
             ValueNotAnArray { path, .. } => path.0.reverse(),
             ValueNotATable { path, .. } => path.0.reverse(),
@@ -223,11 +208,6 @@ impl<'a> Display for GetPathError {
         use GetPathError::*;
 
         match self {
-            EmptyKey(path) => write!(
-                f,
-                "one of the provided table string keys in {} is empty",
-                path
-            ),
             KeyDoesNotExist(path) => write!(f, "key {} does not exist in the table", path),
             IndexOutOfBounds { path, len } => write!(
                 f,

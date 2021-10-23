@@ -191,11 +191,10 @@ impl DynConfigIniConfig {
 
 #[cfg(feature = "ini")]
 impl<'s> IniConfig<'s> for DynConfigIniConfig {
-    fn contains_key(&self, key: NonEmptyIniStr<'s, '_>) -> Result<bool, ()> {
+    fn contains_key(&self, key: NonEmptyIniStr<'s, '_>) -> Option<bool> {
         let table = self.current_section.as_ref().unwrap_or(&self.root);
         table
             .get_impl(key.as_ne_str())
-            .map_err(|_| ())
             .map(|val| val.table().is_some())
     }
 
@@ -204,19 +203,17 @@ impl<'s> IniConfig<'s> for DynConfigIniConfig {
 
         let key = key.as_ne_str();
 
-        if let Ok(already_existed) = match value {
-            IniValue::Bool(value) => table.set_impl(key, Some(Value::Bool(value))),
-            IniValue::I64(value) => table.set_impl(key, Some(Value::I64(value))),
-            IniValue::F64(value) => table.set_impl(key, Some(Value::F64(value))),
-            IniValue::String(value) => table.set_impl(key, Some(Value::String(value.into()))),
-        } {
-            debug_assert!(
-                overwrite == already_existed,
-                "overwrite flag mismatch when adding a value"
-            );
-        } else {
-            debug_assert!(false,);
-        }
+        let already_existed = match value {
+            IniValue::Bool(value) => table.set(key, value),
+            IniValue::I64(value) => table.set(key, value),
+            IniValue::F64(value) => table.set(key, value),
+            IniValue::String(value) => table.set(key, value.as_str()),
+        };
+
+        debug_assert!(
+            overwrite == already_existed,
+            "overwrite flag mismatch when adding a value"
+        );
     }
 
     fn start_section(&mut self, section: NonEmptyIniStr<'s, '_>, overwrite: bool) {
@@ -224,9 +221,9 @@ impl<'s> IniConfig<'s> for DynConfigIniConfig {
             |parent: &mut DynTable, current_section: &mut Option<DynTable>| {
                 // Overwrite the previous value / section with this key in the parent section.
                 if overwrite {
-                    let previous = parent.remove(section.as_ne_str());
+                    let already_existed = parent.remove(section.as_ne_str());
                     debug_assert!(
-                        previous.is_some(),
+                        already_existed.is_some(),
                         "overwrite flag mismatch when starting a section"
                     );
                     current_section.replace(DynTable::new());
@@ -235,7 +232,7 @@ impl<'s> IniConfig<'s> for DynConfigIniConfig {
                 } else {
                     // Previous value at this key was a section - continue it.
                     if let Some(previous) = parent
-                        .remove(section.as_ne_str())
+                        .remove_impl(section.as_ne_str())
                         .map(Value::table)
                         .flatten()
                     {
@@ -260,15 +257,12 @@ impl<'s> IniConfig<'s> for DynConfigIniConfig {
     fn end_section(&mut self, section: NonEmptyIniStr<'s, '_>) {
         if let Some(current_section) = self.current_section.take() {
             if let Some(mut parent_section) = self.section_stack.pop() {
-                let existed = parent_section
-                    .set_impl(section.as_ne_str(), Some(Value::Table(current_section)));
-                debug_assert_eq!(existed, Ok(false));
+                let already_existed = parent_section.set(section.as_ne_str(), current_section);
+                debug_assert!(!already_existed);
                 self.current_section.replace(parent_section);
             } else {
-                let existed = self
-                    .root
-                    .set_impl(section.as_ne_str(), Some(Value::Table(current_section)));
-                debug_assert_eq!(existed, Ok(false));
+                let already_existed = self.root.set(section.as_ne_str(), current_section);
+                debug_assert!(!already_existed);
             }
         } else {
             debug_assert!(
@@ -283,7 +277,10 @@ impl<'s> IniConfig<'s> for DynConfigIniConfig {
 
         if overwrite {
             let previous = table.remove(array.as_ne_str());
-            debug_assert!(previous.is_some());
+            debug_assert!(
+                previous.is_some(),
+                "overwrite flag mismatch when starting an array"
+            );
         }
 
         debug_assert!(
@@ -314,9 +311,8 @@ impl<'s> IniConfig<'s> for DynConfigIniConfig {
         if let Some(current_array) = self.current_array.take() {
             let root = &mut self.root;
             let table = self.current_section.as_mut().unwrap_or(root);
-
-            let existed = table.set_impl(array.as_ne_str(), Some(Value::Array(current_array)));
-            debug_assert_eq!(existed, Ok(false));
+            let existed = table.set(array.as_ne_str(), current_array);
+            debug_assert!(!existed);
         } else {
             debug_assert!(
                 false,
@@ -336,7 +332,7 @@ fn table_to_bin_config(
     let mut keys: Vec<_> = table.iter().map(|(key, _)| key).collect();
 
     // Sort the keys in alphabetical order.
-    keys.sort_by(|l, r| l.as_ref().cmp(r.as_ref()));
+    keys.sort();
 
     // Iterate the table using the sorted keys.
     for key in keys.into_iter() {
@@ -410,36 +406,6 @@ mod tests {
     use {crate::*, ministr_macro::nestr};
 
     #[test]
-    fn GetPathError_EmptyKey() {
-        let mut table = DynTable::new();
-
-        assert_eq!(
-            table.get_val_path(&["".into()]).err().unwrap(),
-            GetPathError::EmptyKey(ConfigPath::new())
-        );
-
-        let mut other_table = DynTable::new();
-        other_table.set("bar", Some(true.into())).unwrap();
-
-        table.set("foo", Some(other_table.into())).unwrap();
-
-        assert_eq!(
-            table
-                .get_val_path(&["foo".into(), "".into()])
-                .err()
-                .unwrap(),
-            GetPathError::EmptyKey(vec![nestr!("foo").into()].into())
-        );
-
-        // But this works.
-
-        assert_eq!(
-            table.get_bool_path(&["foo".into(), "bar".into()]).unwrap(),
-            true,
-        );
-    }
-
-    #[test]
     fn GetPathError_PathDoesNotExist() {
         let mut table = DynTable::new();
 
@@ -447,11 +413,22 @@ mod tests {
         let mut bar = DynArray::new();
         let mut baz = DynTable::new();
 
-        baz.set("bob", Some(true.into())).unwrap();
+        assert!(!baz.set(nestr!("bob"), true));
         bar.push(baz.into()).unwrap();
-        foo.set("bar", Some(bar.into())).unwrap();
-        table.set("foo", Some(foo.into())).unwrap();
+        assert!(!foo.set(nestr!("bar"), bar));
+        assert!(!table.set(nestr!("foo"), foo));
 
+        assert_eq!(
+            table.get_val_path(&["".into()]).err().unwrap(),
+            GetPathError::KeyDoesNotExist(ConfigPath::new())
+        );
+        assert_eq!(
+            table
+                .get_val_path(&["foo".into(), "".into()])
+                .err()
+                .unwrap(),
+            GetPathError::KeyDoesNotExist(vec![nestr!("foo").into()].into())
+        );
         assert_eq!(
             table
                 .get_val_path(&["foo".into(), "baz".into()])
@@ -493,7 +470,7 @@ mod tests {
         let mut array = DynArray::new();
         array.push(true.into()).unwrap();
 
-        table.set("array", Some(array.into())).unwrap();
+        assert!(!table.set(nestr!("array"), array));
 
         assert_eq!(
             table
@@ -519,9 +496,9 @@ mod tests {
         let mut table = DynTable::new();
 
         let mut other_table = DynTable::new();
-        other_table.set("array", Some(true.into())).unwrap();
+        assert!(!other_table.set(nestr!("array"), true));
 
-        table.set("table", Some(other_table.into())).unwrap();
+        assert!(!table.set(nestr!("table"), other_table));
 
         assert_eq!(
             table
@@ -551,7 +528,7 @@ mod tests {
         let mut array = DynArray::new();
         array.push(true.into()).unwrap();
 
-        table.set("array", Some(array.into())).unwrap();
+        assert!(!table.set(nestr!("array"), array));
 
         assert_eq!(
             table
@@ -577,10 +554,10 @@ mod tests {
         let mut table = DynTable::new();
 
         let mut other_table = DynTable::new();
-        other_table.set("foo", Some(true.into())).unwrap();
-        other_table.set("bar", Some(3.14.into())).unwrap();
+        assert!(!other_table.set(nestr!("foo"), true));
+        assert!(!other_table.set(nestr!("bar"), 3.14));
 
-        table.set("table", Some(other_table.into())).unwrap();
+        assert!(!table.set(nestr!("table"), other_table));
 
         assert_eq!(
             table
@@ -661,26 +638,18 @@ mod tests {
         array_value.push(Value::I64(12)).unwrap();
         array_value.push(Value::F64(78.9)).unwrap();
 
-        root.set("array_value", Value::Array(array_value)).unwrap();
-
-        root.set("bool_value", Value::Bool(true)).unwrap();
-
-        root.set("float_value", Value::F64(3.14)).unwrap();
-
-        root.set("int_value", Value::I64(7)).unwrap();
-
-        root.set("string_value", Value::String("foo".into()))
-            .unwrap();
+        assert!(!root.set(nestr!("array_value"), array_value));
+        assert!(!root.set(nestr!("bool_value"), true));
+        assert!(!root.set(nestr!("float_value"), 3.14));
+        assert!(!root.set(nestr!("int_value"), 7));
+        assert!(!root.set(nestr!("string_value"), "foo"));
 
         let mut table_value = DynTable::new();
 
-        table_value.set("bar", Value::I64(2020)).unwrap();
-        table_value
-            .set("baz", Value::String("hello".into()))
-            .unwrap();
-        table_value.set("foo", Value::Bool(false)).unwrap();
-
-        root.set("table_value", Value::Table(table_value)).unwrap();
+        assert!(!table_value.set(nestr!("bar"), 2020));
+        assert!(!table_value.set(nestr!("baz"), "hello"));
+        assert!(!table_value.set(nestr!("foo"), false));
+        assert!(!root.set(nestr!("table_value"), table_value));
 
         // Serialize to binary config.
         let data = config.to_bin_config().unwrap();
@@ -750,41 +719,32 @@ string = "bar""#;
         array.push(Value::String("bar".into())).unwrap();
         array.push(Value::String("baz".into())).unwrap();
 
-        config.root_mut().set("array", Value::Array(array)).unwrap();
+        assert!(!config.root_mut().set(nestr!("array"), array));
 
-        config.root_mut().set("bool", Value::Bool(true)).unwrap();
-        config.root_mut().set("float", Value::F64(3.14)).unwrap();
-        config.root_mut().set("int", Value::I64(7)).unwrap();
-        config
-            .root_mut()
-            .set("string", Value::String("foo".into()))
-            .unwrap();
+        assert!(!config.root_mut().set(nestr!("bool"), true));
+        assert!(!config.root_mut().set(nestr!("float"), 3.14));
+        assert!(!config.root_mut().set(nestr!("int"), 7));
+        assert!(!config.root_mut().set(nestr!("string"), "foo"));
 
         let mut other_section = DynTable::new();
 
-        other_section.set("other_bool", Value::Bool(true)).unwrap();
-        other_section.set("other_float", Value::F64(3.14)).unwrap();
-        other_section.set("other_int", Value::I64(7)).unwrap();
-        other_section
-            .set("other_string", Value::String("foo".into()))
-            .unwrap();
+        assert!(!other_section.set(nestr!("other_bool"), true));
+        assert!(!other_section.set(nestr!("other_float"), 3.14));
+        assert!(!other_section.set(nestr!("other_int"), 7));
+        assert!(!other_section.set(nestr!("other_string"), "foo"));
 
-        config
+        assert!(!config
             .root_mut()
-            .set("other_section", Value::Table(other_section))
-            .unwrap();
+            .set(nestr!("other_section"), other_section));
 
         let mut section = DynTable::new();
 
-        section.set("bool", Value::Bool(false)).unwrap();
-        section.set("float", Value::F64(7.62)).unwrap();
-        section.set("int", Value::I64(9)).unwrap();
-        section.set("string", Value::String("bar".into())).unwrap();
+        assert!(!section.set(nestr!("bool"), false));
+        assert!(!section.set(nestr!("float"), 7.62));
+        assert!(!section.set(nestr!("int"), 9));
+        assert!(!section.set(nestr!("string"), "bar"));
 
-        config
-            .root_mut()
-            .set("section", Value::Table(section))
-            .unwrap();
+        assert!(!config.root_mut().set(nestr!("section"), section));
 
         let string = config
             .to_ini_string_opts(ToIniStringOptions {
